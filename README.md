@@ -9,7 +9,7 @@ UnrealModFramework is a UE 5.6 development project for a portable game-side mod 
 | Path | Purpose |
 | --- | --- |
 | `UnrealModFrameworkDev.uproject` | Development host project |
-| `Plugins/ModRuntime/` | Game-side source plugin with Runtime and Editor modules |
+| `Plugins/ModRuntime/` | Game-side source plugin; `Source/Game/` and `Source/Editor/` group its modules by target |
 | `SourcePlugins/ModDevelopmentEditor/` | Independently built authoring plugin |
 | `Docs/CodingStandards/` | Project coding and contribution standards |
 | `.circleci/config.yml` | UE 5.6.1 Linux build configuration |

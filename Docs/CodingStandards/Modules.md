@@ -8,12 +8,14 @@ The repository contains a development host project and two framework plugins. Ea
 
 | Responsibility | Location | UE module type |
 | --- | --- | --- |
-| Game-side mod services | `Plugins/ModRuntime/Source/ModRuntime/` | `Runtime` |
-| Host integration and PIE checks | `Plugins/ModRuntime/Source/ModRuntimeEditor/` | `Editor` |
+| Game-side mod services | `Plugins/ModRuntime/Source/Game/ModRuntime/` | `Runtime` |
+| Host integration and PIE checks | `Plugins/ModRuntime/Source/Editor/ModRuntimeEditor/` | `Editor` |
 | Independent authoring tools | `SourcePlugins/ModDevelopmentEditor/Source/ModDevelopmentEditor/` | `Editor` |
 | Development host | `Source/UnrealModFrameworkDev/` | `Runtime` |
 
 `ModRuntime` must compile in Game and Editor targets. It cannot depend on editor modules, a particular host game's code, a content-distribution provider, or the authoring editor. `ModRuntimeEditor` may depend on `ModRuntime`, never the reverse. The host game may depend on the Runtime plugin to provide explicit extension points.
+
+`Game` and `Editor` are directories that group modules inside the single `ModRuntime` plugin. Add future modules under the corresponding directory and declare each module in `ModRuntime.uplugin`; the directory names are not UE modules.
 
 `ModDevelopmentEditor` is built independently with UAT `BuildPlugin`. It must not statically depend on the project-side `ModRuntime` module or a host game's modules. Shared package schemas and SDK contracts belong in versioned `Shared/ModProtocol` definitions when introduced; both plugins compile against those definitions separately. Runtime preview across processes uses a versioned bridge or IPC rather than a UBT dependency on the game project.
 
