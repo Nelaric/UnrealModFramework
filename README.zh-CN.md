@@ -9,7 +9,7 @@ UnrealModFramework 是以 UE 5.6 为开发基线的工程，目标是提供可�
 | 路径 | 用途 |
 | --- | --- |
 | `UnrealModFrameworkDev.uproject` | 开发宿主工程 |
-| `Plugins/ModRuntime/` | 包含 Runtime 与 Editor 模块的游戏侧源码插件 |
+| `Plugins/ModRuntime/` | 游戏侧源码插件；`Source/Game/` 与 `Source/Editor/` 按目标归类模块 |
 | `SourcePlugins/ModDevelopmentEditor/` | 独立构建的模组制作插件 |
 | `Docs/CodingStandards/` | 项目编码与贡献规范 |
 | `.circleci/config.yml` | UE 5.6.1 Linux 构建配置 |

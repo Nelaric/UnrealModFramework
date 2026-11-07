@@ -8,12 +8,14 @@
 
 | 职责 | 位置 | UE 模块类型 |
 | --- | --- | --- |
-| 游戏侧模组服务 | `Plugins/ModRuntime/Source/ModRuntime/` | `Runtime` |
-| 宿主接入与 PIE 检查 | `Plugins/ModRuntime/Source/ModRuntimeEditor/` | `Editor` |
+| 游戏侧模组服务 | `Plugins/ModRuntime/Source/Game/ModRuntime/` | `Runtime` |
+| 宿主接入与 PIE 检查 | `Plugins/ModRuntime/Source/Editor/ModRuntimeEditor/` | `Editor` |
 | 独立的制作工具 | `SourcePlugins/ModDevelopmentEditor/Source/ModDevelopmentEditor/` | `Editor` |
 | 开发宿主 | `Source/UnrealModFrameworkDev/` | `Runtime` |
 
 `ModRuntime` 必须在 Game 和 Editor Target 中编译。它不得依赖编辑器模块、某个宿主游戏的代码、特定内容分发服务或制作编辑器。`ModRuntimeEditor` 可以依赖 `ModRuntime`，不能反向依赖。宿主游戏可以依赖 Runtime 插件，并显式提供扩展点。
+
+`Game` 和 `Editor` 是单个 `ModRuntime` 插件内用于归类模块的目录。后续模块放入对应目录，并逐个在 `ModRuntime.uplugin` 中声明；目录名本身不是 UE 模块。
 
 `ModDevelopmentEditor` 通过 UAT `BuildPlugin` 独立构建。它不得静态依赖项目侧的 `ModRuntime` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
 
