@@ -1,0 +1,27 @@
+# Copyright (c) 2026 Nelaric Contributors
+# Git stores normalized text; checked-out code and prose use CRLF.
+*.md text eol=crlf
+*.h text eol=crlf
+*.hpp text eol=crlf
+*.cpp text eol=crlf
+*.cc text eol=crlf
+*.cxx text eol=crlf
+*.cs text eol=crlf
+LICENSE text eol=crlf
+
+# Tool and script files need LF without a UTF-8 BOM.
+.gitattributes text eol=lf
+.gitignore text eol=lf
+.editorconfig text eol=lf
+.clang-format text eol=lf
+.csharpierrc text eol=lf
+Doxyfile text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=lf
+*.ini text eol=lf
+*.uproject text eol=lf
+*.uplugin text eol=lf

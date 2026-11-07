@@ -1,0 +1,68 @@
+# Copyright (c) 2026 Nelaric Contributors
+name: Quality
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  naming:
+    name: PR and commit naming
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check PR title, branch, and commits
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python Scripts/check_git_naming.py
+
+  format:
+    name: Format and text
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install pinned formatters
+        run: |
+          python -m pip install clang-format==18.1.8
+          dotnet tool restore
+      - name: Check text conventions
+        run: python Scripts/check_text.py
+      - name: Check C++ and build-script format
+        run: python Scripts/check_format.py
+
+  api-docs:
+    name: API documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Doxygen 1.18.0
+        run: |
+          mkdir -p "$RUNNER_TEMP/doxygen"
+          curl -fsSL https://github.com/doxygen/doxygen/releases/download/Release_1_18_0/doxygen-1.18.0.linux.bin.tar.gz | tar -xz -C "$RUNNER_TEMP/doxygen"
+          doxygen_bin="$(find "$RUNNER_TEMP/doxygen" -type f -name doxygen | head -n 1)"
+          test -n "$doxygen_bin"
+          echo "$(dirname "$doxygen_bin")" >> "$GITHUB_PATH"
+      - name: Check public header comments
+        run: python Scripts/check_public_docs.py
+      - name: Check Doxygen comment style
+        run: python Scripts/check_doxygen_style.py
+      - name: Build API documentation
+        run: python Scripts/run_doxygen.py

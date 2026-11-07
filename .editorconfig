@@ -1,0 +1,27 @@
+# Copyright (c) 2026 Nelaric Contributors
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{md,h,hpp,cpp,cc,cxx,cs}]
+charset = utf-8-bom
+end_of_line = crlf
+
+[*.{h,hpp,cpp,cc,cxx,cs}]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+[*.{py,json,yml,yaml,ini,uproject,uplugin}]
+end_of_line = lf
+
+[Doxyfile]
+end_of_line = lf
+
+[LICENSE]
+charset = utf-8-bom
+end_of_line = crlf

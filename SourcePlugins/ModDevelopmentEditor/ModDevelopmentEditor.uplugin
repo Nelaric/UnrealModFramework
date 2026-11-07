@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "模组开发编辑器",
+	"Description": "Independent mod authoring editor for UnrealModFramework.",
+	"Category": "Mod Framework",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"EnabledByDefault": false,
+	"Modules": [
+		{
+			"Name": "ModDevelopmentEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

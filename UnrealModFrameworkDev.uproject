@@ -1,0 +1,19 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.6",
+	"Category": "Development",
+	"Description": "Development host project for UnrealModFramework.",
+	"Modules": [
+		{
+			"Name": "UnrealModFrameworkDev",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "ModRuntime",
+			"Enabled": true
+		}
+	]
+}
