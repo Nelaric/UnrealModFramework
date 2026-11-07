@@ -12,8 +12,9 @@ UnrealModFramework 是以 UE 5.6 为开发基线的工程，目标是提供可�
 | `Plugins/ModRuntime/` | 包含 Runtime 与 Editor 模块的游戏侧源码插件 |
 | `SourcePlugins/ModDevelopmentEditor/` | 独立构建的模组制作插件 |
 | `Docs/CodingStandards/` | 项目编码与贡献规范 |
+| `.circleci/config.yml` | UE 5.6.1 Linux 构建配置 |
 | `Scripts/` | 本地质量检查 |
 
 `Binaries`、`Intermediate`、`Saved` 和 `Dist` 是生成产物，不进入 Git。制作插件从 `SourcePlugins` 下的描述文件通过 UAT `BuildPlugin` 构建；Windows 上应使用较短的临时 `-Package` 路径，成功后再将插件复制到发布目录。
 
-修改代码或构建文件前，请阅读[编码规范](Docs/CodingStandards/README.zh-CN.md)和[贡献指南](CONTRIBUTING.zh-CN.md)。
+修改代码或构建文件前，请阅读[编码规范](Docs/CodingStandards/README.zh-CN.md)、[贡献指南](CONTRIBUTING.zh-CN.md)和 [CircleCI 接入说明](Docs/CircleCI.zh-CN.md)。

@@ -12,4 +12,4 @@
 
 同时遵守 [Epic C++ 编码规范](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine)和[项目编码规范](Docs/CodingStandards/README.zh-CN.md)。项目规范规定版权声明、文本编码、格式化工具、公开 API 文档、测试及分支、提交和 PR 命名。审查前运行[相关本地检查](Docs/CodingStandards/BuildAndReview.zh-CN.md#本地检查)。改动影响 Unreal Target 时，报告 UE 5.6 Game 和 Editor 构建结果；未来添加 Server Target 后也报告相应构建。
 
-GitHub Actions 在 PR 中检查命名、文本、格式和 API 文档，目前不编译 UE Target。新增 Git LFS 跟踪规则或大型二进制依赖前，应先与维护者讨论存储和审查影响。
+GitHub Actions 在 PR 中检查命名、文本、格式和 API 文档。仓库接入后，[CircleCI 配置](Docs/CircleCI.zh-CN.md)会在 Linux 上构建 Game、Editor Target 和独立的制作插件。新增 Git LFS 跟踪规则或大型二进制依赖前，应先与维护者讨论存储和审查影响。

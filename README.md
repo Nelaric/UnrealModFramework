@@ -12,8 +12,9 @@ UnrealModFramework is a UE 5.6 development project for a portable game-side mod 
 | `Plugins/ModRuntime/` | Game-side source plugin with Runtime and Editor modules |
 | `SourcePlugins/ModDevelopmentEditor/` | Independently built authoring plugin |
 | `Docs/CodingStandards/` | Project coding and contribution standards |
+| `.circleci/config.yml` | UE 5.6.1 Linux build configuration |
 | `Scripts/` | Local quality checks |
 
 `Binaries`, `Intermediate`, `Saved`, and `Dist` are generated output and are excluded from Git. The authoring plugin builds with UAT `BuildPlugin` from its descriptor in `SourcePlugins`; use a short temporary `-Package` path on Windows and copy the resulting plugin into a release directory after the build.
 
-See the [coding standards](Docs/CodingStandards/README.md) and [contribution guide](CONTRIBUTING.md) before changing code or build files.
+See the [coding standards](Docs/CodingStandards/README.md), [contribution guide](CONTRIBUTING.md), and [CircleCI setup](Docs/CircleCI.md) before changing code or build files.

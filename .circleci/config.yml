@@ -1,0 +1,86 @@
+# Copyright (c) 2026 Nelaric Contributors
+version: 2.1
+
+commands:
+  pull_unreal_image:
+    steps:
+      - run:
+          name: Pull Unreal Engine 5.6.1 Linux image
+          no_output_timeout: 30m
+          command: |
+            set -euo pipefail
+            : "${GHCR_USERNAME:?Set GHCR_USERNAME in CircleCI project settings}"
+            : "${GHCR_TOKEN:?Set GHCR_TOKEN in CircleCI project settings}"
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+            docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1
+            docker logout ghcr.io
+  stage_project:
+    steps:
+      - run:
+          name: Prepare writable Unreal project
+          command: |
+            set -euo pipefail
+            project_dir="$(mktemp -d)"
+            cp -a . "$project_dir/UnrealModFramework"
+            chmod -R a+rwX "$project_dir"
+            printf 'export UE_PROJECT_DIR=%q\n' "$project_dir" >> "$BASH_ENV"
+  compile_target:
+    parameters:
+      target:
+        type: string
+    steps:
+      - run:
+          name: Compile << parameters.target >> for Linux
+          no_output_timeout: 30m
+          command: |
+            set -euo pipefail
+            : "${UE_PROJECT_DIR:?Project staging directory is missing}"
+            docker run --rm --network none \
+              --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
+              ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
+              /home/ue4/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh \
+              << parameters.target >> Linux Development \
+              -Project=/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject \
+              -WaitMutex -NoHotReload
+
+jobs:
+  build_game_linux:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: large
+    steps:
+      - checkout
+      - pull_unreal_image
+      - stage_project
+      - compile_target:
+          target: UnrealModFrameworkDev
+  build_editor_linux:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: large
+    steps:
+      - checkout
+      - pull_unreal_image
+      - stage_project
+      - compile_target:
+          target: UnrealModFrameworkDevEditor
+      - run:
+          name: Package ModDevelopmentEditor for Linux
+          no_output_timeout: 30m
+          command: |
+            set -euo pipefail
+            : "${UE_PROJECT_DIR:?Project staging directory is missing}"
+            docker run --rm --network none \
+              --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
+              ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
+              /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh \
+              BuildPlugin \
+              -Plugin=/workspace/UnrealModFramework/SourcePlugins/ModDevelopmentEditor/ModDevelopmentEditor.uplugin \
+              -Package=/workspace/Dist/ModDevelopmentEditor \
+              -TargetPlatforms=Linux
+
+workflows:
+  linux_build:
+    jobs:
+      - build_game_linux
+      - build_editor_linux
