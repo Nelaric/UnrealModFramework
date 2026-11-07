@@ -6,12 +6,11 @@ English | [简体中文](CircleCI.zh-CN.md)
 
 The repository's [CircleCI configuration](../.circleci/config.yml) defines two parallel UE 5.6.1 Linux jobs. `build_game_linux` compiles the `UnrealModFrameworkDev` Game target and its enabled `ModRuntime` plugin. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, including `ModRuntimeEditor`, then packages the independent `SourcePlugins/ModDevelopmentEditor` plugin with UAT `BuildPlugin` for Linux. The repository has no Server target or framework automation tests yet. The jobs validate builds; they do not publish packages.
 
-## Connect the repository
+## Project connection
 
-1. Grant the existing CircleCI GitHub App installation for the `Nelaric` organization access to `Nelaric/UnrealModFramework`.
-2. In CircleCI, create the `UnrealModFramework` project. Use the GitHub repository as both the configuration and checkout source, with `.circleci/config.yml` as the configuration path. Create a push trigger for branches in the source repository. Do not enable a fork PR trigger that exposes project credentials to untrusted code.
-3. In the CircleCI project's **Environment Variables** settings, set `GHCR_USERNAME` to a GitHub account linked to Epic Games and `GHCR_TOKEN` to its package-read token. The token must be able to pull `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1`. Keep both values out of Git. If the existing Nelaric CircleCI project uses credentials that meet these requirements, enter them again here; CircleCI does not reveal stored values.
-4. Validate the configuration with `circleci config validate`, trigger a pipeline from the project, and confirm both jobs pass. CircleCI's Linux machine executor needs Docker and a `large` resource class for these jobs.
+The CircleCI project uses the `github/Nelaric/UnrealModFramework` GitHub OAuth connection. Its configuration and checkout source are this repository, its configuration path is `.circleci/config.yml`, and its trigger runs on all pushes. `GHCR_USERNAME` and `GHCR_TOKEN` were imported from the existing Nelaric gameplay project into this project's **Environment Variables**. The token must be able to pull `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1`; keep both values out of Git. CircleCI's **Build forked pull requests** and **Pass secrets to builds from forked pull requests** settings are off.
+
+If the CircleCI project is recreated, select the repository's committed configuration on `main`, import the two GHCR variables from `nelaric-unreal-gameplay`, keep both fork settings off, and confirm that both jobs pass. Validate configuration changes with `circleci config validate` before pushing them. CircleCI's Linux machine executor needs Docker and a `large` resource class for these jobs.
 
 The push trigger gives feedback for branches in the source repository and for `main`. The GitHub Actions [quality workflow](../.github/workflows/quality.yml) continues to run on pull requests. Fork PR builds that require the private UE image need a separate trusted trigger design; project secrets must not be passed directly to fork jobs.
 
