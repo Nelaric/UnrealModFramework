@@ -18,3 +18,7 @@ UnrealModFramework is a UE 5.6 development project for a portable game-side mod 
 `Binaries`, `Intermediate`, `Saved`, and `Dist` are generated output and are excluded from Git. The authoring plugin builds with UAT `BuildPlugin` from its descriptor in `SourcePlugins`; use a short temporary `-Package` path on Windows and copy the resulting plugin into a release directory after the build.
 
 See the [coding standards](Docs/CodingStandards/README.md), [contribution guide](CONTRIBUTING.md), and [CircleCI setup](Docs/CircleCI.md) before changing code or build files.
+
+## License
+
+Project-authored material is licensed under the [MIT License](LICENSE) unless stated otherwise. Unreal Engine and third-party material retain their own terms; see [NOTICE.md](NOTICE.md).
