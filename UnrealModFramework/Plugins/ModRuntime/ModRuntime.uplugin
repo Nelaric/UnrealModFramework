@@ -11,17 +11,17 @@
 	"EnabledByDefault": false,
 	"Modules": [
 		{
-			"Name": "ModRuntime",
+			"Name": "Runtime",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "ModRuntimeEditor",
+			"Name": "RuntimeEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "ModBlueprintIntegration",
+			"Name": "BlueprintIntegration",
 			"Type": "Editor",
 			"LoadingPhase": "PostEngineInit"
 		}

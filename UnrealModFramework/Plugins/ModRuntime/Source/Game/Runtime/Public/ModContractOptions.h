@@ -41,7 +41,7 @@ public:
 	 * @param Kind Which contract field to read.
 	 * @return Configured identifiers, or an empty array if none exist.
 	 */
-	static MODRUNTIME_API TArray<FString> Load(EOptionKind Kind);
+	static RUNTIME_API TArray<FString> Load(EOptionKind Kind);
 
 	/** @brief Checks one identifier against the shared project choices.
 	 *
@@ -52,6 +52,6 @@ public:
 	 * @param Value Identifier to check.
 	 * @return Whether the identifier is configured for that field.
 	 */
-	static MODRUNTIME_API bool Contains(EOptionKind Kind, const FString& Value);
+	static RUNTIME_API bool Contains(EOptionKind Kind, const FString& Value);
 };
 } // namespace Mod::Contract

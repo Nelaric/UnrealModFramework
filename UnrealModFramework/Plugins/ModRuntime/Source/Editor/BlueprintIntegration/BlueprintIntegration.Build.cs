@@ -1,9 +1,9 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 using UnrealBuildTool;
 
-public class ModBlueprintIntegration : ModuleRules
+public class BlueprintIntegration : ModuleRules
 {
-	public ModBlueprintIntegration(ReadOnlyTargetRules Target)
+	public BlueprintIntegration(ReadOnlyTargetRules Target)
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
@@ -17,7 +17,7 @@ public class ModBlueprintIntegration : ModuleRules
 				"GraphEditor",
 				"Kismet",
 				"KismetCompiler",
-				"ModRuntime",
+				"Runtime",
 				"Slate",
 				"SlateCore",
 				"ToolWidgets",

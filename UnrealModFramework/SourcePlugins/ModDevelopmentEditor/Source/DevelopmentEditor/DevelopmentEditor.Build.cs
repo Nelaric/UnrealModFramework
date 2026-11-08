@@ -1,9 +1,9 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 using UnrealBuildTool;
 
-public class ModDevelopmentEditor : ModuleRules
+public class DevelopmentEditor : ModuleRules
 {
-	public ModDevelopmentEditor(ReadOnlyTargetRules Target)
+	public DevelopmentEditor(ReadOnlyTargetRules Target)
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

@@ -6,21 +6,23 @@
 
 仓库包含一个开发宿主工程和两个框架插件。每个模块只承担明确职责，仅声明实际使用的依赖，并将实现细节放入 `Private`。公开头文件是契约：它们须能够独立包含，且只有当公开头文件确实需要某依赖时，才将该依赖列为 `.Build.cs` 的公开依赖。禁止循环依赖。
 
-UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相对于该工程目录。
+UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `Runtime`、`RuntimeEditor` 和 `BlueprintIntegration` 模块；`ModDevelopmentEditor` 插件包含 `DevelopmentEditor` 模块。
 
 | 职责 | 位置 | UE 模块类型 |
 | --- | --- | --- |
-| 游戏侧模组服务 | `Plugins/ModRuntime/Source/Game/ModRuntime/` | `Runtime` |
-| 宿主接入与 PIE 检查 | `Plugins/ModRuntime/Source/Editor/ModRuntimeEditor/` | `Editor` |
-| Blueprint 接入 | `Plugins/ModRuntime/Source/Editor/ModBlueprintIntegration/` | `Editor` |
-| 独立的制作工具 | `SourcePlugins/ModDevelopmentEditor/Source/ModDevelopmentEditor/` | `Editor` |
+| 游戏侧模组服务 | `Plugins/ModRuntime/Source/Game/Runtime/` | `Runtime` |
+| 宿主接入与 PIE 检查 | `Plugins/ModRuntime/Source/Editor/RuntimeEditor/` | `Editor` |
+| Blueprint 接入 | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
+| 独立的制作工具 | `SourcePlugins/ModDevelopmentEditor/Source/DevelopmentEditor/` | `Editor` |
 | 开发宿主 | `Source/UnrealModFrameworkDev/` | `Runtime` |
 
-`ModRuntime` 必须在 Game 和 Editor Target 中编译。它不得依赖编辑器模块、某个宿主游戏的代码、特定内容分发服务或制作编辑器。`ModRuntimeEditor` 可以依赖 `ModRuntime`，不能反向依赖。宿主游戏可以依赖 Runtime 插件，并显式提供扩展点。
+宿主工程通过 `Config/DefaultEngine.ini` 中的 `[CoreRedirects]` 将原脚本包名映射到 `Runtime` 和 `BlueprintIntegration`，保留已有蓝图资产中的引用。
 
-`Game` 和 `Editor` 是单个 `ModRuntime` 插件内用于归类模块的目录，本身不是 UE 模块。各模块须在 `ModRuntime.uplugin` 中声明。`ModRuntime` 的公开 API 使用带类型的标签及容器，因此公开依赖 Unreal 的 `GameplayTags` 模块。API、Event 与 Hook ID 共用全局 GameplayTags 字典。
+`Runtime` 必须在 Game 和 Editor Target 中编译。它不得依赖编辑器模块、某个宿主游戏的代码、特定内容分发服务或制作编辑器。`RuntimeEditor` 可以依赖 `Runtime`，不能反向依赖。宿主游戏可以依赖 Runtime 插件，并显式提供扩展点。
 
-`ModBlueprintIntegration` 负责 Editor Target 中的蓝图 Mod 导出声明。它直接依赖 `Core`、`CoreUObject`、`Engine`、`BlueprintGraph`、`GraphEditor`、`Kismet`、`KismetCompiler`、`ModRuntime`、`Slate`、`SlateCore`、`ToolWidgets`、`UMGEditor` 和 `UnrealEd`。导出面板及实现图需要蓝图编辑器和编译器模块，而宿主接入与 PIE 检查不需要，因此它与 `ModRuntimeEditor` 分开。`GraphEditor` 和 `ToolWidgets` 提供“我的蓝图”原生动作列表与“添加”按钮。`UMGEditor` 依赖使标签页在 Widget 蓝图模式切换后仍可注册。`ModRuntime` 和独立的 `ModDevelopmentEditor` 均不依赖它。该模块在引擎初始化后加载，以便 `Kismet` 注册编辑器服务。
+`Game` 和 `Editor` 是单个 `ModRuntime` 插件内用于归类模块的目录，本身不是 UE 模块。各模块须在 `ModRuntime.uplugin` 中声明。`Runtime` 的公开 API 使用带类型的标签及容器，因此公开依赖 Unreal 的 `GameplayTags` 模块。API、Event 与 Hook ID 共用全局 GameplayTags 字典。
+
+`BlueprintIntegration` 负责 Editor Target 中的蓝图 Mod 导出声明。它直接依赖 `Core`、`CoreUObject`、`Engine`、`BlueprintGraph`、`GraphEditor`、`Kismet`、`KismetCompiler`、`Runtime`、`Slate`、`SlateCore`、`ToolWidgets`、`UMGEditor` 和 `UnrealEd`。导出面板及实现图需要蓝图编辑器和编译器模块，而宿主接入与 PIE 检查不需要，因此它与 `RuntimeEditor` 分开。`GraphEditor` 和 `ToolWidgets` 提供“我的蓝图”原生动作列表与“添加”按钮。`UMGEditor` 依赖使标签页在 Widget 蓝图模式切换后仍可注册。`Runtime` 和独立的 `DevelopmentEditor` 均不依赖它。该模块在引擎初始化后加载，以便 `Kismet` 注册编辑器服务。
 
 模块在蓝图编辑器中注册“蓝图Mod导出”标签页；有“我的蓝图”标签页时停靠在其旁边。接口、宏库、Widget 和动画蓝图编辑器使用不同布局时，由后备标签页入口接入；无法提供所需运行时实现的蓝图类型会禁用对应创建按钮。面板复用“我的蓝图”的 `SGraphActionMenu`、分类样式、“添加”按钮、搜索框和视图选项控件。API、Event、Hook 是可折叠分类，右侧使用圆形添加按钮。条目使用原生调色板图标、选中效果和行内重命名；单击在蓝图编辑器已有的“细节”面板显示属性，双击打开实现图，右键菜单及 F2、Delete 提供重命名和删除。导出标签页内不再嵌入单独的属性区。声明是保存在当前蓝图 `UBlueprintExtension` 中、支持撤销的对象。API 实现图与 Hook 原版逻辑图由对应声明持有，并纳入蓝图图搜索；编译器从这些图生成可执行函数。Event 声明保存载荷类型与发布设置。模块不再注册函数、变量或事件分发器的详情定制。
 
@@ -38,9 +40,9 @@ ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `
 
 蓝图扩展向“在蓝图中查找”提供 API、Event、Hook 的完整名称、提示文字及契约 ID。新建、重命名、属性编辑、删除和面板撤销/重做会刷新已保存资产的搜索索引。面板搜索同时匹配完整名称、基础名称及契约 ID。刷新选中行时也会刷新细节标题，包括从细节面板发起的改名。源图与编译副本共用同一名称绑定过程，同步入口及返回节点的函数引用、函数显示元数据和局部变量作用域，使原生“查找引用”也使用声明的函数名。
 
-`ModRuntime` 向 C++ 公开 `FModApiTag`、`FModEventTag` 及对应容器，分别派生自 `FGameplayTag` 和 `FGameplayTagContainer`；编辑器字段使用原生 GameplayTags 属性界面。转换与添加接口检查标签是否存在于全局字典。由于基类接口和导入过程可以绕过这些接口，读取序列化标签的代码还应调用 `IsRegistered`。`ModContractOptions.h` 中的 `Mod::Contract::FOptions` 从全局管理器枚举 API 与 Event ID 可用的标签，并从 `[ModContract]` 读取其他选项；Hook 声明目前使用同一全局标签字典。C++ 元数据参数是编译期字面量，仍需在编写或导出阶段对照配置校验。配置只定义候选标识符，不实现运行时策略。导出面板保存声明并编译 API 和 Hook 图，但尚未创建 Publish Event 或 Hook Point 节点，也不执行运行时契约。后续生成器须在导出前校验已注册的 ID、完整选择及宿主策略语义，运行时代码应消费生成的描述符，而不是 Editor 专用声明。
+`Runtime` 向 C++ 公开 `FModApiTag`、`FModEventTag` 及对应容器，分别派生自 `FGameplayTag` 和 `FGameplayTagContainer`；编辑器字段使用原生 GameplayTags 属性界面。转换与添加接口检查标签是否存在于全局字典。由于基类接口和导入过程可以绕过这些接口，读取序列化标签的代码还应调用 `IsRegistered`。`ModContractOptions.h` 中的 `Mod::Contract::FOptions` 从全局管理器枚举 API 与 Event ID 可用的标签，并从 `[ModContract]` 读取其他选项；Hook 声明目前使用同一全局标签字典。C++ 元数据参数是编译期字面量，仍需在编写或导出阶段对照配置校验。配置只定义候选标识符，不实现运行时策略。导出面板保存声明并编译 API 和 Hook 图，但尚未创建 Publish Event 或 Hook Point 节点，也不执行运行时契约。后续生成器须在导出前校验已注册的 ID、完整选择及宿主策略语义，运行时代码应消费生成的描述符，而不是 Editor 专用声明。
 
-`ModDevelopmentEditor` 通过 UAT `BuildPlugin` 独立构建。它不得静态依赖项目侧的 `ModRuntime` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
+`DevelopmentEditor` 通过 UAT `BuildPlugin` 独立构建。它不得静态依赖项目侧的 `Runtime` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
 
 原生模组 ABI 类型应与面向 UE 的公开 API 分离。UE 内部的 C++ 契约使用 UE 类型；外部 C ABI 使用固定宽度字段、显式长度、不透明句柄及已说明的所有权规则，因为独立构建的二进制不能依赖 UE 对象或 C++ ABI 布局保持可移植。
 
