@@ -1,0 +1,56 @@
+# Copyright (c) 2026 Nelaric Contributors
+name: Capability proposal | 能力提案
+description: Propose a reusable mod capability, integration, or authoring workflow. | 提议可复用模组能力、集成或制作流程。
+title: '[Proposal | 提案]: '
+body:
+  - type: markdown
+    attributes:
+      value: English and Chinese are both welcome. Search existing issues before proposing a capability. UnrealModFramework separates the game-side mod runtime, independent authoring editor, versioned protocol, and host-game SDK. Game-specific behavior remains with the host game. Proposals are welcome even while the framework is being designed. | 欢迎使用英文或中文。提出能力建议前请搜索现有 Issue。UnrealModFramework 区分游戏侧模组运行时、独立制作编辑器、版本化协议与宿主游戏 SDK；具体游戏行为由宿主实现。框架设计期间也欢迎提交提案。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case | 问题与使用场景
+      description: Describe the developer need and a concrete mod integration or authoring scenario. Explain why existing UE or project mechanisms do not solve it. | 描述开发需求和具体模组集成或制作场景，并解释现有 UE 或项目机制为何无法解决。
+      placeholder: When integrating or authoring a mod, I need to ... because ... | 集成或制作模组时，我需要……，因为……
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Capability area | 能力领域
+      options:
+        - Mod runtime and lifecycle | 模组运行时与生命周期
+        - Package loading and content resolution | 模组包加载与内容解析
+        - Exported APIs, events, and hooks | 导出 API、事件与 Hook
+        - Native mod ABI and host SDK | 原生模组 ABI 与宿主 SDK
+        - Independent authoring editor | 独立制作编辑器
+        - Metadata and code generation | 元数据与代码生成
+        - Build tooling and integration | 构建工具与集成
+        - Diagnostics and security | 诊断与安全
+        - Documentation and developer workflow | 文档与开发流程
+        - Other | 其他
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior | 建议的行为
+      description: Describe the observable behavior or developer workflow. An API sketch is welcome but not required. | 描述可观察的行为或开发流程；可以附上 API 草案，但并非必需。
+      placeholder: The framework should let a developer ... | 框架应允许开发者……
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Scope and boundaries | 范围与边界
+      description: Explain whether this belongs in ModRuntime, ModDevelopmentEditor, the shared protocol, command-line tools, or a host-game SDK. If unsure, say so. | 说明该能力属于 ModRuntime、ModDevelopmentEditor、共享协议、命令行工具还是宿主游戏 SDK；如不确定，请直接说明。
+      placeholder: The framework would provide ...; the host game or authoring editor would ... | 框架提供……；宿主游戏或制作编辑器负责……
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and references | 替代方案与参考资料
+      description: Mention UE-native approaches, existing mod tooling, related issues, or tradeoffs you considered. | 说明考虑过的 UE 原生方案、现有模组工具、相关 Issue 或取舍。
+    validations:
+      required: false
