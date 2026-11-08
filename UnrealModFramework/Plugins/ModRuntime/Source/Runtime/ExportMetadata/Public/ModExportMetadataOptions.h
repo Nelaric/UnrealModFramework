@@ -1,12 +1,12 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-/** @file ModContractOptions.h */
+/** @file ModExportMetadataOptions.h */
 #pragma once
 
 #include "CoreMinimal.h"
 
-namespace Mod::Contract
+namespace Mod::ExportMetadata
 {
-/// A contract field backed by GameplayTags or shared GameMod config.
+/// An export metadata field backed by GameplayTags or GameMod config.
 enum class EOptionKind : uint8
 {
 	/// Registered GameplayTag API IDs.
@@ -27,31 +27,31 @@ enum class EOptionKind : uint8
 	EventPublishRule,
 };
 
-/// Reads the same project choices used by Blueprint contract details.
+/// Reads the same project choices used by Blueprint export details.
 class FOptions
 {
 public:
-	/** @brief Returns the available choices for a contract field.
+	/** @brief Returns the available choices for an export metadata field.
 	 *
 	 * @details Reads API and Event IDs from the global GameplayTags
-	 * dictionary and other choices from the active GameMod config on the
-	 * game thread. IDs are sorted; config choices retain their order.
+	 * dictionary and other choices from the ModExportMetadata config section
+	 * on the game thread. IDs are sorted; config choices retain their order.
 	 * Empty and duplicate entries are ignored.
 	 *
-	 * @param Kind Which contract field to read.
+	 * @param Kind Which export metadata field to read.
 	 * @return Configured identifiers, or an empty array if none exist.
 	 */
-	static RUNTIME_API TArray<FString> Load(EOptionKind Kind);
+	static EXPORTMETADATA_API TArray<FString> Load(EOptionKind Kind);
 
 	/** @brief Checks one identifier against the shared project choices.
 	 *
 	 * @details Call on the game thread after Unreal config is ready. The
 	 * comparison is case sensitive. An empty value is never allowed.
 	 *
-	 * @param Kind Which contract field to check.
+	 * @param Kind Which export metadata field to check.
 	 * @param Value Identifier to check.
 	 * @return Whether the identifier is configured for that field.
 	 */
-	static RUNTIME_API bool Contains(EOptionKind Kind, const FString& Value);
+	static EXPORTMETADATA_API bool Contains(EOptionKind Kind, const FString& Value);
 };
-} // namespace Mod::Contract
+} // namespace Mod::ExportMetadata

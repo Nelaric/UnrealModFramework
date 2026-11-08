@@ -1,11 +1,11 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-#include "ModContractOptions.h"
+#include "ModExportMetadataOptions.h"
 
 #include "GameplayTagContainer.h"
 #include "GameplayTagsManager.h"
 #include "Misc/ConfigCacheIni.h"
 
-namespace Mod::Contract
+namespace Mod::ExportMetadata
 {
 namespace
 {
@@ -59,7 +59,7 @@ TArray<FString> FOptions::Load(const EOptionKind Kind)
 	}
 
 	TArray<FString> RawChoices;
-	GConfig->GetArray(TEXT("ModContract"), Key, RawChoices, GameModIni);
+	GConfig->GetArray(TEXT("ModExportMetadata"), Key, RawChoices, GameModIni);
 	for (FString& Choice : RawChoices)
 	{
 		Choice.TrimStartAndEndInline();
@@ -75,4 +75,4 @@ bool FOptions::Contains(const EOptionKind Kind, const FString& Value)
 {
 	return !Value.IsEmpty() && Load(Kind).Contains(Value);
 }
-} // namespace Mod::Contract
+} // namespace Mod::ExportMetadata

@@ -38,19 +38,19 @@ namespace
 {
 const FName ExportSelectionOwner(TEXT("ModBlueprintExport"));
 
-FName GetContractId(const UModBlueprintExportEntry* Entry)
+FName GetExportId(const UModBlueprintExportEntry* Entry)
 {
 	if (const UModBlueprintApiExport* Api = Cast<UModBlueprintApiExport>(Entry))
 	{
-		return Api->ContractId;
+		return Api->ExportId;
 	}
 	if (const UModBlueprintEventExport* Event = Cast<UModBlueprintEventExport>(Entry))
 	{
-		return Event->ContractId;
+		return Event->ExportId;
 	}
 	if (const UModBlueprintHookExport* Hook = Cast<UModBlueprintHookExport>(Entry))
 	{
-		return Hook->ContractId;
+		return Hook->ExportId;
 	}
 	return NAME_None;
 }
@@ -70,8 +70,8 @@ const FSlateBrush* GetEntryIcon(const UModBlueprintExportEntry* Entry)
 
 FText GetEntryTooltip(const UModBlueprintExportEntry* Entry)
 {
-	const FName ContractId = GetContractId(Entry);
-	const FText IdText = ContractId.IsNone() ? LOCTEXT("UnassignedId", "尚未选择契约 ID") : FText::FromName(ContractId);
+	const FName ExportId = GetExportId(Entry);
+	const FText IdText = ExportId.IsNone() ? LOCTEXT("UnassignedId", "尚未选择导出 ID") : FText::FromName(ExportId);
 	FText Tooltip = FText::Format(LOCTEXT("EntryTooltip", "{0}\n{1}"), Entry->GetExportTooltip(), IdText);
 	const UModBlueprintApiExport* Api = Cast<UModBlueprintApiExport>(Entry);
 	const UModBlueprintHookExport* Hook = Cast<UModBlueprintHookExport>(Entry);
@@ -94,7 +94,7 @@ struct FExportSchemaAction final : FEdGraphSchemaAction
 	    : FEdGraphSchemaAction(FText::GetEmpty(), InEntry->GetExportDisplayName(), GetEntryTooltip(InEntry), 0,
 	                           FText::Format(LOCTEXT("SearchKeywords", "{0} {1}"),
 	                                         FText::FromString(InEntry->DisplayName),
-	                                         FText::FromName(GetContractId(InEntry))),
+	                                         FText::FromName(GetExportId(InEntry))),
 	                           SectionId),
 	      Entry(InEntry)
 	{

@@ -5,7 +5,7 @@
 	"Description": "Development host project for UnrealModFramework.",
 	"Modules": [
 		{
-			"Name": "UnrealModFrameworkDev",
+			"Name": "ExportTest",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}

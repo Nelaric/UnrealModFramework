@@ -11,19 +11,19 @@
 	"EnabledByDefault": false,
 	"Modules": [
 		{
-			"Name": "Runtime",
+			"Name": "ExportMetadata",
 			"Type": "Runtime",
-			"LoadingPhase": "Default"
-		},
-		{
-			"Name": "RuntimeEditor",
-			"Type": "Editor",
 			"LoadingPhase": "Default"
 		},
 		{
 			"Name": "BlueprintIntegration",
 			"Type": "Editor",
 			"LoadingPhase": "PostEngineInit"
+		},
+		{
+			"Name": "ExportCodeGenerator",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
 		}
 	]
 }
