@@ -6,6 +6,10 @@
 
 组织文档统一使用 `https://docs.nelaric.com/<仓库名>/<栏目>/`。当前项目的 API 文档地址为 `https://docs.nelaric.com/UnrealModFramework/API/`；`API` 区分大小写。生成的页面和资源一起放在该目录中。
 
+## 已启用的项目发布
+
+本仓库的 Pages 发布源为 GitHub Actions，已启用 `API_PAGES_ENABLED=true` 并强制 HTTPS。推送到 `main` 后会发布 API 文档，也可以手动运行 API Pages 工作流。发布依赖先经过有次数限制的下载重试，再解压，以便自动恢复上游临时故障。
+
 ## GitHub Pages 结构
 
 组织站点仓库 `Nelaric/nelaric.github.io` 绑定自定义域名 `docs.nelaric.com`。项目仓库继承这个域名，并保留仓库名路径。`Nelaric/UnrealModFramework` 的自定义域名应留空。

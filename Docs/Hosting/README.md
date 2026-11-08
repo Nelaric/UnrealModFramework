@@ -6,6 +6,10 @@ English | [简体中文](README.zh-CN.md)
 
 Organization documentation uses `https://docs.nelaric.com/<repository>/<section>/`. The API site for this project uses `https://docs.nelaric.com/UnrealModFramework/API/`; `API` is case-sensitive. Generated pages and assets remain together inside that directory.
 
+## Active project publishing
+
+This repository uses GitHub Actions as its Pages source, enables `API_PAGES_ENABLED=true`, and enforces HTTPS. Pushes to `main` publish the API site; the API Pages workflow can also be run manually. Release downloads use bounded retries before extraction so a transient upstream error can recover automatically.
+
 ## GitHub Pages topology
 
 The organization site repository `Nelaric/nelaric.github.io` owns the custom domain `docs.nelaric.com`. Project repositories inherit that domain and retain their repository-name path. Leave the custom domain of `Nelaric/UnrealModFramework` unset.

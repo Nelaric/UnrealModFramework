@@ -6,6 +6,10 @@ English | [简体中文](CircleCI.zh-CN.md)
 
 The [push configuration](../.circleci/config.yml) and [trusted PR configuration](../.circleci/pr-build.yml) each define two parallel Unreal Engine 5.6.1 Linux jobs. `build_game_linux` compiles `UnrealModFrameworkDev` and its enabled runtime modules. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, including `ExportMetadata`, `BlueprintIntegration`, and `ExportCodeGenerator`, then packages the independent `ModDevelopmentEditor` plugin with UAT `BuildPlugin` for Linux. There is no Server target, package publication, or Editor automation test step.
 
+## Active PR integration
+
+The repository enables `CIRCLECI_PR_BUILDS_ENABLED=true` and stores the current trigger endpoint in the encrypted Actions secret `CIRCLECI_PR_BUILD_WEBHOOK_URL`. The `UnrealModFramework PR builds` pipeline uses `.circleci/pr-build.yml`, with both configuration and initial checkout fixed to `main`. The setup steps below describe how to recreate this integration.
+
 ## Regular push builds
 
 Use the CircleCI `github/Nelaric/UnrealModFramework` GitHub OAuth project with this repository as its configuration and checkout source, `.circleci/config.yml` as the configuration path, and a trigger for source-repository pushes. Set `GHCR_USERNAME` and `GHCR_TOKEN` in the CircleCI project's environment variables. The token must be able to pull `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1`. Keep the values out of Git.
