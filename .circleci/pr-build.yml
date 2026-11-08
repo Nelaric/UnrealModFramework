@@ -1,0 +1,122 @@
+# Copyright (c) 2026 Nelaric Contributors
+version: 2.1
+
+commands:
+  checkout_pr_commit:
+    steps:
+      - checkout
+      - run:
+          name: Validate and check out the PR commit
+          command: |
+            set -euo pipefail
+            python3 -c '
+            import json
+            import os
+
+            event = json.loads(os.environ["PR_EVENT_JSON"])
+            number = event["pr"]
+            sha = event["sha"]
+            if not isinstance(number, int) or number < 1 or not isinstance(sha, str):
+                raise SystemExit("Invalid PR build request")
+            print(number, sha)
+            ' > /tmp/unrealmodframework-pr-info
+            read -r pr_number pr_sha < /tmp/unrealmodframework-pr-info
+            python3 Scripts/pr_build_policy.py "$pr_number" "$pr_sha"
+            git fetch --no-tags https://github.com/Nelaric/UnrealModFramework.git "refs/pull/$pr_number/head"
+            actual_sha="$(git rev-parse FETCH_HEAD)"
+            test "$actual_sha" = "$pr_sha"
+            git checkout --detach "$actual_sha"
+            test "$(git rev-parse HEAD)" = "$pr_sha"
+  pull_unreal_image:
+    steps:
+      - run:
+          name: Pull Unreal Engine 5.6.1 Linux image
+          no_output_timeout: 30m
+          command: |
+            set -euo pipefail
+            : "${GHCR_USERNAME:?Set GHCR_USERNAME in CircleCI project settings}"
+            : "${GHCR_TOKEN:?Set GHCR_TOKEN in CircleCI project settings}"
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
+            docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1
+            docker logout ghcr.io
+  stage_project:
+    steps:
+      - run:
+          name: Prepare writable Unreal project
+          command: |
+            set -euo pipefail
+            project_dir="$(mktemp -d)"
+            cp -a UnrealModFramework "$project_dir/UnrealModFramework"
+            chmod -R a+rwX "$project_dir"
+            printf 'export UE_PROJECT_DIR=%q\n' "$project_dir" >> "$BASH_ENV"
+  compile_target:
+    parameters:
+      target:
+        type: string
+    steps:
+      - run:
+          name: Compile << parameters.target >> for Linux
+          no_output_timeout: 30m
+          command: |
+            set -euo pipefail
+            : "${UE_PROJECT_DIR:?Project staging directory is missing}"
+            docker run --rm --network none \
+              --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
+              ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
+              /home/ue4/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh \
+              << parameters.target >> Linux Development \
+              -Project=/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject \
+              -WaitMutex -NoHotReload
+
+jobs:
+  build_game_linux:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: large
+    environment:
+      PR_EVENT_JSON: "<< pipeline.trigger_parameters.webhook.body >>"
+    steps:
+      - checkout_pr_commit
+      - pull_unreal_image
+      - stage_project
+      - compile_target:
+          target: UnrealModFrameworkDev
+  build_editor_linux:
+    machine:
+      image: ubuntu-2404:current
+    resource_class: large
+    environment:
+      PR_EVENT_JSON: "<< pipeline.trigger_parameters.webhook.body >>"
+    steps:
+      - checkout_pr_commit
+      - pull_unreal_image
+      - stage_project
+      - compile_target:
+          target: UnrealModFrameworkDevEditor
+      - run:
+          name: Package ModDevelopmentEditor for Linux
+          no_output_timeout: 30m
+          command: |
+            set -euo pipefail
+            : "${UE_PROJECT_DIR:?Project staging directory is missing}"
+            docker run --rm --network none \
+              --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
+              ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
+              /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh \
+              BuildPlugin \
+              -Plugin=/workspace/UnrealModFramework/SourcePlugins/ModDevelopmentEditor/ModDevelopmentEditor.uplugin \
+              -Package=/workspace/Dist/ModDevelopmentEditor \
+              -TargetPlatforms=Linux
+
+workflows:
+  fork_pr_linux_build:
+    when: pipeline.trigger.type == "webhook"
+    jobs:
+      - build_game_linux:
+          filters:
+            branches:
+              only: main
+      - build_editor_linux:
+          filters:
+            branches:
+              only: main

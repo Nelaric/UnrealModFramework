@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = ROOT / "UnrealModFramework"
 BOM = b"\xef\xbb\xbf"
 CRLF_SUFFIXES = {".md", ".h", ".hpp", ".cpp", ".cc", ".cxx", ".cs"}
-LF_SUFFIXES = {".json", ".yml", ".yaml", ".py", ".ini", ".uproject", ".uplugin"}
-LF_NAMES = {".gitattributes", ".gitignore", ".editorconfig", ".clang-format", ".csharpierrc", "Doxyfile"}
+LF_SUFFIXES = {".json", ".yml", ".yaml", ".py", ".ini", ".uproject", ".uplugin", ".html"}
+LF_NAMES = {".gitattributes", ".gitignore", ".editorconfig", ".clang-format", ".csharpierrc", "Doxyfile", "CNAME"}
 VENDORED_ROOTS: set[Path] = {
     Path("UnrealModFramework/Plugins/ModRuntime/Tools/ThirdParty/nlohmann"),
 }

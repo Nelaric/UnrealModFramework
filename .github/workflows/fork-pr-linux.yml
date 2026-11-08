@@ -1,0 +1,83 @@
+# Copyright (c) 2026 Nelaric Contributors
+name: Fork PR Linux build
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: fork-pr-linux-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  start:
+    name: Validate PR + start CircleCI
+    if: github.event.pull_request.base.ref == 'main' && vars.CIRCLECI_PR_BUILDS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.start.outputs.sha }}
+      nonce: ${{ steps.start.outputs.nonce }}
+    steps:
+      - name: Check out trusted main configuration
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate PR and start CircleCI pipeline
+        id: start
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CIRCLECI_PR_BUILD_WEBHOOK_URL: ${{ secrets.CIRCLECI_PR_BUILD_WEBHOOK_URL }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 Scripts/fork_pr_build_bot.py start
+
+  build:
+    name: Build (${{ matrix.target.label }})
+    needs: start
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { label: Game, job: build_game_linux }
+          - { label: Editor, job: build_editor_linux }
+    steps:
+      - name: Check out trusted main configuration
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Track CircleCI ${{ matrix.target.label }} build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ needs.start.outputs.sha }}
+          BUILD_NONCE: ${{ needs.start.outputs.nonce }}
+          TARGET_JOB: ${{ matrix.target.job }}
+        run: python3 Scripts/fork_pr_build_bot.py watch
+
+  summary:
+    name: Summarize Linux builds
+    needs: [start, build]
+    if: always() && github.event.pull_request.base.ref == 'main' && vars.CIRCLECI_PR_BUILDS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out trusted main configuration
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Report Game and Editor results
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ needs.start.outputs.sha }}
+          BUILD_NONCE: ${{ needs.start.outputs.nonce }}
+          START_RESULT: ${{ needs.start.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: python3 Scripts/fork_pr_build_bot.py finish

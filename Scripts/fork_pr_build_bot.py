@@ -1,0 +1,506 @@
+# Copyright (c) 2026 Nelaric Contributors
+"""Trigger a trusted CircleCI build and report its result to the PR commit."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
+
+from pr_build_policy import PolicyError, get_pull_request, verify_pull_request
+
+
+_REPOSITORY = "Nelaric/UnrealModFramework"
+_CIRCLECI_PROJECT = "gh/Nelaric/UnrealModFramework"
+_STATUS_CONTEXT = "ci/fork-pr-linux-build"
+_JOB_CONTEXTS = {
+    "build_game_linux": "ci/linux-game-build",
+    "build_editor_linux": "ci/linux-editor-build",
+}
+_JOB_LABELS = {
+    "build_game_linux": "Game",
+    "build_editor_linux": "Editor",
+}
+_FINAL_STATES = {"success", "failed", "error", "canceled", "unauthorized", "not_run"}
+_MIRROR_OUTPUT_LIMIT = 4 * 1024 * 1024
+_CIRCLECI_OUTPUT_PREFIX = "https://circleci.com/api/private/output/presigned/"
+
+
+class SupersededRun(Exception):
+    """A newer Actions run owns the commit's build statuses."""
+
+
+def read_response(request: urllib.request.Request) -> bytes:
+    """Retry transient failures only for reads; webhook POSTs are not idempotent."""
+    for attempt in range(5):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if request.get_method() != "GET" or error.code not in {429, 500, 502, 503, 504} or attempt == 4:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if request.get_method() != "GET" or attempt == 4:
+                raise
+        print(f"Transient API read failure; retry {attempt + 1}/4", flush=True)
+        time.sleep(2 ** (attempt + 1))
+    raise RuntimeError("API read retry limit exceeded")
+
+
+def request_json(url: str, *, token: str | None = None, payload: dict | None = None) -> object:
+    headers = {"Accept": "application/json", "User-Agent": "unrealmodframework-fork-pr-build-bot"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if payload is not None:
+        headers["Content-Type"] = "application/json"
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = urllib.request.Request(url, data=data, headers=headers)
+    body = read_response(request)
+    if not body:
+        return {}
+    try:
+        return json.loads(body)
+    except ValueError:
+        return {}
+
+
+def run_status_url() -> str | None:
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if not run_id:
+        return None
+    return (
+        f"https://github.com/{_REPOSITORY}/actions/runs/{int(run_id)}"
+        f"/attempts/{int(os.environ.get('GITHUB_RUN_ATTEMPT', '1'))}"
+    )
+
+
+def check_status_owner(sha: str, *, claim: bool = False) -> None:
+    current_url = run_status_url()
+    if current_url is None:
+        return
+    # The aggregate context is also the ownership marker, including the run attempt.
+    statuses = request_json(
+        f"https://api.github.com/repos/{_REPOSITORY}/commits/{sha}/status",
+        token=os.environ["GITHUB_TOKEN"],
+    ).get("statuses", [])
+    latest = next((item for item in statuses if item.get("context") == _STATUS_CONTEXT), {})
+    owner_url = latest.get("target_url")
+    if claim:
+        pattern = rf"https://github\.com/{re.escape(_REPOSITORY)}/actions/runs/(\d+)/attempts/(\d+)"
+        owner = re.fullmatch(pattern, owner_url or "")
+        current = re.fullmatch(pattern, current_url)
+        if owner and tuple(map(int, owner.groups())) > tuple(map(int, current.groups())):
+            raise SupersededRun("A newer build run already owns this commit")
+    elif owner_url != current_url:
+        raise SupersededRun("Skipping status update from an obsolete build run")
+
+
+def post_status(
+    sha: str, state: str, description: str, target_url: str | None = None, *, context: str = _STATUS_CONTEXT,
+    claim: bool = False,
+) -> None:
+    check_status_owner(sha, claim=claim)
+    if context == _STATUS_CONTEXT and run_status_url():
+        target_url = run_status_url()
+    payload = {"state": state, "context": context, "description": description[:140]}
+    if target_url:
+        payload["target_url"] = target_url
+    request_json(
+        f"https://api.github.com/repos/{_REPOSITORY}/statuses/{sha}",
+        token=os.environ["GITHUB_TOKEN"],
+        payload=payload,
+    )
+
+
+def post_job_statuses(sha: str, state: str, description: str, target_url: str | None = None) -> None:
+    for context in _JOB_CONTEXTS.values():
+        post_status(sha, state, description, target_url, context=context)
+
+
+def trigger_circleci(number: int, sha: str, nonce: str) -> None:
+    webhook = os.environ.get("CIRCLECI_PR_BUILD_WEBHOOK_URL", "")
+    parsed = urllib.parse.urlparse(webhook)
+    if parsed.scheme != "https" or parsed.hostname != "internal.circleci.com":
+        raise RuntimeError("CircleCI PR build webhook secret is missing or invalid")
+    try:
+        request_json(webhook, payload={"pr": number, "sha": sha, "nonce": nonce})
+    except OSError:
+        raise RuntimeError("CircleCI trigger request failed") from None
+
+
+def find_pipeline(nonce: str) -> dict | None:
+    base = f"https://circleci.com/api/v2/project/{_CIRCLECI_PROJECT}/pipeline"
+    page_token: str | None = None
+    for _ in range(5):
+        query = {"branch": "main"}
+        if page_token:
+            query["page-token"] = page_token
+        result = request_json(f"{base}?{urllib.parse.urlencode(query)}")
+        for pipeline in result.get("items", []):
+            raw_body = pipeline.get("trigger_parameters", {}).get("webhook", {}).get("body", "{}")
+            try:
+                body = json.loads(raw_body) if isinstance(raw_body, str) else raw_body
+            except (ValueError, TypeError):
+                continue
+            if isinstance(body, dict) and body.get("nonce") == nonce:
+                return pipeline
+        page_token = result.get("next_page_token")
+        if not page_token:
+            break
+    return None
+
+
+def find_workflow(pipeline_id: str) -> dict | None:
+    result = request_json(f"https://circleci.com/api/v2/pipeline/{pipeline_id}/workflow")
+    matching = [item for item in result.get("items", []) if item.get("name") == "fork_pr_linux_build"]
+    if not matching:
+        return None
+    return matching[0]
+
+
+def workflow_jobs(workflow_id: str) -> dict[str, dict]:
+    jobs: dict[str, dict] = {}
+    page_token: str | None = None
+    while True:
+        query = f"?{urllib.parse.urlencode({'page-token': page_token})}" if page_token else ""
+        result = request_json(f"https://circleci.com/api/v2/workflow/{workflow_id}/job{query}")
+        for job in result.get("items", []):
+            if job.get("name") in _JOB_CONTEXTS:
+                jobs[job["name"]] = job
+        page_token = result.get("next_page_token")
+        if not page_token:
+            return jobs
+
+
+def monitor(number: int, sha: str, nonce: str) -> bool:
+    deadline = time.monotonic() + 55 * 60
+    pipeline: dict | None = None
+    reported: set[str] = set()
+
+    def fail_pending(description: str, target_url: str | None = None) -> None:
+        for name, context in _JOB_CONTEXTS.items():
+            if name not in reported:
+                post_status(sha, "error", description, target_url, context=context)
+
+    while time.monotonic() < deadline:
+        if get_pull_request(number, os.environ["GITHUB_TOKEN"])["head"]["sha"] != sha:
+            post_status(sha, "error", "Superseded by a newer pull request commit")
+            fail_pending("Superseded by a newer pull request commit")
+            return False
+        if pipeline is None:
+            pipeline = find_pipeline(nonce)
+        if pipeline is not None:
+            target_url = (
+                "https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework/"
+                f"{pipeline['number']}/details"
+            )
+            workflow = find_workflow(pipeline["id"])
+            if workflow:
+                jobs = workflow_jobs(workflow["id"])
+                for name, context in _JOB_CONTEXTS.items():
+                    if name in reported:
+                        continue
+                    job = jobs.get(name)
+                    job_status = job.get("status") if job else None
+                    if job_status not in _FINAL_STATES:
+                        if job is None and workflow.get("status") in _FINAL_STATES:
+                            post_status(sha, "error", f"UE 5.6.1 Linux {name}: missing", target_url, context=context)
+                            reported.add(name)
+                        continue
+                    state = "success" if job_status == "success" else "failure"
+                    job_url = target_url
+                    if job.get("job_number"):
+                        job_url = (
+                            "https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework/"
+                            f"{pipeline['number']}/workflows/{workflow['id']}/jobs/{job['job_number']}"
+                        )
+                    post_status(sha, state, f"UE 5.6.1 Linux {name}: {job_status}", job_url, context=context)
+                    reported.add(name)
+                if workflow.get("status") in _FINAL_STATES and len(reported) == len(_JOB_CONTEXTS):
+                    all_succeeded = workflow["status"] == "success" and all(
+                        jobs.get(name, {}).get("status") == "success" for name in _JOB_CONTEXTS
+                    )
+                    state = "success" if all_succeeded else "failure"
+                    post_status(sha, state, f"UE 5.6.1 Linux build: {workflow['status']}", target_url)
+                    return all_succeeded
+            if pipeline.get("errors"):
+                post_status(sha, "error", "CircleCI could not start the PR build", target_url)
+                fail_pending("CircleCI could not start the PR build", target_url)
+                return False
+        time.sleep(15)
+    post_status(sha, "error", "Timed out waiting for the CircleCI PR build")
+    fail_pending("Timed out waiting for the CircleCI PR build")
+    return False
+
+
+def write_summary(lines: list[str]) -> None:
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        with open(path, "a", encoding="utf-8") as summary:
+            summary.write("\n".join(lines) + "\n")
+
+
+def _safe_log_text(value: object) -> str:
+    """Keep external text from changing the structure of the Actions log."""
+    text = str(value)
+    text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
+    return "".join(char for char in text if char in "\n\t" or ord(char) >= 32)
+
+
+def _circleci_step_output(url: str) -> tuple[str, bool]:
+    if not url.startswith(_CIRCLECI_OUTPUT_PREFIX):
+        raise ValueError("Unexpected CircleCI output URL")
+    request = urllib.request.Request(url, headers={"User-Agent": "unrealmodframework-fork-pr-build-bot"})
+    with urllib.request.urlopen(request, timeout=30) as response:
+        raw = response.read(_MIRROR_OUTPUT_LIMIT + 1)
+    if len(raw) > _MIRROR_OUTPUT_LIMIT:
+        return "", True
+    entries = json.loads(raw)
+    if not isinstance(entries, list):
+        raise ValueError("Unexpected CircleCI output format")
+    return "".join(str(entry.get("message", "")) for entry in entries if isinstance(entry, dict)), False
+
+
+def mirror_circleci_job(job_number: int) -> None:
+    """Copy CircleCI step details into the corresponding Actions job log."""
+    build = request_json(f"https://circleci.com/api/v1.1/project/github/Nelaric/UnrealModFramework/{job_number}")
+    for step in build.get("steps", []):
+        for action in step.get("actions", []):
+            name = _safe_log_text(action.get("name") or step.get("name") or "CircleCI step").replace("\n", " ")
+            status = _safe_log_text(action.get("status", "unknown")).replace("\n", " ")
+            duration = action.get("run_time_millis")
+            seconds = f", {duration / 1000:.1f}s" if isinstance(duration, (int, float)) else ""
+            print(f"::group::CircleCI: {name} ({status}{seconds})", flush=True)
+            if action.get("exit_code") is not None:
+                print(f"Exit code: {action['exit_code']}", flush=True)
+            # Authentication and setup steps may contain credentials. Mirror only known safe commands.
+            if name == "Validate and check out the PR commit" or (
+                name.startswith("Compile ") and name.endswith(" for Linux")
+            ):
+                command = action.get("bash_command")
+                if command:
+                    print("CircleCI command:", flush=True)
+                    marker = uuid.uuid4().hex
+                    print(f"::stop-commands::{marker}", flush=True)
+                    print(_safe_log_text(command), flush=True)
+                    print(f"::{marker}::", flush=True)
+                output_url = action.get("output_url")
+                if action.get("has_output") and output_url:
+                    try:
+                        output, truncated = _circleci_step_output(output_url)
+                        if truncated:
+                            print(
+                                "Step output exceeds the Actions mirror limit; open the CircleCI job for the full log.",
+                                flush=True,
+                            )
+                        else:
+                            # PR code controls compiler output. Disable GitHub workflow commands while printing it.
+                            marker = uuid.uuid4().hex
+                            print(f"::stop-commands::{marker}", flush=True)
+                            print(_safe_log_text(output), flush=True)
+                            print(f"::{marker}::", flush=True)
+                    except (OSError, ValueError) as error:
+                        print(f"Could not mirror step output ({type(error).__name__}); open the CircleCI job.", flush=True)
+            print("::endgroup::", flush=True)
+
+
+def start_main() -> None:
+    number = int(os.environ["PR_NUMBER"])
+    token = os.environ["GITHUB_TOKEN"]
+    sha = get_pull_request(number, token)["head"]["sha"]
+    try:
+        post_status(sha, "pending", "Waiting for UE 5.6.1 Linux builds", claim=True)
+        verify_pull_request(number, sha, token)
+        post_job_statuses(sha, "pending", "Waiting for UE 5.6.1 Linux build")
+        nonce = str(uuid.uuid4())
+        trigger_circleci(number, sha, nonce)
+    except SupersededRun:
+        raise
+    except Exception:
+        post_status(sha, "error", "Could not start the CircleCI PR build")
+        post_job_statuses(sha, "error", "Could not start the CircleCI PR build")
+        write_summary(["## CircleCI build start", "PR validation or pipeline trigger failed. See this job's log."])
+        raise
+    with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+        output.write(f"sha={sha}\nnonce={nonce}\n")
+    write_summary(
+        [
+            "## CircleCI build start",
+            f"- Pull request: #{number}",
+            f"- Commit: `{sha}`",
+            "- Engine: Unreal Engine 5.6.1 on Linux",
+            "- Targets: Game and Editor in two parallel CircleCI jobs",
+        ]
+    )
+
+
+def watch_target(number: int, sha: str, nonce: str, job_name: str) -> tuple[str, str, str | None]:
+    deadline = time.monotonic() + 55 * 60
+    pipeline: dict | None = None
+    last_status: str | None = None
+    while time.monotonic() < deadline:
+        if get_pull_request(number, os.environ["GITHUB_TOKEN"])["head"]["sha"] != sha:
+            return "error", "Superseded by a newer pull request commit", None
+        if pipeline is None:
+            pipeline = find_pipeline(nonce)
+            if pipeline:
+                print(f"Found CircleCI pipeline #{pipeline['number']} for {_JOB_LABELS[job_name]}", flush=True)
+        if pipeline:
+            pipeline_url = (
+                "https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework/"
+                f"{pipeline['number']}/details"
+            )
+            if pipeline.get("errors"):
+                return "error", "CircleCI could not start the PR build", pipeline_url
+            workflow = find_workflow(pipeline["id"])
+            if workflow:
+                job = workflow_jobs(workflow["id"]).get(job_name)
+                job_status = job.get("status") if job else "waiting"
+                if job_status != last_status:
+                    print(f"{_JOB_LABELS[job_name]}: {job_status}", flush=True)
+                    last_status = job_status
+                if job and job.get("status") in _FINAL_STATES:
+                    status = job["status"]
+                    job_url = pipeline_url
+                    if job.get("job_number"):
+                        job_url = (
+                            "https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework/"
+                            f"{pipeline['number']}/workflows/{workflow['id']}/jobs/{job['job_number']}"
+                        )
+                        try:
+                            mirror_circleci_job(job["job_number"])
+                        except (OSError, ValueError, TypeError, AttributeError) as error:
+                            print(
+                                f"Could not read CircleCI step details ({type(error).__name__}); open the CircleCI job.",
+                                flush=True,
+                            )
+                    return "success" if status == "success" else "failure", status, job_url
+                if workflow.get("status") in _FINAL_STATES and job is None:
+                    return "error", "CircleCI job was not created", pipeline_url
+        time.sleep(15)
+    return "error", "Timed out waiting for the CircleCI job", None
+
+
+def watch_main() -> None:
+    number = int(os.environ["PR_NUMBER"])
+    sha = os.environ["PR_SHA"]
+    nonce = os.environ["BUILD_NONCE"]
+    job_name = os.environ["TARGET_JOB"]
+    if job_name not in _JOB_CONTEXTS:
+        raise ValueError("Unknown CircleCI target job")
+    label = _JOB_LABELS[job_name]
+    print(f"Tracking {label} for pull request #{number} at {sha}", flush=True)
+    try:
+        state, detail, target_url = watch_target(number, sha, nonce, job_name)
+    except Exception:
+        state, detail, target_url = "error", "Could not read the CircleCI job result", None
+        post_status(sha, state, detail, context=_JOB_CONTEXTS[job_name])
+        write_summary([f"## {label} Linux build", f"- Result: {detail}"])
+        raise
+    post_status(sha, state, f"UE 5.6.1 Linux {job_name}: {detail}", target_url, context=_JOB_CONTEXTS[job_name])
+    lines = [
+        f"## {label} Linux build",
+        f"- Result: **{detail}**",
+        "- Engine: Unreal Engine 5.6.1",
+        "- Platform and configuration: Linux Development",
+        f"- Commit: `{sha}`",
+    ]
+    if target_url:
+        lines.append(f"- [CircleCI job log]({target_url})")
+    write_summary(lines)
+    print(f"{job_name}: {detail}", flush=True)
+    if state != "success":
+        raise RuntimeError(f"CircleCI {job_name} finished with {detail}")
+
+
+def finish_main() -> None:
+    sha = os.environ.get("PR_SHA", "")
+    nonce = os.environ.get("BUILD_NONCE", "")
+    start_result = os.environ.get("START_RESULT", "")
+    build_result = os.environ.get("BUILD_RESULT", "")
+    lines = ["## Linux build results", "| Target | CircleCI result |", "| --- | --- |"]
+    all_succeeded = start_result == "success" and build_result == "success"
+    if sha and nonce:
+        check_status_owner(sha)
+        try:
+            if get_pull_request(int(os.environ["PR_NUMBER"]), os.environ["GITHUB_TOKEN"])["head"]["sha"] != sha:
+                raise RuntimeError("Pull request was updated during the build")
+            pipeline = find_pipeline(nonce)
+            workflow = find_workflow(pipeline["id"]) if pipeline else None
+            jobs = workflow_jobs(workflow["id"]) if workflow else {}
+            for name in _JOB_CONTEXTS:
+                job = jobs.get(name, {})
+                status = job.get("status", "missing")
+                result = status
+                if pipeline and workflow and job.get("job_number"):
+                    job_url = (
+                        "https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework/"
+                        f"{pipeline['number']}/workflows/{workflow['id']}/jobs/{job['job_number']}"
+                    )
+                    result = f"[{status}]({job_url})"
+                lines.append(f"| {_JOB_LABELS[name]} | {result} |")
+                all_succeeded &= status == "success"
+            all_succeeded &= workflow is not None and workflow.get("status") == "success"
+        except RuntimeError as error:
+            all_succeeded = False
+            lines.append(f"| Pull request | {error} |")
+        except Exception:
+            all_succeeded = False
+            lines.append("| CircleCI API | Could not read final job results |")
+        state = "success" if all_succeeded else "failure"
+        post_status(sha, state, f"UE 5.6.1 Linux builds: {state}")
+    else:
+        lines.append("| Pipeline start | Failed before a commit was handed to the build jobs |")
+    lines.append(f"\nActions build matrix: **{build_result or 'not started'}**")
+    write_summary(lines)
+    if not all_succeeded:
+        raise RuntimeError("One or more Linux builds did not succeed")
+
+
+def main() -> None:
+    number = int(os.environ["PR_NUMBER"])
+    token = os.environ["GITHUB_TOKEN"]
+    pull = get_pull_request(number, token)
+    sha = pull["head"]["sha"]
+    try:
+        verify_pull_request(number, sha, token)
+    except PolicyError as error:
+        post_status(sha, "failure", str(error))
+        post_job_statuses(sha, "failure", str(error))
+        raise
+    post_status(sha, "pending", "Waiting for UE 5.6.1 Linux build", claim=True)
+    post_job_statuses(sha, "pending", "Waiting for UE 5.6.1 Linux build")
+    nonce = str(uuid.uuid4())
+    try:
+        trigger_circleci(number, sha, nonce)
+        succeeded = monitor(number, sha, nonce)
+    except Exception:
+        # Never print the webhook URL, which contains a trigger secret.
+        post_status(sha, "error", "Could not complete the CircleCI PR build")
+        post_job_statuses(sha, "error", "Could not complete the CircleCI PR build")
+        raise
+    if not succeeded:
+        raise RuntimeError("CircleCI PR build did not succeed")
+
+
+if __name__ == "__main__":
+    try:
+        modes = {"start": start_main, "watch": watch_main, "finish": finish_main}
+        if len(sys.argv) == 1:
+            main()
+        elif len(sys.argv) == 2 and sys.argv[1] in modes:
+            modes[sys.argv[1]]()
+        else:
+            raise ValueError("Usage: fork_pr_build_bot.py [start|watch|finish]")
+    except SupersededRun as error:
+        print(str(error), flush=True)
+        write_summary(["## Linux build superseded", str(error)])
+    except Exception as error:
+        print(f"Fork PR build bot failed: {type(error).__name__}: {error}", file=sys.stderr)
+        raise SystemExit(1) from None
