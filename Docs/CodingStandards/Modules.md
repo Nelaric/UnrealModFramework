@@ -6,6 +6,8 @@ English | [简体中文](Modules.zh-CN.md)
 
 The repository contains a development host project and two framework plugins. Each module has one responsibility, declares only the dependencies it uses, and keeps implementation details in `Private`. Public headers are contracts: they must compile when included on their own, and their `.Build.cs` dependencies must be public only when those headers require them. Circular module dependencies are forbidden.
 
+The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory.
+
 | Responsibility | Location | UE module type |
 | --- | --- | --- |
 | Game-side mod services | `Plugins/ModRuntime/Source/Game/ModRuntime/` | `Runtime` |

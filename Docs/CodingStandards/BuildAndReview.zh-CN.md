@@ -32,7 +32,7 @@
 
 ## 本地检查
 
-使用 `.github/workflows/quality.yml` 和 `.config/dotnet-tools.json` 中锁定的版本：
+在仓库根目录（与 `UnrealModFramework/` 工程目录同级）运行以下命令，使用 `.github/workflows/quality.yml` 和 `.config/dotnet-tools.json` 中锁定的版本：
 
 1. `python Scripts/check_text.py` 检查文本编码和换行符。
 2. `python Scripts/check_format.py` 检查 C++ 和 UE 构建脚本格式。运行前需安装锁定版本的 clang-format，并恢复本地 .NET 工具清单。
