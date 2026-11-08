@@ -1,0 +1,50 @@
+# Copyright (c) 2026 Nelaric Contributors
+name: API Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: api-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.API_PAGES_ENABLED == 'true'
+    name: Publish API documentation
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Doxygen 1.18.0
+        run: |
+          mkdir -p "$RUNNER_TEMP/doxygen"
+          curl -fsSL https://github.com/doxygen/doxygen/releases/download/Release_1_18_0/doxygen-1.18.0.linux.bin.tar.gz | tar -xz -C "$RUNNER_TEMP/doxygen"
+          doxygen_bin="$(find "$RUNNER_TEMP/doxygen" -type f -name doxygen | head -n 1)"
+          test -n "$doxygen_bin"
+          echo "$(dirname "$doxygen_bin")" >> "$GITHUB_PATH"
+      - name: Generate API documentation for publishing
+        run: python Scripts/run_doxygen.py --publish
+      - name: Arrange project documentation routes
+        run: |
+          mkdir -p .tools/pages/API
+          cp -a .tools/api-docs/html/. .tools/pages/API/
+          cp Docs/Hosting/project-index.html .tools/pages/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .tools/pages
+      - id: deployment
+        uses: actions/deploy-pages@v4

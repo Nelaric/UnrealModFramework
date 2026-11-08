@@ -28,3 +28,7 @@ CMakeLists.txt text eol=lf
 *.ini text eol=lf
 *.uproject text eol=lf
 *.uplugin text eol=lf
+
+# Documentation hosting templates use LF.
+*.html text eol=lf
+CNAME text eol=lf

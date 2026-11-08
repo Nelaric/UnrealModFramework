@@ -31,3 +31,9 @@ end_of_line = lf
 [LICENSE]
 charset = utf-8-bom
 end_of_line = crlf
+
+[*.html]
+end_of_line = lf
+
+[CNAME]
+end_of_line = lf
