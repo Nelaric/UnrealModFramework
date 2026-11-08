@@ -156,8 +156,33 @@ def find_pipeline(nonce: str) -> dict | None:
     return None
 
 
+def circleci_v3_status(attributes: dict) -> str:
+    """Normalize the v3 execution phase and terminal outcome."""
+    outcome = attributes.get("outcome") or attributes.get("current_outcome")
+    if outcome:
+        return {"succeeded": "success", "errored": "error"}.get(outcome, outcome)
+    return {"queued": "queued", "started": "running", "ended": "error"}.get(
+        attributes.get("phase"), "queued"
+    )
+
+
 def find_workflow(pipeline_id: str) -> dict | None:
-    result = request_json(f"https://circleci.com/api/v2/pipeline/{pipeline_id}/workflow")
+    try:
+        result = request_json(f"https://circleci.com/api/v2/pipeline/{pipeline_id}/workflow")
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        query = urllib.parse.urlencode({"filter[run_id]": pipeline_id, "page[limit]": 20})
+        result = request_json(f"https://circleci.com/api/v3/workflows?{query}")
+        for item in result.get("data", []):
+            attributes = item.get("attributes", {})
+            if attributes.get("name") == "fork_pr_linux_build":
+                return {
+                    "id": item["id"],
+                    "name": attributes["name"],
+                    "status": circleci_v3_status(attributes),
+                }
+        return None
     matching = [item for item in result.get("items", []) if item.get("name") == "fork_pr_linux_build"]
     if not matching:
         return None
@@ -169,14 +194,30 @@ def workflow_jobs(workflow_id: str) -> dict[str, dict]:
     page_token: str | None = None
     while True:
         query = f"?{urllib.parse.urlencode({'page-token': page_token})}" if page_token else ""
-        result = request_json(f"https://circleci.com/api/v2/workflow/{workflow_id}/job{query}")
+        try:
+            result = request_json(f"https://circleci.com/api/v2/workflow/{workflow_id}/job{query}")
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            query = urllib.parse.urlencode({"filter[workflow_id]": workflow_id, "page[limit]": 20})
+            result = request_json(f"https://circleci.com/api/v3/jobs?{query}")
+            for item in result.get("data", []):
+                attributes = item.get("attributes", {})
+                name = attributes.get("name")
+                if name in _JOB_CONTEXTS:
+                    jobs[name] = {
+                        "id": item["id"],
+                        "name": name,
+                        "status": circleci_v3_status(attributes),
+                        "job_number": attributes.get("number"),
+                    }
+            return jobs
         for job in result.get("items", []):
             if job.get("name") in _JOB_CONTEXTS:
                 jobs[job["name"]] = job
         page_token = result.get("next_page_token")
         if not page_token:
             return jobs
-
 
 def monitor(number: int, sha: str, nonce: str) -> bool:
     deadline = time.monotonic() + 55 * 60
