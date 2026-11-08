@@ -11,8 +11,8 @@ C++ 和 UE C# 构建脚本的块缩进使用制表符，制表符宽度为四个
 ## 命名与类型
 
 - 遵循所有适用的 Unreal 类型前缀及命名规则，包括按要求使用 `A`、`U`、`F`、`I` 和 `E`。这些类型前缀与可选的项目前缀相互独立。
-- 项目自有的非反射 C++ 类型和 API 放在 `Nelaric::` 命名空间下，必要时可增加领域子命名空间，例如 `Nelaric::FModId` 和 `Nelaric::IModService`。Unreal Header Tool 不支持将反射类型放入命名空间，因此反射类型声明在全局作用域。
-- `Nelaric::` 及其子命名空间内的类型不得带 `Nelaric` 项目前缀，例如使用 `Nelaric::FModId`，而非 `Nelaric::FNelaricModId`；保留 Unreal 必需的类型前缀。模块、文件、全局作用域类型和日志类别不强制使用 `Nelaric` 项目前缀，也不禁止使用。名称应清楚表达职责，相关声明、文件和引用应保持一致。
+- 项目自有的非反射 C++ 类型和 API 统一使用 `Mod::` 作为顶层命名空间，必要时可增加领域子命名空间，例如 `Mod::FModId` 和 `Mod::IModService`。Unreal Header Tool 不支持将反射类型放入命名空间，因此反射类型声明在全局作用域。
+- `Mod::` 及其子命名空间内的类型不得带 `Nelaric` 项目前缀，例如使用 `Mod::FModId`，而非 `Mod::FNelaricModId`；保留 Unreal 必需的类型前缀。模块、文件、全局作用域类型和日志类别不强制使用 `Nelaric` 项目前缀，也不禁止使用。名称应清楚表达职责，相关声明、文件和引用应保持一致。
 - 名称不得与已有引擎、第三方或项目名称冲突。可以通过项目前缀区分重名，例如 `UNelaricModContext` 和 `UNelaricModComponent` 可区分框架类型与 Unreal 的 `UObject` 和 `UActorComponent`。引入名称时应检查类型名、模块名和头文件名。
 - 模块和日志类别按所属领域一致命名。优先使用描述机制或职责的名称，而非某个游戏的具体规则。
 - 遵循 Epic 对标准库的指导。优先使用 UE 容器和字符串；除互操作代码外，避免使用标准库容器和字符串。其他标准库设施可在 Epic 允许且效果更好时使用。面向 UE 的跨模块 API 使用 UE 类型；对外原生模组 C ABI 使用固定宽度且兼容 C 的类型。不要在同一个 API 中混用 UE 与标准库约定。
