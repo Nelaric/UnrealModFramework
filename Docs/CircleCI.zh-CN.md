@@ -6,6 +6,10 @@
 
 [push 配置](../.circleci/config.yml)和[可信 PR 配置](../.circleci/pr-build.yml)都定义了两个并行的 Unreal Engine 5.6.1 Linux Job。`build_game_linux` 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。`build_editor_linux` 编译 `UnrealModFrameworkDevEditor`，包括 `ExportMetadata`、`BlueprintIntegration` 和 `ExportCodeGenerator`，再通过 UAT `BuildPlugin` 为 Linux 打包独立 `ModDevelopmentEditor` 插件。仓库没有 Server Target，也未配置包发布或 Editor 自动化测试步骤。
 
+## 已启用的 PR 接入
+
+仓库已设置 `CIRCLECI_PR_BUILDS_ENABLED=true`，当前触发端点保存在加密的 Actions Secret `CIRCLECI_PR_BUILD_WEBHOOK_URL` 中。`UnrealModFramework PR builds` 流水线使用 `.circleci/pr-build.yml`，配置和初始检出均固定为 `main`。下方步骤用于重建该接入。
+
 ## 常规 push 构建
 
 使用 CircleCI 的 `github/Nelaric/UnrealModFramework` GitHub OAuth 项目，配置与检出源均选择本仓库，配置路径为 `.circleci/config.yml`，触发器覆盖源仓库 push。在 CircleCI 项目环境变量中设置 `GHCR_USERNAME` 和 `GHCR_TOKEN`。令牌必须能够拉取 `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1`；不要把变量值写入 Git。
