@@ -4,7 +4,7 @@
 
 # CircleCI Linux 构建
 
-仓库的 [CircleCI 配置](../.circleci/config.yml)定义了两个并行的 UE 5.6.1 Linux 作业。`build_game_linux` 编译 `UnrealModFrameworkDev` Game Target 及启用的 `ModRuntime` 插件。`build_editor_linux` 编译包含 `ModRuntimeEditor` 和 `ModBlueprintIntegration` 的 `UnrealModFrameworkDevEditor`，随后用 UAT `BuildPlugin` 将独立的 `UnrealModFramework/SourcePlugins/ModDevelopmentEditor` 插件打包为 Linux 版本。仓库目前没有 Server Target。这些作业只验证构建，不运行 Editor 自动化测试，也不发布安装包。
+仓库的 [CircleCI 配置](../.circleci/config.yml)定义了两个并行的 UE 5.6.1 Linux 作业。`build_game_linux` 编译 `UnrealModFrameworkDev` Game Target 及启用的 `ModRuntime` 插件。`build_editor_linux` 编译包含 `RuntimeEditor` 和 `BlueprintIntegration` 的 `UnrealModFrameworkDevEditor`，随后用 UAT `BuildPlugin` 将独立的 `UnrealModFramework/SourcePlugins/ModDevelopmentEditor` 插件打包为 Linux 版本。仓库目前没有 Server Target。这些作业只验证构建，不运行 Editor 自动化测试，也不发布安装包。
 
 ## 项目接入状态
 

@@ -18,7 +18,7 @@
 #include "Widgets/Text/STextBlock.h"
 #include "WorkflowOrientedApp/WorkflowTabManager.h"
 
-#define LOCTEXT_NAMESPACE "ModBlueprintIntegration"
+#define LOCTEXT_NAMESPACE "BlueprintIntegration"
 
 namespace Mod::BlueprintIntegration
 {
@@ -111,7 +111,7 @@ bool OpenFallbackTab(const TWeakPtr<FBlueprintEditor> WeakEditor, const FName To
 }
 } // namespace
 
-class FModBlueprintIntegrationModule final : public IModuleInterface
+class FBlueprintIntegrationModule final : public IModuleInterface
 {
 public:
 	virtual void StartupModule() override
@@ -119,21 +119,21 @@ public:
 		FBlueprintEditorModule& BlueprintEditor =
 		    FModuleManager::LoadModuleChecked<FBlueprintEditorModule>(TEXT("Kismet"));
 		RegisterTabsHandle =
-		    BlueprintEditor.OnRegisterTabsForEditor().AddRaw(this, &FModBlueprintIntegrationModule::RegisterTabs);
+		    BlueprintEditor.OnRegisterTabsForEditor().AddRaw(this, &FBlueprintIntegrationModule::RegisterTabs);
 		RegisterLayoutHandle =
-		    BlueprintEditor.OnRegisterLayoutExtensions().AddRaw(this, &FModBlueprintIntegrationModule::ExtendLayout);
+		    BlueprintEditor.OnRegisterLayoutExtensions().AddRaw(this, &FBlueprintIntegrationModule::ExtendLayout);
 		IUMGEditorModule& WidgetEditor = FModuleManager::LoadModuleChecked<IUMGEditorModule>(TEXT("UMGEditor"));
 		RegisterWidgetTabsHandle =
-		    WidgetEditor.OnRegisterTabsForEditor().AddRaw(this, &FModBlueprintIntegrationModule::RegisterWidgetTabs);
+		    WidgetEditor.OnRegisterTabsForEditor().AddRaw(this, &FBlueprintIntegrationModule::RegisterWidgetTabs);
 		RegisterWidgetLayoutHandle =
-		    WidgetEditor.OnRegisterLayoutExtensions().AddRaw(this, &FModBlueprintIntegrationModule::ExtendWidgetLayout);
+		    WidgetEditor.OnRegisterLayoutExtensions().AddRaw(this, &FBlueprintIntegrationModule::ExtendWidgetLayout);
 		if (GEditor)
 		{
 			if (UAssetEditorSubsystem* AssetEditors = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
 			{
 				AssetEditorSubsystem = AssetEditors;
 				AssetOpenedHandle =
-				    AssetEditors->OnAssetOpenedInEditor().AddRaw(this, &FModBlueprintIntegrationModule::OnAssetOpened);
+				    AssetEditors->OnAssetOpenedInEditor().AddRaw(this, &FBlueprintIntegrationModule::OnAssetOpened);
 			}
 		}
 	}
@@ -227,6 +227,6 @@ private:
 
 } // namespace Mod::BlueprintIntegration
 
-IMPLEMENT_MODULE(Mod::BlueprintIntegration::FModBlueprintIntegrationModule, ModBlueprintIntegration);
+IMPLEMENT_MODULE(Mod::BlueprintIntegration::FBlueprintIntegrationModule, BlueprintIntegration);
 
 #undef LOCTEXT_NAMESPACE

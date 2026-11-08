@@ -4,7 +4,7 @@ English | [简体中文](CircleCI.zh-CN.md)
 
 # CircleCI Linux builds
 
-The repository's [CircleCI configuration](../.circleci/config.yml) defines two parallel UE 5.6.1 Linux jobs. `build_game_linux` compiles the `UnrealModFrameworkDev` Game target and its enabled `ModRuntime` plugin. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, including `ModRuntimeEditor` and `ModBlueprintIntegration`, then packages the independent `UnrealModFramework/SourcePlugins/ModDevelopmentEditor` plugin with UAT `BuildPlugin` for Linux. The repository has no Server target. The jobs validate builds but do not run Editor automation tests or publish packages.
+The repository's [CircleCI configuration](../.circleci/config.yml) defines two parallel UE 5.6.1 Linux jobs. `build_game_linux` compiles the `UnrealModFrameworkDev` Game target and its enabled `ModRuntime` plugin. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, including `RuntimeEditor` and `BlueprintIntegration`, then packages the independent `UnrealModFramework/SourcePlugins/ModDevelopmentEditor` plugin with UAT `BuildPlugin` for Linux. The repository has no Server target. The jobs validate builds but do not run Editor automation tests or publish packages.
 
 ## Project connection
 

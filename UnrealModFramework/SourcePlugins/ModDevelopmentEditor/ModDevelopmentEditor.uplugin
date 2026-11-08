@@ -11,7 +11,7 @@
 	"EnabledByDefault": false,
 	"Modules": [
 		{
-			"Name": "ModDevelopmentEditor",
+			"Name": "DevelopmentEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
 		}

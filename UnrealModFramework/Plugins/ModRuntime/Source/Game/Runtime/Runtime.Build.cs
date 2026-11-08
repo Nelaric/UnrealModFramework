@@ -1,9 +1,9 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 using UnrealBuildTool;
 
-public class ModRuntime : ModuleRules
+public class Runtime : ModuleRules
 {
-	public ModRuntime(ReadOnlyTargetRules Target)
+	public Runtime(ReadOnlyTargetRules Target)
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

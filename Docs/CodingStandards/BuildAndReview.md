@@ -23,7 +23,7 @@ Apply this rule to every new project-authored file and to existing project-autho
 ## Unreal build scripts
 
 - Apply CSharpier to `.Build.cs` and `.Target.cs`. It is as mandatory as clang-format for C++.
-- Keep module dependencies minimal and classify them as public or private according to the headers that need them. Do not put vendor SDK dependencies in ModRuntime.
+- Keep module dependencies minimal and classify them as public or private according to the headers that need them. Do not put vendor SDK dependencies in Runtime.
 - Target UE 5.6 and later. Before requesting review, build the development host Game and Editor targets with UE 5.6; build a Server target when one is introduced. CI should eventually cover the minimum and latest supported engine releases. The current GitHub Actions workflow checks text, formatting, naming, and API documentation; it does not claim to compile Unreal Engine targets.
 
 ## Automation tests
