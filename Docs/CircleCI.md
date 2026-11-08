@@ -4,7 +4,7 @@ English | [简体中文](CircleCI.zh-CN.md)
 
 # CircleCI Linux builds
 
-The repository's [CircleCI configuration](../.circleci/config.yml) defines two parallel UE 5.6.1 Linux jobs. `build_game_linux` compiles the `UnrealModFrameworkDev` Game target and its enabled `ModRuntime` plugin. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, including `ModRuntimeEditor`, then packages the independent `SourcePlugins/ModDevelopmentEditor` plugin with UAT `BuildPlugin` for Linux. The repository has no Server target or framework automation tests yet. The jobs validate builds; they do not publish packages.
+The repository's [CircleCI configuration](../.circleci/config.yml) defines two parallel UE 5.6.1 Linux jobs. `build_game_linux` compiles the `UnrealModFrameworkDev` Game target and its enabled `ModRuntime` plugin. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, including `ModRuntimeEditor` and `ModBlueprintIntegration`, then packages the independent `UnrealModFramework/SourcePlugins/ModDevelopmentEditor` plugin with UAT `BuildPlugin` for Linux. The repository has no Server target. The jobs validate builds but do not run Editor automation tests or publish packages.
 
 ## Project connection
 
@@ -14,4 +14,4 @@ If the CircleCI project is recreated, select the repository's committed configur
 
 The push trigger gives feedback for branches in the source repository and for `main`. The GitHub Actions [quality workflow](../.github/workflows/quality.yml) continues to run on pull requests. Fork PR builds that require the private UE image need a separate trusted trigger design; project secrets must not be passed directly to fork jobs.
 
-The container runs without network access after the private engine image is pulled. Each job copies the checkout to a writable temporary directory before compiling because the UE container user must write generated files. The Editor job packages the authoring plugin into that temporary directory and does not upload the package as an artifact.
+The container runs without network access after the private engine image is pulled. Each job copies the UE project from `UnrealModFramework/` into a writable temporary directory before compiling because the UE container user must write generated files. The staged project remains at `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject` in the container. The Editor job packages the authoring plugin into that temporary directory and does not upload the package as an artifact.

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = ROOT / "UnrealModFramework"
 BOM = b"\xef\xbb\xbf"
 CRLF_SUFFIXES = {".md", ".h", ".hpp", ".cpp", ".cc", ".cxx", ".cs"}
 LF_SUFFIXES = {".json", ".yml", ".yaml", ".py", ".ini", ".uproject", ".uplugin"}

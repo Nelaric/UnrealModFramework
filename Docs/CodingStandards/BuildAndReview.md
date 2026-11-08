@@ -32,7 +32,7 @@ Each independent framework capability must have automated tests that exercise it
 
 ## Local checks
 
-Use the versions fixed by `.github/workflows/quality.yml` and `.config/dotnet-tools.json`:
+Run these commands from the repository root, alongside the `UnrealModFramework/` project directory. Use the versions fixed by `.github/workflows/quality.yml` and `.config/dotnet-tools.json`:
 
 1. `python Scripts/check_text.py` checks text encoding and line endings.
 2. `python Scripts/check_format.py` checks C++ and UE build-script formatting. Install the pinned clang-format and restore the local .NET tool manifest first.
