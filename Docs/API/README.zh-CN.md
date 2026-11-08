@@ -20,4 +20,4 @@ UnrealModFramework 以 Unreal Engine 5.6 为开发基线，提供可迁移的游
 
 `Scripts/run_doxygen.py` 会把当前项目自有的所有 `Public` 头文件目录加入输入，与本入口和编码规范一起生成文档。没有注释的框架集成方法保持隐藏。普通构建在出现文档警告时失败；发布模式在审查后使用 `--publish`。
 
-项目配置、命令行工具用法、贡献模板与 CI 配置见[源码仓库](https://github.com/Nelaric/UnrealModFramework)。维护者启用 GitHub Pages 后，配置的发布路径为 [UnrealModFramework/API](https://docs.nelaric.com/UnrealModFramework/API/)。
+项目配置、命令行工具用法、贡献模板与 CI 配置见[源码仓库](https://github.com/Nelaric/UnrealModFramework)。已发布的文档可通过 HTTPS 访问 [UnrealModFramework/API](https://docs.nelaric.com/UnrealModFramework/API/)。经过审查的更新合入 `main` 后会自动发布。

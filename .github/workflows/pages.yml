@@ -31,10 +31,18 @@ jobs:
       - name: Install Doxygen 1.18.0
         run: |
           mkdir -p "$RUNNER_TEMP/doxygen"
-          curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
+          if ! curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
             --connect-timeout 15 --max-time 180 \
-            https://github.com/doxygen/doxygen/releases/download/Release_1_18_0/doxygen-1.18.0.linux.bin.tar.gz \
-            -o "$RUNNER_TEMP/doxygen.tar.gz"
+            https://www.doxygen.nl/files/doxygen-1.18.0.linux.bin.tar.gz \
+            -o "$RUNNER_TEMP/doxygen.tar.gz"; then
+            curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
+              --connect-timeout 15 --max-time 180 \
+              https://github.com/doxygen/doxygen/releases/download/Release_1_18_0/doxygen-1.18.0.linux.bin.tar.gz \
+              -o "$RUNNER_TEMP/doxygen.tar.gz"
+          fi
+          printf '%s  %s\n' \
+            '14fa81bdc34171edb5f1f02b1d60e74802f0439b77fa44e592565d517d72df90' \
+            "$RUNNER_TEMP/doxygen.tar.gz" | sha256sum --check --status
           tar -xzf "$RUNNER_TEMP/doxygen.tar.gz" -C "$RUNNER_TEMP/doxygen"
           doxygen_bin="$(find "$RUNNER_TEMP/doxygen" -type f -name doxygen | head -n 1)"
           test -n "$doxygen_bin"

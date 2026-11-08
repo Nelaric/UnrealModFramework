@@ -20,4 +20,4 @@ UnrealModFramework develops a portable game-side mod runtime and an independentl
 
 `Scripts/run_doxygen.py` includes every current project-owned `Public` header directory alongside this entry page and the coding standards. Undocumented framework-integration methods remain hidden. The normal build fails on documentation warnings; the publishing mode uses `--publish` after review.
 
-For project setup, command-line tool usage, contribution templates, and CI configuration, see the [source repository](https://github.com/Nelaric/UnrealModFramework). The configured publication route is [UnrealModFramework/API](https://docs.nelaric.com/UnrealModFramework/API/) once maintainers enable GitHub Pages.
+For project setup, command-line tool usage, contribution templates, and CI configuration, see the [source repository](https://github.com/Nelaric/UnrealModFramework). The published documentation is available at [UnrealModFramework/API](https://docs.nelaric.com/UnrealModFramework/API/) over HTTPS. Approved updates publish automatically after they reach `main`.
