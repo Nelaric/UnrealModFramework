@@ -16,8 +16,14 @@ indent_style = tab
 indent_size = 4
 tab_width = 4
 
-[*.{py,json,yml,yaml,ini,uproject,uplugin}]
+[*.{py,json,yml,yaml,ini,uproject,uplugin,cmake,sh}]
 end_of_line = lf
+
+[CMakeLists.txt]
+end_of_line = lf
+
+[*.bat]
+end_of_line = crlf
 
 [Doxyfile]
 end_of_line = lf

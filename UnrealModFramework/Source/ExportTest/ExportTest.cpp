@@ -1,4 +1,4 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "Modules/ModuleManager.h"
 
-IMPLEMENT_MODULE(FDefaultModuleImpl, RuntimeEditor);
+IMPLEMENT_PRIMARY_GAME_MODULE(FDefaultGameModuleImpl, ExportTest, "ExportTest");

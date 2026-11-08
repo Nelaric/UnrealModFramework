@@ -17,7 +17,7 @@ public class BlueprintIntegration : ModuleRules
 				"GraphEditor",
 				"Kismet",
 				"KismetCompiler",
-				"Runtime",
+				"ExportMetadata",
 				"Slate",
 				"SlateCore",
 				"ToolWidgets",

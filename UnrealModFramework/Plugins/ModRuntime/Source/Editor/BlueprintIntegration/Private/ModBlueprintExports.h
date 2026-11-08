@@ -28,7 +28,7 @@ public:
 	FText Description;
 
 	UPROPERTY(EditAnywhere, Category = "Mod Export")
-	FString ContractVersion;
+	FString ExportVersion;
 
 	FName GetExportName() const;
 	FText GetExportDisplayName() const;
@@ -54,7 +54,7 @@ class UModBlueprintApiExport final : public UModBlueprintExportEntry
 
 public:
 	UPROPERTY(EditAnywhere, Category = "API", meta = (GetOptions = "GetApiIds"))
-	FName ContractId;
+	FName ExportId;
 
 	UPROPERTY(EditAnywhere, Category = "API", meta = (GetOptions = "GetScopes"))
 	FString Scope;
@@ -95,7 +95,7 @@ class UModBlueprintEventExport final : public UModBlueprintExportEntry
 
 public:
 	UPROPERTY(EditAnywhere, Category = "Event", meta = (GetOptions = "GetEventIds"))
-	FName ContractId;
+	FName ExportId;
 
 	UPROPERTY(EditAnywhere, Category = "Event")
 	TObjectPtr<UScriptStruct> PayloadType;
@@ -132,7 +132,7 @@ class UModBlueprintHookExport final : public UModBlueprintExportEntry
 
 public:
 	UPROPERTY(EditAnywhere, Category = "Hook", meta = (GetOptions = "GetHookIds"))
-	FName ContractId;
+	FName ExportId;
 
 	UPROPERTY(EditAnywhere, Category = "Hook")
 	TObjectPtr<UScriptStruct> ContextType;

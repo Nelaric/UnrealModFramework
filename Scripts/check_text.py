@@ -14,7 +14,9 @@ BOM = b"\xef\xbb\xbf"
 CRLF_SUFFIXES = {".md", ".h", ".hpp", ".cpp", ".cc", ".cxx", ".cs"}
 LF_SUFFIXES = {".json", ".yml", ".yaml", ".py", ".ini", ".uproject", ".uplugin"}
 LF_NAMES = {".gitattributes", ".gitignore", ".editorconfig", ".clang-format", ".csharpierrc", "Doxyfile"}
-VENDORED_ROOTS: set[Path] = set()
+VENDORED_ROOTS: set[Path] = {
+    Path("UnrealModFramework/Plugins/ModRuntime/Tools/ThirdParty/nlohmann"),
+}
 
 
 def repository_files() -> list[Path]:

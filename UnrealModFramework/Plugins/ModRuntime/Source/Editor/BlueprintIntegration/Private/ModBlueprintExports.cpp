@@ -2,7 +2,7 @@
 #include "ModBlueprintExports.h"
 
 #include "ModBlueprintExportGraphSchema.h"
-#include "ModContractOptions.h"
+#include "ModExportMetadataOptions.h"
 
 #include "EdGraph/EdGraph.h"
 #include "EdGraphUtilities.h"
@@ -405,47 +405,47 @@ void UModBlueprintExportEntry::PostEditChangeProperty(FPropertyChangedEvent& Pro
 
 TArray<FString> UModBlueprintApiExport::GetApiIds() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::ApiId);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiId);
 }
 
 TArray<FString> UModBlueprintApiExport::GetScopes() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::ApiScope);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiScope);
 }
 
 TArray<FString> UModBlueprintApiExport::GetThreads() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::ApiThread);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiThread);
 }
 
 TArray<FString> UModBlueprintApiExport::GetFailureRules() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::ApiFailureRule);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiFailureRule);
 }
 
 TArray<FString> UModBlueprintApiExport::GetPermissions() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::ApiPermission);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiPermission);
 }
 
 TArray<FString> UModBlueprintEventExport::GetEventIds() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::EventId);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::EventId);
 }
 
 TArray<FString> UModBlueprintEventExport::GetSourceScopes() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::EventSourceScope);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::EventSourceScope);
 }
 
 TArray<FString> UModBlueprintEventExport::GetPublishRules() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::EventPublishRule);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::EventPublishRule);
 }
 
 TArray<FString> UModBlueprintHookExport::GetHookIds() const
 {
-	return Mod::Contract::FOptions::Load(Mod::Contract::EOptionKind::ApiId);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiId);
 }
 
 UModBlueprintExports* UModBlueprintExports::Find(const UBlueprint* Blueprint)
@@ -519,7 +519,7 @@ UModBlueprintApiExport* UModBlueprintExports::AddApi(UBlueprint* Blueprint, cons
 	UModBlueprintApiExport* Entry = NewObject<UModBlueprintApiExport>(this, NAME_None, RF_Transactional);
 	Entry->EntryGuid = FGuid::NewGuid();
 	Entry->DisplayName = NormalizeDisplayName(Entry->GetClass(), DisplayName);
-	Entry->ContractVersion = TEXT("1.0.0");
+	Entry->ExportVersion = TEXT("1.0.0");
 	Entry->ImplementationGraph = CreateImplementationGraph(Blueprint, Entry);
 	if (!Entry->ImplementationGraph)
 	{
@@ -544,7 +544,7 @@ UModBlueprintEventExport* UModBlueprintExports::AddEvent(UBlueprint* Blueprint, 
 	UModBlueprintEventExport* Entry = NewObject<UModBlueprintEventExport>(this, NAME_None, RF_Transactional);
 	Entry->EntryGuid = FGuid::NewGuid();
 	Entry->DisplayName = NormalizeDisplayName(Entry->GetClass(), DisplayName);
-	Entry->ContractVersion = TEXT("1.0.0");
+	Entry->ExportVersion = TEXT("1.0.0");
 	Events.Add(Entry);
 	FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
 	RefreshSearchIndex(Blueprint);
@@ -563,7 +563,7 @@ UModBlueprintHookExport* UModBlueprintExports::AddHook(UBlueprint* Blueprint, co
 	UModBlueprintHookExport* Entry = NewObject<UModBlueprintHookExport>(this, NAME_None, RF_Transactional);
 	Entry->EntryGuid = FGuid::NewGuid();
 	Entry->DisplayName = NormalizeDisplayName(Entry->GetClass(), DisplayName);
-	Entry->ContractVersion = TEXT("1.0.0");
+	Entry->ExportVersion = TEXT("1.0.0");
 	Entry->AllowedStages.Add(EModBlueprintHookStage::Observe);
 	Entry->OriginalGraph = CreateImplementationGraph(Blueprint, Entry);
 	if (!Entry->OriginalGraph)
@@ -673,7 +673,7 @@ UModBlueprintExports::FSearchData UModBlueprintExports::HandleGatherSearchData(c
 				FSearchData& Item = Group->SearchSubList.AddDefaulted_GetRef();
 				Item.Datas.Emplace(FFindInBlueprintSearchTags::FiB_Name, Entry->GetExportDisplayName());
 				Item.Datas.Emplace(FFindInBlueprintSearchTags::FiB_Tooltip, Entry->GetExportTooltip());
-				Item.Datas.Emplace(LOCTEXT("ContractIdSearch", "契约 ID"), FText::FromName(Entry->ContractId));
+				Item.Datas.Emplace(LOCTEXT("ExportIdSearch", "导出 ID"), FText::FromName(Entry->ExportId));
 			}
 		}
 		Data.SearchArrayDatas.Add(MoveTemp(Group));

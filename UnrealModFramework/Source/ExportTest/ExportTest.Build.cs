@@ -1,9 +1,9 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 using UnrealBuildTool;
 
-public class UnrealModFrameworkDev : ModuleRules
+public class ExportTest : ModuleRules
 {
-	public UnrealModFrameworkDev(ReadOnlyTargetRules Target)
+	public ExportTest(ReadOnlyTargetRules Target)
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

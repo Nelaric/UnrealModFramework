@@ -11,10 +11,8 @@ Paths below are relative to the repository root. The UE project lives in `Unreal
 | Path | Purpose |
 | --- | --- |
 | `UnrealModFramework/UnrealModFrameworkDev.uproject` | Development host project |
-| `UnrealModFramework/Plugins/ModRuntime/` | Game-side source plugin; `Source/Game/` and `Source/Editor/` group its modules by target |
+| `UnrealModFramework/Plugins/ModRuntime/` | Game-side source plugin; `Source/Runtime/` and `Source/Editor/` group its modules by target |
 | `UnrealModFramework/SourcePlugins/ModDevelopmentEditor/` | Independently built authoring plugin |
-| `UnrealModFrameworkTool/ModHeaderTool/` | ModHeaderTool tool directory |
-| `UnrealModFrameworkTool/ModBuildTool/` | ModBuildTool tool directory |
 | `Docs/CodingStandards/` | Project coding and contribution standards |
 | `.circleci/config.yml` | UE 5.6.1 Linux build configuration |
 | `Scripts/` | Local quality checks |

@@ -1,5 +1,5 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-#include "ModContractTags.h"
+#include "ModExportMetadataTags.h"
 
 namespace
 {

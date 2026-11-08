@@ -1,14 +1,14 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-/** @file ModContractTags.h */
+/** @file ModExportMetadataTags.h */
 #pragma once
 
 #include "GameplayTagContainer.h"
 
-#include "ModContractTags.generated.h"
+#include "ModExportMetadataTags.generated.h"
 
 /// A typed API ID backed by the global GameplayTags dictionary.
 USTRUCT(BlueprintType)
-struct RUNTIME_API FModApiTag : public FGameplayTag
+struct EXPORTMETADATA_API FModApiTag : public FGameplayTag
 {
 	GENERATED_BODY()
 
@@ -52,7 +52,7 @@ template <> struct TStructOpsTypeTraits<FModApiTag> : public TStructOpsTypeTrait
 
 /// A typed Event ID backed by the global GameplayTags dictionary.
 USTRUCT(BlueprintType)
-struct RUNTIME_API FModEventTag : public FGameplayTag
+struct EXPORTMETADATA_API FModEventTag : public FGameplayTag
 {
 	GENERATED_BODY()
 
@@ -96,7 +96,7 @@ template <> struct TStructOpsTypeTraits<FModEventTag> : public TStructOpsTypeTra
 
 /// A typed container for API IDs from the global GameplayTags dictionary.
 USTRUCT(BlueprintType)
-struct RUNTIME_API FModApiTagContainer : public FGameplayTagContainer
+struct EXPORTMETADATA_API FModApiTagContainer : public FGameplayTagContainer
 {
 	GENERATED_BODY()
 
@@ -137,7 +137,7 @@ template <> struct TStructOpsTypeTraits<FModApiTagContainer> : public TStructOps
 
 /// A typed container for Event IDs from the global GameplayTags dictionary.
 USTRUCT(BlueprintType)
-struct RUNTIME_API FModEventTagContainer : public FGameplayTagContainer
+struct EXPORTMETADATA_API FModEventTagContainer : public FGameplayTagContainer
 {
 	GENERATED_BODY()
 
