@@ -6,6 +6,7 @@ DerivedDataCache/
 Intermediate/
 Saved/
 /Dist/
+/UnrealModFramework/Dist/
 
 # Generated API documentation and local tooling outputs
 /.tools/
@@ -77,5 +78,5 @@ Desktop.ini
 *~
 
 # Local Unreal Engine user configuration
-/Config/UserEngine.ini
-/Config/DefaultEditorPerProjectUserSettings.ini
+/UnrealModFramework/Config/UserEngine.ini
+/UnrealModFramework/Config/DefaultEditorPerProjectUserSettings.ini

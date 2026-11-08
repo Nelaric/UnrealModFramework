@@ -21,7 +21,7 @@ commands:
           command: |
             set -euo pipefail
             project_dir="$(mktemp -d)"
-            cp -a . "$project_dir/UnrealModFramework"
+            cp -a UnrealModFramework "$project_dir/UnrealModFramework"
             chmod -R a+rwX "$project_dir"
             printf 'export UE_PROJECT_DIR=%q\n' "$project_dir" >> "$BASH_ENV"
   compile_target:

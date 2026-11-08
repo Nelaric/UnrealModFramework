@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 import sys
 
-from check_text import ROOT, repository_files
+from check_text import PROJECT_ROOT, ROOT, repository_files
 
 MAX_CONTENT_LENGTH = 75
 MAX_TRAILING_LENGTH = 25
@@ -153,7 +153,9 @@ def project_cpp_files():
     for path in repository_files():
         if not path.is_file() or path.suffix.lower() not in CXX_SUFFIXES:
             continue
-        parts = path.relative_to(ROOT).parts
+        if not path.is_relative_to(PROJECT_ROOT):
+            continue
+        parts = path.relative_to(PROJECT_ROOT).parts
         if "Source" in parts and (parts[0] == "Plugins" or parts[0] == "SourcePlugins" or parts[0] == "Source"):
             yield path
 
