@@ -6,7 +6,8 @@ public class ExportTest : ModuleRules
 	public ExportTest(ReadOnlyTargetRules Target)
 		: base(Target)
 	{
-		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-		PrivateDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine" });
+		PrivateDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ExportMetadata", "ModApi" });
+		PrivateIncludePaths.Add(ModuleDirectory);
+		ExportMetadata.ConfigureHost(this, Target);
 	}
 }

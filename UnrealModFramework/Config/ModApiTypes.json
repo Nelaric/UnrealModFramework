@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "types": {
+    "AGameCharacter": {
+      "typeId": "game.character",
+      "scope": "World"
+    },
+    "UGameLocalPlayerApi": {
+      "typeId": "game.local_player_api",
+      "scope": "Player"
+    }
+  }
+}

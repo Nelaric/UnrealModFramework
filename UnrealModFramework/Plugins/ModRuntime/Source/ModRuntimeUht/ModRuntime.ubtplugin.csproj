@@ -1,0 +1,46 @@
+<!-- Copyright (c) 2026 Nelaric Contributors -->
+<Project Sdk="Microsoft.NET.Sdk">
+	<Import Project="ModRuntime.ubtplugin.csproj.props" Condition="Exists('ModRuntime.ubtplugin.csproj.props')" />
+	<Import
+		Project="$(EngineDir)/Source/Programs/Shared/UnrealEngine.csproj.props"
+		Condition="Exists('$(EngineDir)/Source/Programs/Shared/UnrealEngine.csproj.props')"
+	/>
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<Configurations>Debug;Release;Development</Configurations>
+		<Configuration Condition="'$(Configuration)' == ''">Development</Configuration>
+		<OutputType>Library</OutputType>
+		<AssemblyName>ModRuntime.Uht</AssemblyName>
+		<RootNamespace>Mod.Uht</RootNamespace>
+		<OutputPath>../../Binaries/DotNET/UnrealBuildTool/Plugins/ModRuntime/</OutputPath>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+		<Nullable>enable</Nullable>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+	</PropertyGroup>
+	<ItemGroup>
+		<Reference Include="EpicGames.Build">
+			<HintPath>$(EngineDir)/Binaries/DotNET/UnrealBuildTool/EpicGames.Build.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="EpicGames.Core">
+			<HintPath>$(EngineDir)/Binaries/DotNET/UnrealBuildTool/EpicGames.Core.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="EpicGames.UHT">
+			<HintPath>$(EngineDir)/Binaries/DotNET/UnrealBuildTool/EpicGames.UHT.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Microsoft.Extensions.Logging.Abstractions">
+			<HintPath>$(EngineDir)/Binaries/DotNET/UnrealBuildTool/Microsoft.Extensions.Logging.Abstractions.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
+	<Target Name="RequireUnrealEngine" BeforeTargets="PrepareForBuild">
+		<Error
+			Condition="!Exists('$(EngineDir)/Binaries/DotNET/UnrealBuildTool/EpicGames.UHT.dll')"
+			Text="Build through UBT, or set EngineDir to the UE 5.6 Engine directory."
+		/>
+	</Target>
+</Project>
