@@ -21,6 +21,12 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "ModLoader",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [ "Win64", "Linux", "Mac" ]
+		},
+		{
 			"Name": "BlueprintIntegration",
 			"Type": "Editor",
 			"LoadingPhase": "PostEngineInit"

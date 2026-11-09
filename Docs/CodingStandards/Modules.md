@@ -6,12 +6,13 @@ English | [简体中文](Modules.zh-CN.md)
 
 The repository contains a development host project and two framework plugins. Each module has one responsibility, declares only the dependencies it uses, and keeps implementation details in `Private`. Public headers are contracts: they must compile when included on their own, and their `.Build.cs` dependencies must be public only when those headers require them. Circular module dependencies are forbidden.
 
-The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory. The `ModRuntime` plugin contains `ExportMetadata`, `ModApi`, `BlueprintIntegration`, and `ExportCodeGenerator`; the `ModDevelopmentSDKEditor` plugin contains `DevelopmentEditor`.
+The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory. The `ModRuntime` plugin contains `ExportMetadata`, `ModApi`, `ModLoader`, `BlueprintIntegration`, and `ExportCodeGenerator`. The `ModDevelopmentSDKEditor` plugin contains `DevelopmentEditor`.
 
 | Responsibility | Location | UE module type |
 | --- | --- | --- |
 | Export identifiers, containers, and configuration choices | `Plugins/ModRuntime/Source/Runtime/ExportMetadata/` | `Runtime` |
 | Generated API results, scopes, bindings, permissions, and revocation | `Plugins/ModRuntime/Source/Runtime/ModApi/` | `Runtime` |
+| Mod package loader | `Plugins/ModRuntime/Source/Runtime/ModLoader/` | `Runtime` |
 | Blueprint integration | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
 | Export code generation | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
 | Independent authoring tools | `SourcePlugins/ModDevelopmentSDKEditor/Source/DevelopmentEditor/` | `Editor` |
@@ -54,6 +55,35 @@ The Blueprint extension contributes API, Event, and Hook names, tooltips, and ex
 Keep native mod ABI types separate from UE-facing public APIs. UE-facing C++ contracts use UE types. The external C ABI uses fixed-width fields, explicit lengths, opaque handles, and documented ownership because UE object and C++ ABI layouts are not portable across independently built binaries.
 
 New modules must document their responsibility, direct dependencies, supported targets, and why an existing module cannot own the capability. Add optional integrations as separate modules or plugins. Do not introduce a dependency merely to make a missing include compile.
+
+## Mod loader
+
+`ModLoader` discovers, validates, extracts, and mounts v1 `.mod` content and forwards results to game sessions. Its public dependencies are `Core`, `CoreUObject`, and `Engine`. Its private dependencies are `Json`, `PakFile`, `AssetRegistry`, `RenderCore`, and the engine's OpenSSL library. Editor targets also depend privately on `UnrealEd` for PIE lifetime and package release. The plugin descriptor enables the module for Win64, Linux, and Mac Game and Editor targets. Mounting requires a matching Pak or IoStore backend. The loader is independent of API binding, export metadata, and the authoring editor.
+
+After engine initialization, game-thread code can call `Mod::Loader::IModLoaderModule::Get().LoadPackage(Path, Policy)` or `LoadDirectory(Directory, Policy)`. C++ consumers declare a `ModLoader` dependency in their module rules. These calls prepare resources synchronously and belong before gameplay. Successful results list the mounted long package names for asset loading.
+
+Host C++ can subscribe through `OnLoadCompleted()`. Each startup or manual operation broadcasts its origin, input path, and `FLoadResult` entries. An empty scan has no entries. A scan-level failure returns one entry with `Error` and `Detail`. Callbacks run on the game thread. Reentrant and wrong-thread completions are deferred.
+
+Add these settings to the host's `Config/DefaultGame.ini` to scan top-level `.mod` files in `Saved/Mods` at startup. Automatic loading is disabled by default.
+
+```ini
+[ModLoader]
+bLoadAtStartup=True
+GameId=YourGame
+BaseReleaseVersion=1.0.0
+BaseRegistrySha256=<SHA-256 of the base release AssetRegistry.bin>
+Backend=IoStore
++TrustedPackageSha256=<SHA-256 of an approved complete .mod file>
+PreparationTimeoutSeconds=120
+```
+
+Use the game and base release values supplied to the authoring tool, and select the backend used by the game release. Add a digest for each approved package from the `sha256` field in its build result. The loader also verifies the archive format, target platform, UE build, cook receipt, and payload digests.
+
+Payloads live in `Saved/ModCache/<archive SHA-256>` and are rechecked before reuse. A mount retains its cooked package root and admits one version of a mod ID at a time. In a cooked game, containers, package roots, and shader libraries remain active until process exit. This version accepts unencrypted content in its own package root and can append its cooked asset registry when present.
+
+On Windows, the host editor uses the same `[ModLoader]` settings and `Saved/Mods` directory at PIE startup. Enable **Allow Cooked Content in the Editor** under **Project Settings → Engine → Cooker**. Launch with `-UsePaks` for `Backend=Pak` or `-UsePaks -UseIoStore` for `Backend=IoStore`. For unversioned cooked assets, set `s.AllowUnversionedContentInEditor=1` in the `[ConsoleVariables]` section of `Config/DefaultEngine.ini`.
+
+PIE worlds in the same process share the mounted packages and own separate Mod instances. Each instance receives the startup results when its PIE map is ready. At the end of PIE, the loader stops delivering session results, releases loaded packages after world teardown, then unmounts the containers and unregisters their package roots. If an editor object still references a package, the loader reports it and retains the mount until cleanup can succeed.
 
 ## Framework-only integration
 
