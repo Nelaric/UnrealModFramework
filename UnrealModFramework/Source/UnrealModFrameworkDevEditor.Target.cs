@@ -10,5 +10,6 @@ public class UnrealModFrameworkDevEditorTarget : TargetRules
 		DefaultBuildSettings = BuildSettingsVersion.V5;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_6;
 		ExtraModuleNames.Add("ExportTest");
+		ExportMetadata.ConfigureTarget(this);
 	}
 }

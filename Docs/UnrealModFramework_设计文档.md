@@ -2,13 +2,15 @@
 
 # UnrealModFramework 技术设计
 
-> 状态：设计草案 v0.4（声明前导出标记、MHT/MBT 构建前端、静态投影与 SDK Bundle 交付）\
+> 状态：设计草案 v0.5（MHT 导出语义与生成、原生 UBT 构建、MBT 产物管理及生成清单）\
 > 基线：UE 5.6、Windows Win64；其他引擎版本和平台按兼容性矩阵单独验证\
 > 目标读者：框架开发者、接入游戏的开发者、模组工具开发者
 
 游戏端的模块、契约、直接调用、作用域、加载和验收细节见[游戏端详细设计](UnrealModFramework_游戏端详细设计.md)。游戏侧细化决策以该文档为准。
 
-本设计描述目标能力，不代表仓库中的插件骨架已经实现这些能力。架构的执行链为：**游戏显式声明并接入扩展点 → MBT 准备真实 Target 编译上下文与 UHT 阶段 → MHT 将声明标记关联 C++ AST，并汇入蓝图声明 IR → 构建期确定完整类型闭包、签名投影及转换规则 → 在所属模块生成宿主连接，生成公共 SDK 与 Editor 适配 → 分目标编译并交付同批 SDK Bundle → 运行时经类型化绑定执行生成代码，按契约保留 UE 虚调用和蓝图覆盖**。自动生成不能代替游戏业务代码中的 Hook 调用点、API 实例提供者或 Event 发布者。MHT、MBT 及本文命令是拟定的项目工具，不是引擎已有功能。
+本设计描述目标能力，不代表仓库已经实现这些能力。架构的执行链为：**游戏显式声明并接入扩展点 → 使用原生 UE Build 入口并取得真实 Target 上下文 → UHT 通过 Exporter 适配器调用 MHT → MHT 分析声明并生成宿主连接、公共声明、验证代码与生成清单 → MBT 按显式编译单元独立编译并创建宿主库 → UBT 编译 UE 模块自身代码并链接所属宿主库 → 后续工具核对产物并组织 SDK → 运行时经类型化绑定执行生成代码**。具体阶段时序须按目标构建组合验收。自动生成不能代替游戏业务代码中的 Hook 调用点、API 实例提供者或 Event 发布者。当前 MHT 已有基于 libclang 的同步 UObject API 生成后端，MBT 已有独立宿主库编译和校验，C# UHT 适配器已在 UE 5.6 Win64 MSVC 的 Development Editor/Game 组合接通；完整类型闭包、Event/Hook、通用 UBT 动作图和其他平台自动接入仍需后续实现。
+
+职责固定为：**MHT 负责“导出什么、怎么调用、生成什么代码”；MBT 按生成清单独立编译宿主实现、创建静态库并验证产物；UBT 编译 UE 模块自身代码并将宿主库链接到所属二进制。** MHT 的宿主实现不进入 UBT 的 C++ 编译列表，不能通过游戏 `.cpp` 包含生成实现来接入。
 
 ## 1. 目标与边界
 
@@ -45,17 +47,18 @@
 | 组件 | 职责 | 交付方式 |
 | --- | --- | --- |
 | `ExportMetadata` | 导出标识、容器与配置选项；其余运行时服务按具体功能扩展 | 游戏工程中的源码插件 |
-| `ExportCodeGenerator` | 为声明导出、反射核对和代码生成集成预留的模块，目前为骨架 | 随 ModRuntime 源码插件编译，仅 Editor Target 加载 |
+| `ExportCodeGenerator` | 当前提供导出标记和配置选项 Commandlet；后续承载 Editor 声明导出及生成集成 | 随 ModRuntime 源码插件编译，仅 Editor Target 加载 |
 | `BlueprintIntegration` | “蓝图Mod导出”面板、蓝图内的独立 API/Event/Hook 声明、接入节点与编译校验 | 随 ModRuntime 源码插件编译，仅 Editor Target 加载 |
-| `ModHeaderTool`（MHT） | 词法标记与 AST 关联、统一 IR、类型闭包、投影、具体连接和验证代码生成 | 独立构建工具，建议 C++ 与 Clang LibTooling |
-| `ModBuildTool`（MBT） | 实际 Target 上下文、UHT 阶段屏障、生成/编译 DAG、缓存与发布编排 | 独立 C#/.NET 工具，调用 UBT/UAT 与目标编译器 |
+| `ModHeaderTool`（MHT） | 导出宏、真实类型与成员签名、契约校验、完整类型闭包、投影、调用/转换/ABI/验证代码及生成清单 | 独立 C++ 工具；通过 C# UHT Exporter 适配器接入，完整 C++ 分析可使用 Clang |
+| `ModBuildTool`（MBT） | 实际 Target 与工具链识别、构建准备、生成输入与缓存管理、SDK/二进制兼容核对、产物收集和发布 | 独立构建管理工具；保留仓库现有 CMake/C++ 工具布局，通过 UBT 构建步骤接入 |
+| `ModSDKTool`（MST） | SDK 工具工程骨架；具体 SDK 操作待实现 | 独立 CMake/C++20 可执行工具，接入统一工具构建入口 |
 | `DevelopmentEditor` | 模组工程的创作界面、SDK 浏览、Cook/打包、包检查、预览与发布工具 | 单独构建的编辑器二进制插件 |
 | `ModProtocol` | Export Schema、包格式、Manifest、内容注册表、IPC 消息和 C ABI 版本定义 | 单一版本化源定义，构建时复制到各独立交付物 |
 | 游戏 Mod SDK Bundle | 公共 GameModSDK、受限视图、反射类型、契约、链接/模块元数据、Cook Profile 与能力报告 | 同批生成、按 Game/Editor 等目标构建，原子发布 |
 | `GameModSDKEditor` | 消费公开 SDK 的游戏专属节点、注册与制作编辑器适配 | Editor 模块，使用 SDK Bundle 编译并打包 |
 | `.mod` | Manifest、原生 DLL、Cooked 容器、Shader 产物、注册表、索引 | 单文件分发；运行时可提取到受控缓存 |
 
-`DevelopmentEditor` 不能在 UBT 构建关系上依赖某个游戏工程中 ModRuntime 插件的运行时模块。它通过共享协议编译，并在预览时使用协议桥接或 IPC。游戏特有的创作功能来自游戏 Mod SDK，而非从任意已安装游戏中反向推导。制作模块名为 `DevelopmentEditor`，所属插件名为 `ModDevelopmentEditor`；`GameModSDKEditor` 是游戏专属 SDK 包中的 Editor 适配模块。
+`DevelopmentEditor` 不能在 UBT 构建关系上依赖某个游戏工程中 ModRuntime 插件的运行时模块。它通过共享协议编译，并在预览时使用协议桥接或 IPC。游戏特有的创作功能来自游戏 Mod SDK，而非从任意已安装游戏中反向推导。制作模块名为 `DevelopmentEditor`，所属插件名为 `ModDevelopmentSDKEditor`；`GameModSDKEditor` 是游戏专属 SDK 包中的 Editor 适配模块。
 
 ## 3. 源工程与构建
 
@@ -65,34 +68,40 @@ UnrealModFramework/
 ├── Plugins/
 │   └── ModRuntime/
 │       ├── ModRuntime.uplugin
-│       └── Source/
-│           ├── Runtime/             # 运行时模块按具体功能组织
-│           │   └── ExportMetadata/
-│           └── Editor/              # 编辑器侧模块目录，可容纳多个 Editor 模块
-│               ├── ExportCodeGenerator/
-│               └── BlueprintIntegration/
+│       ├── Source/
+│       │   ├── Runtime/             # 运行时模块按具体功能组织
+│       │   │   └── ExportMetadata/
+│       │   └── Editor/              # 编辑器侧模块目录，可容纳多个 Editor 模块
+│       │       ├── ExportCodeGenerator/
+│       │       └── BlueprintIntegration/
+│       └── Tools/
+│           ├── ModHeaderTool/
+│           ├── ModBuildTool/
+│           └── ModSDKTool/
 ├── SourcePlugins/
-│   └── ModDevelopmentEditor/
-│       ├── ModDevelopmentEditor.uplugin
+│   └── ModDevelopmentSDKEditor/
+│       ├── ModDevelopmentSDKEditor.uplugin
 │       └── Source/DevelopmentEditor/
 ├── Shared/ModProtocol/            # Export Schema、包格式和 C ABI 的唯一源定义
 ├── Build/
-│   ├── BuildModDevelopmentEditor.ps1
+│   ├── BuildModDevelopmentSDKEditor.ps1
 │   └── BuildRelease.ps1
 └── Dist/
     ├── RuntimeSDK/
-    └── ModDevelopmentEditor/UE_5.X/Win64/ModDevelopmentEditor/
+    └── ModDevelopmentSDKEditor/UE_5.X/Win64/ModDevelopmentSDKEditor/
 ```
 
-`Plugins/ModRuntime` 参与游戏工程的正常 UBT 构建。`SourcePlugins/ModDevelopmentEditor` 位于 UE 的常规插件搜索目录之外，以 `RunUAT BuildPlugin -Plugin=<路径> -Package=<短路径暂存目录>` 独立构建，成功后将二进制插件整理到 `Dist`，交付后安装在 `Engine/Plugins`。Windows 构建会在 `-Package` 下生成较深的临时 `HostProject` 路径，直接指定深层 `Dist` 目录可能触发 260 字符路径检查。UE 文档确认项目插件位于 `Project/Plugins`、引擎插件位于 `Engine/Plugins`，并且模块类型决定 Runtime 或 Editor 的加载目标。[UE 5.6 插件文档](https://dev.epicgames.com/documentation/en-us/unreal-engine/plugins-in-unreal-engine?application_version=5.6)
+`Plugins/ModRuntime` 参与游戏工程的正常 UBT 构建。`SourcePlugins/ModDevelopmentSDKEditor` 位于 UE 的常规插件搜索目录之外，以 `RunUAT BuildPlugin -Plugin=<路径> -Package=<短路径暂存目录>` 独立构建，成功后将二进制插件整理到 `Dist`，交付后安装在 `Engine/Plugins`。Windows 构建会在 `-Package` 下生成较深的临时 `HostProject` 路径，直接指定深层 `Dist` 目录可能触发 260 字符路径检查。UE 文档确认项目插件位于 `Project/Plugins`、引擎插件位于 `Engine/Plugins`，并且模块类型决定 Runtime 或 Editor 的加载目标。[UE 5.6 插件文档](https://dev.epicgames.com/documentation/en-us/unreal-engine/plugins-in-unreal-engine?application_version=5.6)
 
 两个插件的发布副本都必须包含编译所需的 `ModProtocol` 定义，不能让已安装的编辑器插件从开发仓库的相对路径包含文件。`Shared/ModProtocol` 是唯一源定义；生成脚本把版本化快照同步到两个插件的自包含源码目录，CI 检查快照与源定义一致，独立 `BuildPlugin` 再使用短路径暂存目录。
 
 游戏真实成员的访问桥编译进该类型所属模块；公共视图和反射包装进入 GameModSDK，游戏专属编辑器代码进入 GameModSDKEditor。可选的 GameModIntegration 只编排 Provider、玩法屏障及各模块公开注册入口。通用 Runtime 不反向依赖游戏模块；单独建一个桥 DLL 也不会自动获得游戏私有符号的链接能力。
 
-构建前端采用独立 MHT/MBT：声明预扫描 → 原始 UHT → MHT 完整 AST 与蓝图 IR 分析 → 三类代码生成 → 必要的新反射 UHT → 宿主/作者 SDK/Editor 适配分别编译。首次尚无 generated.h 时先准备 UHT，含蓝图声明且尚无扫描 Editor 时使用不可发布的 C++ 引导产物构建导出器，再合并完整 IR 重建。固定编译单元必须包含生成连接，缺失/过期产物及未解析类型阻断构建，全部转换函数体要真实编译。
+默认保留 IDE、命令行和 CI 的原生 UE Build 入口。当前 UHT 的 C# Exporter 适配器先调用 MHT，再调用 MBT `build-host`；MBT 使用所属模块的真实编译配方独立编译生成实现，UBT 随后通过所属模块的私有 External 依赖链接所得宿主库。更完整的 Prepare/Finalize 动作与可信最终链接记录仍是后续接入。MBT 不解析 C++ 类型、不生成连接代码，也不在构建回调内递归启动当前 UBT Target；MHT 不调用编译器。UE 扩展点的存在不能证明任意构建组合的阶段顺序已经成立。[UE 5.6 UHT](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-header-tool-for-unreal-engine?application_version=5.6)、[UBT Target 参考](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-build-tool-target-reference?application_version=5.6)
 
-先验收声明宏与标准 UHT 的直接共存；空宏不构成验收证据。仅在确有需要时，MBT 启用带完整源码映射的隔离构建快照，UHT、MHT 和 C++ 编译使用同一输入及 Target 配置，过滤非活动条件分支。源码快照和自定义 UHT 集成各自验收；不能以单个 PreBuildSteps 代替真实阶段屏障。[UE 5.6 UHT](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-header-tool-for-unreal-engine?application_version=5.6)
+MHT 由 UHT 调用时不能假定本轮全部 `.generated.h` 已存在。已反射类型可从 UHT 类型模型取得已解析信息；完整 Clang 分析若需要生成头，须通过经验证的原生扩展或显式多阶段原生构建在头文件就绪后执行。同一轮 Exporter 新生成的反射类型不能假定会被自动重新解析，必须在消费目标的后续正常 UHT 前纳入源码。首次需要 Editor 导出器时使用不可发布的引导构建。MHT 为每个所属模块生成独立的 `.modhost.cpp`、`.modabi.cpp`、`.modverify.cpp` 和 `.modviews.cpp`，另为独立客户端库生成 `.modclient.cpp`，在生成清单的 `compilationUnits` 中逐项列出所属模块与源文件。MBT 编译全部具体调用、转换和校验；UBT 只消费生成声明与宿主库，不包含生成实现。
+
+先验收声明标记与标准 UHT 的共存、实际 Target 分析上下文、首次与增量构建和构建回调时序。非活动条件分支由 MHT 按真实预处理上下文排除，Editor-only 声明不能无条件进入 Shipping 契约。若以后需要隔离源码快照，标记变换及源码映射仍由 MHT 负责，MBT 只管理已声明的输入、依赖与失效；UHT、MHT 和编译器必须读取同一份正式输入。当前导出与 Mod 调用工作不要求 MBT 实现 Cook、资源挂载、模组依赖决议或宿主生命周期。
 
 发布流程必须记录 UE 版本、编译器工具链、Runtime SDK 版本、协议版本和插件包哈希。`Dist` 是构建产物，源仓库中的协议定义是唯一真实来源。模组工程的内容可由模组开发编辑器创建在独立的项目侧内容插件中；该插件用于稳定 Cook 后的包路径，不作为框架的第三个核心插件交付。
 
@@ -169,14 +178,15 @@ C++ 的动态多播 Delegate 仍可作反射事件源，但其广播顺序未定
 
 **静态生成原则是固定架构约束。** 所有跨契约边界的类型映射、签名投影、参数与结果转换、可空性、只读性、错误表示、ABI 表示和调用连接，均由 Export Generator 在构建期确定并生成。“类型转换层”属于生成器的类型分析与代码生成阶段。运行时执行具体生成代码，处理当前对象、作用域、授权与调用数据，不提供动态转换器选择或通用反射转换回退。
 
-游戏成员保持真实类型和原始签名。生成器自动将对象参数及结果投影为 `FModRuntimeObject<T>`、将 const 对象投影为只读视图，并递归生成结构字段、容器、Event 回调及 Hook 阶段上下文；开发者无需手工维护第二套签名或常规转换。API 的 `FailureRule("ReturnError")` 统一生成 `TModResult<T>`，蓝图和 C ABI 使用对应的具体结果表示。视图成员集合在 SDK 生成时固定，派生实例或不同 Mod 授权不扩大该集合；实际授权通过生成入口检查。完整规则见[游戏端详细设计第10节](UnrealModFramework_游戏端详细设计.md#10-契约生成与构建流水线)和[第11节](UnrealModFramework_游戏端详细设计.md#11-类型化调用连接)。
+游戏成员保持真实类型和原始签名。生成器自动将对象参数及结果投影为 `FModRuntimeObject<T>`、将 const 对象投影为只读视图，并递归生成结构字段、容器、Event 回调及 Hook 阶段上下文；开发者无需手工维护第二套签名或常规转换。API 的 `FailureRule = ReturnError` 统一生成 `TModResult<T>`，蓝图和 C ABI 使用对应的具体结果表示。视图成员集合在 SDK 生成时固定，派生实例或不同 Mod 授权不扩大该集合；实际授权通过生成入口检查。完整规则见[游戏端详细设计第10节](UnrealModFramework_游戏端详细设计.md#10-契约生成与构建流水线)和[第11节](UnrealModFramework_游戏端详细设计.md#11-类型化调用连接)。
 
-MHT 通过词法记录/PPCallbacks 将标记关联真实 AST，包括受支持的非 UFUNCTION 成员、具体重载及 cv/ref/noexcept；编译上下文来自 MBT 取得的实际 Target，不能只按函数名或已加载 UFunction 猜测。[Clang LibTooling](https://clang.llvm.org/docs/LibTooling.html)、[PPCallbacks](https://clang.llvm.org/doxygen/classclang_1_1PPCallbacks.html)。ExportCodeGenerator/Commandlet 通过 Asset Registry 枚举项目和已启用插件的蓝图声明，加载后导出独立声明 IR。[UE 5.6 Asset Registry](https://dev.epicgames.com/documentation/en-us/unreal-engine/asset-registry-in-unreal-engine?application_version=5.6)。两条输入统一规范化并完成类型闭包，不按模块来源排除合法声明；报告覆盖范围，缺失必需模块或资产、非唯一关联及 unresolved 非零时禁止发布。校验后输出：
+MHT 的 UhtTypeAdapter 消费 UHT 已解析的反射类型信息；完整 C++ 分析由 CppTypeAnalyzer 通过词法记录/PPCallbacks 关联真实 AST，包括受支持的非 UFUNCTION 成员、具体重载及 cv/ref/noexcept。分析上下文来自 UBT 的真实 Target，由 MBT 核对和传递，不能只按函数名或已加载 UFunction 猜测。[Clang LibTooling](https://clang.llvm.org/docs/LibTooling.html)、[PPCallbacks](https://clang.llvm.org/doxygen/classclang_1_1PPCallbacks.html)。当前 MHT 不扫描蓝图；后续蓝图资产发现仍由独立的 ExportCodeGenerator/Commandlet 前端通过 Asset Registry 完成，向生成核心提交声明 IR。[UE 5.6 Asset Registry](https://dev.epicgames.com/documentation/en-us/unreal-engine/asset-registry-in-unreal-engine?application_version=5.6)。MHT 统一执行类型闭包、投影和代码生成，MBT 不解释这些语义；缺失必需输入、非唯一关联及 unresolved 非零时禁止发布。校验后输出：
 
 1. 规范化的 API、Hook、Event Schema，包含稳定 ID、导出版本、源签名、Mod 签名、投影规则及摘要、公开参数/字段类型、线程、权限、作用域、失败语义和文档。
 2. 编译到游戏模块的 Runtime Registry、注册入口和成员专用连接；按已注册的服务实例解析 API 与事件源，并将生成的类型化入口或具体 `UFunction` 连接写入绑定。
 3. Game Mod SDK 的 C++ 受限/只读视图、递归投影结构、具体结果类型、C ABI DTO/专用表项、Blueprint 包装类型、节点展开规则及 Event/Hook 连接。
 4. 生成报告，列出重复 ID、未解析/歧义/不支持的类型与转换、非法借用、错误规则冲突、未声明的实例提供者、签名变更和缺少显式注册的 Hook Point；阻断不合法构建并显示完整依赖路径。实际业务路径是否调用 Hook 仍需集成测试验证。
+5. `MyGame.generated-artifacts.json`：记录生成器/Schema 版本、输入与构建上下文摘要、生成批次、契约/投影/ABI 摘要，以及全部生成文件的相对路径、内容哈希、所属模块和用途。MBT 消费清单并对照实际构建凭证核对产物，不重新计算 C++ 类型映射与转换规则。
 
 生成结果按规范化输入稳定排序，包含生成器版本、游戏 SDK 版本、UE 构建标识、源/Mod 签名、投影摘要和输入指纹。CI 重新生成后比较产物，发现漂移即失败。游戏模块显式注册生成的 Runtime Registry；通用 Runtime 不静态依赖游戏模块。生成器只自动适配明确支持的完整类型闭包；任意 `UFUNCTION` 参数不能无条件自动转换成稳定 C ABI。例如 `UObject*` 需要不透明句柄及生命周期规则，复杂容器需要版本化数据传输类型。未知、歧义或不支持的签名在生成或编译阶段失败，不留到 Gameplay 补齐。扫描后新增的反射包装须在后续正常 UHT 前生成，按显式多阶段构建完成。
 
@@ -184,7 +194,7 @@ GameModSDK 拥有公共视图和具体共享反射类型，GameModSDKEditor 消�
 
 SDK 交付单位为同批 Bundle：公开头、适配源码或等价编译输入、SDK 清单、匹配 Editor 的 DLL 与链接输入、.uplugin/.Build.cs/.modules 及所需预编译元数据，再加契约、Cook Profile 和能力报告。Windows 隐式链接使用导入库；显式加载仍需正确 ABI 和调用声明。[Microsoft DLL 链接说明](https://learn.microsoft.com/en-us/cpp/build/linking-an-executable-to-a-dll?view=msvc-170)。DLL 不是再次编译成编辑器插件的源码。
 
-宿主连接、公开 SDK、游戏 Editor 适配按目标分别构建。Shipping 游戏 DLL 不能替代 UnrealEditor 模块，monolithic 游戏也不承诺独立出口 DLL；若另需 Native Bridge DLL，单独生成稳定 C ABI 桥并验收。独立作者工程无需游戏私有源码即可加载 SDK、浏览并编译契约；真实业务仍需 Provider 或 Preview Host。[UE 二进制版本](https://dev.epicgames.com/documentation/en-us/unreal-engine/how-to-version-binaries-in-unreal-engine?application_version=5.6)。MBT 的任务与发布顺序见[游戏端详细设计第10节](UnrealModFramework_游戏端详细设计.md#10-契约生成与构建流水线)。
+宿主连接由 MBT 独立编译成所属模块的静态库，再由 UBT 链入对应目标；公开 SDK 的 UE 模块和游戏 Editor 适配按各自原生 Target 构建。MBT Finalize 只记录本次目标实际成功生成的产物。普通 Game Target 成功不代表 GameModSDKEditor 的 DLL 已生成；跨目标 SDK 发布必须等待所需 Game/Editor 产物齐备。Shipping 游戏 DLL 不能替代 UnrealEditor 模块，monolithic 游戏也不承诺独立出口 DLL；若另需 Native Bridge DLL，单独生成稳定 C ABI 桥并验收。独立作者工程无需游戏私有源码即可加载 SDK、浏览并编译契约；真实业务仍需 Provider 或 Preview Host。[UE 二进制版本](https://dev.epicgames.com/documentation/en-us/unreal-engine/how-to-version-binaries-in-unreal-engine?application_version=5.6)。生成清单、工具职责与编译规则见[游戏端详细设计第10节](UnrealModFramework_游戏端详细设计.md#10-契约生成与构建流水线)。
 
 ### 4.5 双执行路径与 C ABI 边界
 
@@ -307,7 +317,7 @@ Local PIE 只模拟已由游戏 SDK/Preview Host 提供的行为。需要完整�
 | P0 | 两插件结构、独立 `BuildPlugin`、共享协议、Runtime SDK 发布 | Game/Editor Target 编译 Runtime；制作编辑器独立构建并安装；发布副本不依赖源仓库路径 |
 | G1 技术闸门 | 在最小游戏中先验证 Shipping 资源链路，可使用一次性实验包 | Win64 Development 与 Shipping 分别挂载 Pak/IoStore、读取 Asset Registry、软引用加载静态网格/材质/蓝图资产；逐后端记录通过或失败 |
 | P1 | 游戏接入样例、API/Hook/Event 契约、类型化 Hook 和 Runtime Registry | 显式调用点与服务实例生效；无监听者走原版；冲突、重入、权限和生命周期行为可重复验证 |
-| P2 | MHT/MBT 声明与构建前端、统一 IR、宿主/SDK/Editor 生成、SDK Bundle、C ABI 样例 | 宏/UHT 共存和首次构建通过；全部转换函数体实际编译；独立作者环境消费匹配 Editor Bundle，源签名/投影和 ABI 错误稳定拒绝 |
+| P2 | MHT 统一 IR 与代码生成、UHT Exporter/UBT 原生接入、MBT 清单校验和 SDK Bundle、C ABI 样例 | 宏/UHT 共存、生成头时序和首次/增量构建通过；全部转换函数体实际编译；生成清单与分目标产物一致，独立作者环境消费匹配 Editor Bundle |
 | P3 | `.mod` 读写、校验、依赖决议、已通过 G1 的容器挂载 | 从单文件 `.mod` 在目标 Shipping 游戏中加载资产与 DLL；损坏包、缺依赖和依赖环稳定拒载 |
 | P4 | 逻辑 ID 的提供/覆盖/禁用、World Patch、跨 Mod 服务与生命周期 | 两个模组的冲突决议可重现；世界修改在指定时机及权限下生效，重启与存档迁移规则明确 |
 | P5 | 模组开发编辑器的 SDK 浏览、Local PIE、Blueprint 工具、Build & Test | 作者工程可制作、预览、Cook 并生成可在目标 Shipping 游戏加载的包 |
@@ -319,7 +329,7 @@ G1 在 P0 后立即开展，可与 P1 的契约实现并行，但未通过前不
 ## 11. 待验证与待决定事项
 
 1. **Shipping 资源链路**：UE 5.6 Win64 下，Pak 与 IoStore 分别能否在宿主进程启动期动态挂载，并让 Cooked Asset Registry 与软引用正确解析？验证结果决定首版启用哪些后端。
-2. **MHT/MBT 前端与生成器类型集**：锁定实际 Target 的 Clang 分析上下文、标记/UHT 共存和必要源码快照方案；在静态生成原则下确定首版源类型、公开投影、C ABI/Blueprint 组合及 SDK Bundle 独立消费流程。
+2. **原生构建接入与生成器类型集**：固定 MHT/MBT/UBT 职责和生成清单边界，验收 UHT Exporter、Prepare/Finalize 时序、完整 Clang 分析所需生成头与增量失效；确定首版源类型、公开投影、C ABI/Blueprint 组合及 SDK Bundle 分目标独立消费流程。
 3. **原生能力范围**：默认 C ABI 已确定；是否投入 P7 的任意 UE 模块、反射类和 Global Shader 类型，需要针对目标游戏构建逐项决策。
 4. **Cook Profile 的发布责任**：接入游戏须确定作者工程所需的游戏 SDK、Cook 参数、可引用类和兼容版本发布流程。
 5. **模组信任策略**：由游戏决定是否允许未签名资产包、是否允许原生 DLL，以及签名公钥如何分发和轮换。
@@ -327,6 +337,8 @@ G1 在 P0 后立即开展，可与 P1 的契约实现并行，但未通过前不
 
 ## 12. 参考资料
 
+- [UE 5.6 Unreal Header Tool](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-header-tool-for-unreal-engine?application_version=5.6)：UHT 类型模型、C# Exporter、输出目录与显式包含生成文件的约束。
+- [UE 5.6 UBT Target Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-build-tool-target-reference?application_version=5.6)：PreBuildSteps/PostBuildSteps；精确时序由目标 Profile 验收。
 - [UE 5.6 Plugins](https://dev.epicgames.com/documentation/en-us/unreal-engine/plugins-in-unreal-engine?application_version=5.6)：插件目录、模块类型与目标。
 - [UE 5.6 Metadata Specifiers](https://dev.epicgames.com/documentation/en-us/unreal-engine/metadata-specifiers-in-unreal-engine?application_version=5.6)：元数据仅存在于 Editor，不能作为 Shipping 注册表。
 - [UE 5.6 Multi-cast Delegates](https://dev.epicgames.com/documentation/en-us/unreal-engine/multicast-delegates-in-unreal-engine?application_version=5.6)：广播顺序不保证稳定。

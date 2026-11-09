@@ -45,7 +45,7 @@ ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `
 
 `ExportMetadata` 向 C++ 公开 `FModApiTag`、`FModEventTag` 及对应容器，分别派生自 `FGameplayTag` 和 `FGameplayTagContainer`；编辑器字段使用原生 GameplayTags 属性界面。转换与添加接口检查标签是否存在于全局字典。由于基类接口和导入过程可以绕过这些接口，读取序列化标签的代码还应调用 `IsRegistered`。`ModExportMetadataOptions.h` 中的 `Mod::ExportMetadata::FOptions` 从全局管理器枚举 API 与 Event ID 可用的标签，并从 `[ModExportMetadata]` 读取其他选项；Hook 声明目前使用同一全局标签字典。C++ 元数据参数是编译期字面量，仍需在编写或导出阶段对照配置校验。配置只定义候选标识符，不实现运行时策略。导出面板保存声明并编译 API 和 Hook 图，但尚未创建 Publish Event 或 Hook Point 节点，也不执行运行时契约。后续生成器须在导出前校验已注册的 ID、完整选择及宿主策略语义，运行时代码应消费生成的描述符，而不是 Editor 专用声明。
 
-`ModApi` 是 Game 与 Editor Target 共用的 Runtime 模块，公开依赖 `Core`、`CoreUObject` 和 `Engine`。它负责生成 API 的结果、绑定、World/Player 作用域、显式实例提供者、权限与撤销；这类服务不放入仅承载声明配置的 `ExportMetadata`。
+`ModApi` 是 Game 与 Editor Target 共用的 Runtime 模块，公开依赖 `Core`、`CoreUObject` 和 `Engine`。它负责生成 API 的结果、绑定、World/Player 作用域、显式实例提供者、权限与撤销；这类服务不放入仅承载声明配置的 `ExportMetadata`。宿主 `ExportTest` 提供角色和 LocalPlayer 两个 API，并通过 `UGameModApiHost` 编排生成注册和实例生命周期。
 
 `DevelopmentEditor` 通过 UAT `BuildPlugin` 独立构建。它不得静态依赖项目侧的 `ExportMetadata` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
 
