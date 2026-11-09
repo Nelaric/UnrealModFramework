@@ -30,7 +30,7 @@ push 配置和可信 PR 配置都使用 Unreal Engine 5.6.1，以 Linux Developm
 | CircleCI Job | 工作内容 |
 | --- | --- |
 | `build_game_linux` | 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。 |
-| `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor` 及其支持的编辑器模块，再通过 UAT `BuildPlugin` 打包独立 `ModDevelopmentEditor` 插件。 |
+| `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor` 及其支持的编辑器模块，再通过 UAT `BuildPlugin` 打包独立 `ModDevelopmentSDKEditor` 插件。 |
 
 各 Job 使用独立的可写暂存目录，拉取私有引擎镜像后，UE 容器在无网络环境中运行。
 

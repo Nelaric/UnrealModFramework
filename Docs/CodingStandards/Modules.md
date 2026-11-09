@@ -6,7 +6,7 @@ English | [简体中文](Modules.zh-CN.md)
 
 The repository contains a development host project and two framework plugins. Each module has one responsibility, declares only the dependencies it uses, and keeps implementation details in `Private`. Public headers are contracts: they must compile when included on their own, and their `.Build.cs` dependencies must be public only when those headers require them. Circular module dependencies are forbidden.
 
-The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory. The `ModRuntime` plugin contains `ExportMetadata`, `ModApi`, `BlueprintIntegration`, and `ExportCodeGenerator`; the `ModDevelopmentEditor` plugin contains `DevelopmentEditor`.
+The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory. The `ModRuntime` plugin contains `ExportMetadata`, `ModApi`, `BlueprintIntegration`, and `ExportCodeGenerator`; the `ModDevelopmentSDKEditor` plugin contains `DevelopmentEditor`.
 
 | Responsibility | Location | UE module type |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ The UE project lives in `UnrealModFramework/`. Module and configuration paths in
 | Generated API results, scopes, bindings, permissions, and revocation | `Plugins/ModRuntime/Source/Runtime/ModApi/` | `Runtime` |
 | Blueprint integration | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
 | Export code generation | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
-| Independent authoring tools | `SourcePlugins/ModDevelopmentEditor/Source/DevelopmentEditor/` | `Editor` |
+| Independent authoring tools | `SourcePlugins/ModDevelopmentSDKEditor/Source/DevelopmentEditor/` | `Editor` |
 | Development host | `Source/ExportTest/` | `Runtime` |
 
 The host project's `[CoreRedirects]` in `Config/DefaultEngine.ini` maps `/Script/ModBlueprintIntegration` to `/Script/BlueprintIntegration`, preserving references in existing Blueprint assets.

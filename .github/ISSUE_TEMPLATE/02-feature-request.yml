@@ -43,7 +43,7 @@ body:
     id: boundaries
     attributes:
       label: Scope and boundaries | 范围与边界
-      description: Explain whether this belongs in ModRuntime, ModDevelopmentEditor, the shared protocol, command-line tools, or a host-game SDK. If unsure, say so. | 说明该能力属于 ModRuntime、ModDevelopmentEditor、共享协议、命令行工具还是宿主游戏 SDK；如不确定，请直接说明。
+      description: Explain whether this belongs in ModRuntime, ModDevelopmentSDKEditor, the shared protocol, command-line tools, or a host-game SDK. If unsure, say so. | 说明该能力属于 ModRuntime、ModDevelopmentSDKEditor、共享协议、命令行工具还是宿主游戏 SDK；如不确定，请直接说明。
       placeholder: The framework would provide ...; the host game or authoring editor would ... | 框架提供……；宿主游戏或制作编辑器负责……
     validations:
       required: false

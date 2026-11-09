@@ -4,7 +4,7 @@ English | [简体中文](CircleCI.zh-CN.md)
 
 # CircleCI Linux Builds
 
-The [push configuration](../.circleci/config.yml) and [trusted PR configuration](../.circleci/pr-build.yml) each define two parallel Unreal Engine 5.6.1 Linux jobs. `build_game_linux` compiles `UnrealModFrameworkDev` and its enabled runtime modules. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, including `ExportMetadata`, `BlueprintIntegration`, and `ExportCodeGenerator`, then packages the independent `ModDevelopmentEditor` plugin with UAT `BuildPlugin` for Linux. There is no Server target, package publication, or Editor automation test step.
+The [push configuration](../.circleci/config.yml) and [trusted PR configuration](../.circleci/pr-build.yml) each define two parallel Unreal Engine 5.6.1 Linux jobs. `build_game_linux` compiles `UnrealModFrameworkDev` and its enabled runtime modules. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, including `ExportMetadata`, `BlueprintIntegration`, and `ExportCodeGenerator`, then packages the independent `ModDevelopmentSDKEditor` plugin with UAT `BuildPlugin` for Linux. There is no Server target, package publication, or Editor automation test step.
 
 ## Active PR integration
 
