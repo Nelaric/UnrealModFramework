@@ -13,3 +13,4 @@ endif()
 
 add_subdirectory(ModBuildTool)
 add_subdirectory(ModHeaderTool)
+add_subdirectory(ModSDKTool)

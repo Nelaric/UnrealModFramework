@@ -26,6 +26,10 @@ UnrealModFramework 是以 UE 5.6 为开发基线的工程，目标是提供可�
 
 修改代码或构建文件前，请阅读[编码规范](Docs/CodingStandards/README.zh-CN.md)、[贡献指南](CONTRIBUTING.zh-CN.md)和 [CircleCI 接入说明](Docs/CircleCI.zh-CN.md)。
 
+## SDK 构建工具
+
+`ModSDKTool`（MST）提供 `plan`、`build` 和 `inspect`，根据导出契约及链接产物构建游戏专属 SDK。构建入口为 `Tools/Build.bat --target ModSDKTool`，请求和产物格式见 [MST 文档](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)。
+
 ## MHT 的 C++ 导出参数校验
 
 MHT 是独立 CMake C++20 工具，只处理 `MOD_EXPORT_API`、`MOD_EXPORT_EVENT`、`MOD_EXPORT_HOOK` 的 C++ 声明，不扫描或校验蓝图。工程采用 `include/ModHeaderTool` 和 `src` 布局，`main.cpp` 只转发入口。构建工具：
