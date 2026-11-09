@@ -6,12 +6,13 @@
 
 仓库包含一个开发宿主工程和两个框架插件。每个模块只承担明确职责，仅声明实际使用的依赖，并将实现细节放入 `Private`。公开头文件是契约：它们须能够独立包含，且只有当公开头文件确实需要某依赖时，才将该依赖列为 `.Build.cs` 的公开依赖。禁止循环依赖。
 
-UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `ExportMetadata`、`ModApi`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块；`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块。
+UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `ExportMetadata`、`ModApi`、`ModLoader`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块。`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块。
 
 | 职责 | 位置 | UE 模块类型 |
 | --- | --- | --- |
 | 导出标识、容器与配置选项 | `Plugins/ModRuntime/Source/Runtime/ExportMetadata/` | `Runtime` |
 | 生成 API 的结果、作用域、绑定、权限与撤销 | `Plugins/ModRuntime/Source/Runtime/ModApi/` | `Runtime` |
+| 模组加载器 | `Plugins/ModRuntime/Source/Runtime/ModLoader/` | `Runtime` |
 | Blueprint 接入 | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
 | 导出代码生成 | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
 | 独立的制作工具 | `SourcePlugins/ModDevelopmentSDKEditor/Source/DevelopmentEditor/` | `Editor` |
@@ -54,6 +55,37 @@ ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `
 原生模组 ABI 类型应与面向 UE 的公开 API 分离。UE 内部的 C++ 契约使用 UE 类型；外部 C ABI 使用固定宽度字段、显式长度、不透明句柄及已说明的所有权规则，因为独立构建的二进制不能依赖 UE 对象或 C++ ABI 布局保持可移植。
 
 新增模块时须说明职责、直接依赖、支持的 Target，以及现有模块为何不适合承载该能力。可选集成应放在独立模块或插件中。不要为了让缺失的包含文件通过编译而随意增加依赖。
+
+## 模组加载器
+
+`ModLoader` 负责发现、验证、提取和挂载 `.mod` v1 内容包，并将挂载结果分发给游戏会话。公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`RenderCore` 和引擎自带的 OpenSSL。Editor Target 另外私有依赖 `UnrealEd`，用于跟踪 PIE 会话和释放已加载的包。插件描述文件为 Win64、Linux 和 Mac 的 Game 与 Editor Target 启用模块。挂载要求匹配的 Pak 或 IoStore 后端。它独立于负责 API 绑定的 `ModApi`、导出描述的 `ExportMetadata` 和制作编辑器。
+
+游戏可在引擎初始化完成后由 Game Thread 调用 `Mod::Loader::IModLoaderModule::Get().LoadPackage(Path, Policy)` 或 `LoadDirectory(Directory, Policy)`。C++ 调用方在自身模块的 Build.cs 声明 `ModLoader` 依赖。调用会同步验证文件和准备资源，应在进入玩法前完成。成功结果返回已挂载资源的长包名，宿主可据此按需加载资产。
+
+宿主 C++ 可通过 `OnLoadCompleted()` 订阅启动和手动加载。每次操作广播一次，携带加载来源、输入路径和全部 `FLoadResult`。目录无候选时结果为空，目录扫描失败时携带一项失败。失败项包含 `Error` 和 `Detail`。回调在 Game Thread 执行，回调重入或错误线程的结果延后分发。
+
+在宿主的 `Config/DefaultGame.ini` 写入以下配置，可在引擎启动时扫描 `Saved/Mods` 的顶层 `.mod` 文件。默认关闭自动加载。
+
+```ini
+[ModLoader]
+bLoadAtStartup=True
+GameId=YourGame
+BaseReleaseVersion=1.0.0
+BaseRegistrySha256=<基础发布 AssetRegistry.bin 的 SHA-256>
+Backend=IoStore
++TrustedPackageSha256=<已批准 .mod 的整包 SHA-256>
+PreparationTimeoutSeconds=120
+```
+
+将游戏和基础发布信息填为制作工具使用的值，`Backend` 与游戏发布的实际容器后端一致。整包摘要来自打包任务 `Result.json` 的 `sha256` 字段，每个批准的包填写一项。加载器同时校验包格式、目标平台、UE 构建、Cook 回执及各载荷摘要。
+
+载荷写入 `Saved/ModCache/<整包 SHA-256>`，复用时重新核对文件。挂载保持 Cook 时的包根，同一个 ModId 同时只接受一个版本。在已 Cook 的游戏中，原生容器、包根和 Shader 库保留到进程退出。首版接受独立包根下的未加密内容，支持将包内可用的 Cooked Asset Registry 追加到游戏索引。
+
+Windows 宿主编辑器启动 PIE 时使用同一份 `[ModLoader]` 配置和 `Saved/Mods` 目录。在 **项目设置 → 引擎 → Cooker** 中启用 **Allow Cooked Content in the Editor**。按后端启动编辑器，`Backend=Pak` 使用 `-UsePaks`，`Backend=IoStore` 使用 `-UsePaks -UseIoStore`。加载无版本号的 Cook 资产时，在 `Config/DefaultEngine.ini` 的 `[ConsoleVariables]` 节设置 `s.AllowUnversionedContentInEditor=1`。
+
+同一进程的 PIE 世界共享挂载，各自持有 Mod 实例。每个 PIE 地图就绪后，其实例收到启动加载结果。结束 PIE 时先停止向会话分发结果，等世界清理后释放已加载的包，再卸载容器并注销包根。若编辑器对象仍引用包内资产，加载器会报告并保留挂载，直到可以安全清理。
+
+`ModSDKTool` 从宿主导出的生命周期声明生成 `ModInstance` 和 `ModInstanceSubSystem`，保留 `/Script/ModLoader` 类型路径。打包时会自动收集内容插件内的具体蓝图派生类。加载批次结束后，游戏会话为挂载成功的模组创建实例，再向活动实例逐项分发结果。C++ 子类覆盖 `OnModLoadCompleted`，并调用 `Super::OnModLoadCompleted` 触发蓝图事件 `ReceiveModLoadCompleted`。蓝图中显示为 **On Mod Load Completed**。两边接收同一份结果，失败项包含错误码和原因。
 
 ## 仅供框架集成的接口
 

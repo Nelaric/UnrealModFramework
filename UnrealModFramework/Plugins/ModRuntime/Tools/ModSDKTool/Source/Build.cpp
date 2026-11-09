@@ -229,6 +229,25 @@ FJson InspectSdk(const fs::path& Directory)
 	}
 	const FJson Contract = ReadJson(Root / "Contract" / "SdkContract.json");
 	RequireFormat(Contract, "UMF.SdkContract");
+	if (Contract.contains("modLifecycle"))
+	{
+		const FJson& Lifecycle = Contract.at("modLifecycle");
+		const std::string Resource = Text(Lifecycle, "resource");
+		const std::string PluginRoot = "Plugins/" + Text(Manifest, "pluginName") + "/";
+		const std::string Digest = Text(Lifecycle, "resourceHash");
+		if (HashFile(ResolveGeneratedPath(Root, Resource)) != Digest ||
+		    HashFile(ResolveGeneratedPath(Root, PluginRoot + Resource)) != Digest)
+		{
+			throw std::runtime_error("The SDK lifecycle export does not match the contract.");
+		}
+		for (const char* Header : {"ModInstance.h", "ModInstanceSubSystem.h"})
+		{
+			if (!fs::is_regular_file(ResolveGeneratedPath(Root, PluginRoot + "Source/ModLoader/Public/" + Header)))
+			{
+				throw std::runtime_error(std::string("Missing generated SDK lifecycle header: ") + Header);
+			}
+		}
+	}
 	if (Contract.contains("connectionDescriptor"))
 	{
 		const std::string Relative = Text(Contract, "connectionDescriptor");
@@ -314,7 +333,7 @@ FJson BuildSdk(FSdkRequest& Request)
 	const fs::path SdkPackage = Work.Root / "SdkPackage";
 	const fs::path DevelopmentSource = Work.Root / "DevelopmentSource";
 	const fs::path DevelopmentPackage = Work.Root / "DevelopmentPackage";
-	ReportStage("GenerateSdk", "Creating typed Runtime references and Blueprint-callable adapters.");
+	ReportStage("GenerateSdk", "Generating SDK source from the verified export contract.");
 	GenerateSdkPlugin(Request, Source);
 	for (const FLibrary& Job : Request.Libraries)
 	{
@@ -342,6 +361,10 @@ FJson BuildSdk(FSdkRequest& Request)
 	ReportStage("BuildSdkPlugin", "Building an author-Editor SDK with normal UHT and UBT.");
 	BuildPlugin(Request, Source / (Plugin + ".uplugin"), SdkPackage);
 	VerifyEditorModule(Request, SdkPackage, Plugin + "Runtime");
+	if (!Request.LifecycleArtifact.is_null())
+	{
+		VerifyEditorModule(Request, SdkPackage, "ModLoader");
+	}
 	ReportStage("BuildDevelopmentPlugin", "Building the independent SDK development editor plugin.");
 	BuildPlugin(Request, DevelopmentSource / Request.DevelopmentPlugin.filename(), DevelopmentPackage);
 	VerifyEditorModule(Request, DevelopmentPackage, "DevelopmentEditor");
@@ -357,6 +380,11 @@ FJson BuildSdk(FSdkRequest& Request)
 	CopyTree(SdkPackage, Bundle / "Plugins" / Plugin);
 	CopyTree(DevelopmentPackage, Bundle / "Plugins" / Request.DevelopmentPlugin.stem());
 	WriteFileAtomically(Bundle / "Contract" / "SdkContract.json", Request.Contract.dump(2) + "\n");
+	if (!Request.LifecycleArtifact.is_null())
+	{
+		const std::string Resource = Text(Request.LifecycleArtifact, "relativePath");
+		CopyFile(ResolveGeneratedPath(SdkPackage, Resource), ResolveGeneratedPath(Bundle, Resource));
+	}
 	if (!Request.ConnectionArtifact.is_null())
 	{
 		const fs::path SourcePath = PathFromUtf8(Text(Request.ConnectionArtifact, "sourcePath"));

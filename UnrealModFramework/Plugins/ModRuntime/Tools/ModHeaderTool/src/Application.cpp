@@ -29,7 +29,7 @@ int Run(const std::vector<std::string>& Arguments)
 		if (Options.bGenerate)
 		{
 			Generate(Options.BuildInput, Options.OutputDirectory, Options.Options, Options.ClangLibrary,
-			         Options.HostContexts);
+			         Options.HostContexts, Options.LifecycleSource);
 			return 0;
 		}
 		const FScanResult Result = ScanProject(Options.Project, Options.Options);

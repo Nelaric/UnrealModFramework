@@ -136,6 +136,16 @@ void ValidateContract(FSdkRequest& Request)
 			throw std::runtime_error("Connection descriptor conflicts with the published SDK contract path.");
 		}
 	}
+	if (Contract.contains("modLifecycle"))
+	{
+		const FJson& Lifecycle = Contract.at("modLifecycle");
+		if (!Lifecycle.is_object() || Lifecycle.value("schemaVersion", 0) != 1 ||
+		    Text(Lifecycle, "module") != "ModLoader" || Text(Lifecycle, "resource") != "Contract/ModLifecycle.json")
+		{
+			throw std::runtime_error("Unsupported global Mod lifecycle projection.");
+		}
+		RequireDigest(Text(Lifecycle, "resourceHash"), "modLifecycle.resourceHash");
+	}
 	const FJson& Types = Contract.at("types");
 	const FJson& Apis = Contract.at("apis");
 	if (!Types.is_array() || Types.empty() || Types.size() > 128 || !Apis.is_array() || Apis.empty() ||
@@ -505,6 +515,7 @@ FJson PlanSdk(FSdkRequest& Request)
 	{
 		Request.Headers = FJson::array();
 		Request.ConnectionArtifact = nullptr;
+		Request.LifecycleArtifact = nullptr;
 		std::map<std::string, FJson> Headers;
 		std::set<std::string> Outputs;
 		std::map<std::string, std::set<std::string>> ClientBindings;
@@ -559,6 +570,16 @@ FJson PlanSdk(FSdkRequest& Request)
 						throw std::runtime_error("Conflicting native connection descriptors across client profiles.");
 					}
 					Request.ConnectionArtifact = Artifact;
+				}
+				if (Job.Role == "Client" && Artifact.at("role") == "SdkResource" &&
+				    Request.Contract.contains("modLifecycle") &&
+				    Artifact.at("relativePath") == Request.Contract.at("modLifecycle").at("resource"))
+				{
+					if (Artifact.at("contentHash") != Request.Contract.at("modLifecycle").at("resourceHash"))
+					{
+						throw std::runtime_error("The Mod lifecycle export differs across SDK profiles.");
+					}
+					Request.LifecycleArtifact = Artifact;
 				}
 			}
 			const FJson& Target = Job.Plan.at("target");
@@ -623,6 +644,10 @@ FJson PlanSdk(FSdkRequest& Request)
 		{
 			throw std::runtime_error(
 			    "SDK requires Host jobs, an author Editor Client job, and a declared public contract.");
+		}
+		if (Request.Contract.contains("modLifecycle") && Request.LifecycleArtifact.is_null())
+		{
+			throw std::runtime_error("Missing the declared Mod lifecycle export in the generated artifacts.");
 		}
 		if (Request.Contract.contains("connectionDescriptor"))
 		{

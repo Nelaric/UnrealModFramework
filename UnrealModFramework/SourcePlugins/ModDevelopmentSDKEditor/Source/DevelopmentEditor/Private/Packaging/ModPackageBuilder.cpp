@@ -1,7 +1,12 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModPackageBuilder.h"
 
+#include "AssetRegistry/ARFilter.h"
+#include "AssetRegistry/AssetData.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "Blueprint/BlueprintSupport.h"
 #include "Dom/JsonObject.h"
+#include "Engine/Blueprint.h"
 #include "HAL/FileManager.h"
 #include "Interfaces/IPluginManager.h"
 #include "Internationalization/Regex.h"
@@ -9,9 +14,11 @@
 #include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MonitoredProcess.h"
+#include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
 #include "ModPackagingSettings.h"
+#include "Modules/ModuleManager.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
@@ -33,6 +40,7 @@ constexpr uint64 MaxArchiveSize = 64ull * 1024 * 1024 * 1024;
 constexpr uint64 MaxManifestSize = 1024 * 1024;
 constexpr uint64 MaxIndexSize = 64 * 1024 * 1024;
 constexpr int32 MaxEntries = 65536;
+constexpr int32 MaxLifecycleClasses = 64;
 constexpr uint8 Magic[8] = {'U', 'M', 'F', 'M', 'O', 'D', 0, 0};
 
 class FSha256
@@ -298,6 +306,59 @@ bool VerifyArchive(const FString& Path)
 	return ExpectedOffset == IndexOffset && !File->IsError();
 }
 
+bool CollectLifecycleClasses(const FString& PluginName, TArray<TSharedPtr<FJsonValue>>& Classes)
+{
+	const UClass* Base = FindObject<UClass>(nullptr, TEXT("/Script/ModLoader.ModInstance"));
+	if (!Base)
+	{
+		return true;
+	}
+	const FString Root = TEXT("/") + PluginName;
+	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	Registry.ScanPathsSynchronous({Root});
+	TSet<FTopLevelAssetPath> Derived;
+	Registry.GetDerivedClassNames({Base->GetClassPathName()}, {}, Derived);
+	FARFilter Filter;
+	Filter.PackagePaths.Add(FName(*Root));
+	Filter.ClassPaths.Add(UBlueprint::StaticClass()->GetClassPathName());
+	Filter.bRecursivePaths = true;
+	Filter.bRecursiveClasses = true;
+	TArray<FAssetData> Assets;
+	if (!Registry.GetAssets(Filter, Assets))
+	{
+		return false;
+	}
+	TSet<FString> Paths;
+	for (const FAssetData& Asset : Assets)
+	{
+		FString GeneratedClass;
+		uint32 Flags = 0;
+		Asset.GetTagValue(FBlueprintTags::ClassFlags, Flags);
+		if ((Flags & (CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists)) != 0 ||
+		    !Asset.GetTagValue(FBlueprintTags::GeneratedClassPath, GeneratedClass))
+		{
+			continue;
+		}
+		FString Path = FPackageName::ExportTextPathToObjectPath(GeneratedClass);
+		if (Derived.Contains(FTopLevelAssetPath(Path)))
+		{
+			Paths.Add(MoveTemp(Path));
+		}
+	}
+	if (Paths.Num() > MaxLifecycleClasses)
+	{
+		return false;
+	}
+	TArray<FString> Sorted = Paths.Array();
+	Sorted.Sort([](const FString& Left, const FString& Right)
+	            { return Left.Compare(Right, ESearchCase::CaseSensitive) < 0; });
+	for (FString& Path : Sorted)
+	{
+		Classes.Add(MakeShared<FJsonValueString>(MoveTemp(Path)));
+	}
+	return true;
+}
+
 bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory)
 {
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(Request.PluginName);
@@ -541,6 +602,11 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	{
 		return Fail(TEXT("This task already has a Stage directory. Start a new packaging task."));
 	}
+	TArray<TSharedPtr<FJsonValue>> LifecycleClasses;
+	if (!CollectLifecycleClasses(Request.PluginName, LifecycleClasses))
+	{
+		return Fail(TEXT("Could not collect up to 64 global Mod lifecycle Blueprints."));
+	}
 	const FString BaseRegistry = FPaths::Combine(Request.BaseReleaseDirectory, Request.BaseReleaseVersion,
 	                                             Request.GetCookPlatform(), TEXT("AssetRegistry.bin"));
 	const FString BaseRegistryHash = HashFile(BaseRegistry);
@@ -676,6 +742,10 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	Manifest->SetStringField(TEXT("cookReceipt"), TEXT("Metadata/CookReceipt.json"));
 	Manifest->SetBoolField(TEXT("shippingValidated"), false);
 	Manifest->SetStringField(TEXT("exportRequirements"), TEXT("NotVerified"));
+	if (!LifecycleClasses.IsEmpty())
+	{
+		Manifest->SetArrayField(TEXT("lifecycleClasses"), MoveTemp(LifecycleClasses));
+	}
 	const FString ManifestText = JsonText(Manifest);
 	if (FTCHARToUTF8(*ManifestText).Length() > MaxManifestSize ||
 	    !IFileManager::Get().MakeDirectory(*FPaths::GetPath(Request.OutputFile), true))

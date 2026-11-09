@@ -10,5 +10,6 @@ namespace Mod::HeaderTool
 {
 /// Emits a C-only client boundary, host endpoints, and connection metadata.
 nlohmann::json WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::string>& Files,
-                              const std::string& ContractHash, const std::string& ProjectionHash);
+                              const std::string& ContractHash, const std::string& ProjectionHash,
+                              const nlohmann::json& Lifecycle);
 } // namespace Mod::HeaderTool

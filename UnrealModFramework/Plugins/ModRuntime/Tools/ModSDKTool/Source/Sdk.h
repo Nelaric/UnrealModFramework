@@ -61,6 +61,8 @@ struct FSdkRequest
 	FJson Headers = FJson::array();
 	/// Optional hash-checked public connection descriptor supplied by MHT.
 	FJson ConnectionArtifact = nullptr;
+	/// Optional declaration export used to generate the global Mod entry points.
+	FJson LifecycleArtifact = nullptr;
 	/// Fingerprint of the frozen SDK input set.
 	std::string Fingerprint;
 	/// Input files protected from result writes and mid-build changes.

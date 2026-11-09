@@ -96,6 +96,7 @@ struct FResolvedType
 struct FGenerationModel
 {
 	FGenerationInput Input;
+	fs::path LifecycleSource;
 	std::vector<FApi> Apis;
 	std::map<std::string, FResolvedType> Types;
 	std::set<fs::path> Dependencies;
