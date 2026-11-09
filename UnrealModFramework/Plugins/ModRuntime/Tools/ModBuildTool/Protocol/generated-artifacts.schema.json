@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UMF complete generated artifacts v2",
+  "type": "object",
+  "required": ["format", "schemaVersion", "target", "platform", "configuration", "architecture", "generationId", "status", "unresolvedTypeCount", "buildContextHash", "inputHash", "contractHash", "projectionHash", "nativeAbiHash", "generatedFiles", "compilationUnits", "requiredSymbols", "hostBuildContexts", "inputFiles", "watchedDirectories"],
+  "properties": {
+    "format": { "const": "UMF.GeneratedArtifacts" },
+    "schemaVersion": { "const": 2 },
+    "target": { "type": "string", "minLength": 1 },
+    "platform": { "enum": ["Win64", "Linux", "Mac"] },
+    "configuration": { "enum": ["Debug", "DebugGame", "Development", "Shipping", "Test"] },
+    "architecture": { "enum": ["x64", "arm64"] },
+    "status": { "const": "Complete" },
+    "unresolvedTypeCount": { "const": 0 },
+    "generationId": { "$ref": "#/$defs/hash" },
+    "buildContextHash": { "$ref": "#/$defs/hash" },
+    "hostBuildContexts": {
+      "type": "object",
+      "description": "Exact MBT producer-context hash for every compilation owner, including the standalone client.",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/hash" }
+    },
+    "inputFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "contentHash", "kind"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "description": "Absolute analysis input path." },
+          "contentHash": {
+            "anyOf": [{ "$ref": "#/$defs/hash" }, { "const": "" }],
+            "description": "An empty digest records an absent optional input."
+          },
+          "kind": { "enum": ["Semantic", "AnalysisContext"] }
+        }
+      }
+    },
+    "watchedDirectories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["root", "kind", "files"],
+        "properties": {
+          "root": { "type": "string", "minLength": 1, "description": "Absolute directory path." },
+          "kind": { "enum": ["Source", "Config"] },
+          "files": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Sorted absolute paths matching the source or config discovery rules."
+          }
+        }
+      }
+    },
+    "inputHash": { "$ref": "#/$defs/hash" },
+    "contractHash": { "$ref": "#/$defs/hash" },
+    "projectionHash": { "$ref": "#/$defs/hash" },
+    "nativeAbiHash": { "$ref": "#/$defs/hash" },
+    "generatedFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "contentHash", "ownerModule", "role"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "contentHash": { "$ref": "#/$defs/hash" },
+          "ownerModule": { "type": ["string", "null"], "minLength": 1 },
+          "role": { "enum": ["HostBinding", "HostRegistration", "CompileVerification", "HostHeader", "SdkHeader", "Contract", "SdkResource", "Diagnostic"] }
+        }
+      }
+    },
+    "requiredSymbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ownerModule", "symbol"],
+        "properties": {
+          "ownerModule": { "type": "string", "minLength": 1 },
+          "symbol": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "exportId": { "type": "string", "minLength": 1 },
+          "signatureHash": { "$ref": "#/$defs/hash" },
+          "projectionHash": { "$ref": "#/$defs/hash" }
+        }
+      }
+    },
+    "compilationUnits": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["ownerModule", "source"],
+        "properties": {
+          "ownerModule": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UMF trusted owning-binary link record v1",
+  "type": "object",
+  "required": ["format", "schemaVersion", "status", "target", "binary", "hostLibraries"],
+  "properties": {
+    "format": { "const": "UMF.ModHostLinkReceipt" },
+    "schemaVersion": { "const": 1 },
+    "status": { "const": "Succeeded" },
+    "linkWitness": {
+      "type": "string",
+      "pattern": "^UMF_ModHostLink_[0-9a-f]{64}$"
+    },
+    "ueTargetReceipt": {
+      "type": "object",
+      "required": ["path", "contentHash"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "contentHash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["name", "type", "configuration", "linkType", "platform", "architecture"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": { "enum": ["Game", "Editor", "Client", "Server", "Program"] },
+        "configuration": { "enum": ["Debug", "DebugGame", "Development", "Shipping", "Test"] },
+        "linkType": { "enum": ["Modular", "Monolithic"] },
+        "platform": { "enum": ["Win64", "Linux", "Mac"] },
+        "architecture": { "enum": ["x64", "arm64"] }
+      }
+    },
+    "binary": {
+      "type": "object",
+      "required": ["id", "path", "kind", "contentHash", "ownerModules"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["Executable", "DynamicLibrary"] },
+        "contentHash": { "$ref": "#/$defs/hash" },
+        "ownerModules": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "hostLibraries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["ownerModule", "path", "contentHash", "hostReceiptHash", "contextHash", "generationId", "registrationAnchor", "anchorRetained"],
+        "properties": {
+          "ownerModule": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "contentHash": { "$ref": "#/$defs/hash" },
+          "hostReceiptHash": { "$ref": "#/$defs/hash" },
+          "contextHash": { "$ref": "#/$defs/hash" },
+          "generationId": { "$ref": "#/$defs/hash" },
+          "registrationAnchor": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "anchorRetained": { "const": true }
+        }
+      }
+    }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}
