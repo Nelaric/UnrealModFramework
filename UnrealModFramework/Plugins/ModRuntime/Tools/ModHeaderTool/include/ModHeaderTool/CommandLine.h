@@ -26,6 +26,8 @@ struct FCommandLineOptions
 	std::filesystem::path ClangLibrary;
 	/// Optional exact per-owner MBT contexts supplied by the build adapter.
 	std::filesystem::path HostContexts;
+	/// Optional source directory of the global Mod lifecycle declarations.
+	std::filesystem::path LifecycleSource;
 	/// Selects source generation instead of the lexical scan.
 	bool bGenerate = false;
 	/// Requests help instead of scanning.

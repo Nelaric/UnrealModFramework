@@ -41,6 +41,8 @@ uint32_t FloatMethod(uint64_t ModContext, uint64_t Object, float Amount, float* 
 
 生成的 Runtime SDK 包含不透明 `USTRUCT` 引用与 `MinimalAPI` 蓝图函数库。标准 UE 节点通过 `ExpandEnumAsExecs` 展示成功/失败分支，无需额外空 Editor 模块。函数指针 `static_assert` 在 UE 编译时核对 ABI。令牌不开放蓝图编辑，宿主用 `FromNative` 提供上下文。适配层错误为负数，原生状态以非负蓝图 `int64` 错误码保留。
 
+MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 SDK 契约的 `modLifecycle` 中绑定摘要。MBT 验证该产物并完成库编译后，MST 生成 `ModInstance.h` 和 `ModInstanceSubSystem.h`，随后用 UAT 编译作者 SDK 和制作编辑器插件。生成模块保留宿主的 `/Script/ModLoader` 类型路径。游戏会话负责实例化及事件分发。
+
 [sdk-build-request.schema.json](Protocol/sdk-build-request.schema.json) 定义 `UMF.SdkBuildRequest` v1：
 
 | 字段 | 含义 |

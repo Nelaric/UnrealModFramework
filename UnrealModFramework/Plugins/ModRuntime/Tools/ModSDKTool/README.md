@@ -76,6 +76,13 @@ during UE compilation. Tokens are not Blueprint-editable; the host supplies
 contexts using `FromNative`. Adapter errors are negative; nonnegative Blueprint
 `int64` error codes preserve native status values.
 
+MHT exports global lifecycle declarations as `Contract/ModLifecycle.json` and
+records the digest in `modLifecycle`. Once MBT verifies the export and builds the
+libraries, MST generates `ModInstance.h` and `ModInstanceSubSystem.h` and uses
+UAT to build the author SDK and the development editor plugin. The generated
+reflection module preserves the game's `/Script/ModLoader` type paths. The game
+session owns the instances and delivers lifecycle events.
+
 [sdk-build-request.schema.json](Protocol/sdk-build-request.schema.json) defines
 `UMF.SdkBuildRequest` v1:
 

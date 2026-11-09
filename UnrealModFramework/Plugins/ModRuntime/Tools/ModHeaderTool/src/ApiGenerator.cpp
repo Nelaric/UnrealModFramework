@@ -22,6 +22,30 @@ namespace
 using FJson = nlohmann::json;
 using FFiles = std::map<std::string, std::string>;
 constexpr const char* GeneratorVersion = "0.5.0-verified-host";
+constexpr const char* LifecyclePath = "Contract/ModLifecycle.json";
+constexpr const char* LifecycleClasses[] = {"ModInstance", "ModInstanceSubSystem"};
+
+std::string ExportLifecycleDeclarations(const fs::path& Source)
+{
+	FJson Declarations = FJson::object();
+	for (const std::string Name : LifecycleClasses)
+	{
+		const std::string Header = ReadTextFile(Source / (Name + ".h"));
+		const std::string GeneratedInclude = "#include \"" + Name + ".generated.h\"";
+		const auto Include = Header.find(GeneratedInclude);
+		const auto LineEnd = Include == std::string::npos ? Include : Header.find('\n', Include);
+		const auto Body = LineEnd == std::string::npos ? LineEnd : Header.find_first_not_of("\r\n", LineEnd);
+		if (Body == std::string::npos || Header.size() > 1024 * 1024)
+		{
+			throw std::runtime_error("Invalid reflected Mod lifecycle header: " + Name);
+		}
+		std::string Declaration = Header.substr(Body);
+		std::erase(Declaration, '\r');
+		Declarations[Name] = std::move(Declaration);
+	}
+	return FJson{{"format", "UMF.ModLifecycleExport"}, {"schemaVersion", 1}, {"declarations", Declarations}}.dump(2) +
+	       '\n';
+}
 
 std::string Quote(const std::string& Text)
 {
@@ -508,29 +532,45 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 		                   {"line", Api.Macro.Line},
 		                   {"column", Api.Macro.Column}});
 	}
-	const FJson Contract{{"schemaVersion", 1},
-	                     {"projectionVersion", 1},
-	                     {"gameId", Model.Input.GameId},
-	                     {"objectReturnPolicy", "ErrorIfNull"},
-	                     {"types", Types},
-	                     {"exports", Exports}};
+	FJson Contract{{"schemaVersion", 1},
+	               {"projectionVersion", 1},
+	               {"gameId", Model.Input.GameId},
+	               {"objectReturnPolicy", "ErrorIfNull"},
+	               {"types", Types},
+	               {"exports", Exports}};
+	std::string LifecycleExport;
+	FJson Lifecycle;
+	if (!Model.LifecycleSource.empty())
+	{
+		LifecycleExport = ExportLifecycleDeclarations(Model.LifecycleSource);
+		Lifecycle = {{"schemaVersion", 1},
+		             {"module", "ModLoader"},
+		             {"resource", LifecyclePath},
+		             {"resourceHash", HashBytes(LifecycleExport)}};
+		Contract["modLifecycle"] = Lifecycle;
+	}
 	FJson Compatibility = Contract;
 	for (auto& Api : Compatibility["exports"])
 	{
 		Api.erase("metadata");
 	}
 	const std::string ContractHash = HashBytes(Compatibility.dump());
-	const std::string ProjectionHash = HashBytes(Types.dump() + "UObjectApiProjection1:ContextHandlesV1");
+	const std::string ProjectionHash = HashBytes(Types.dump() + "UObjectApiProjection1:ContextHandlesV1" +
+	                                             (Lifecycle.is_null() ? "" : Lifecycle.dump()));
 	FFiles Files;
 	WriteSdk(Model, Files);
 	WriteHost(Model, Files);
-	const FJson NativeAbi = WriteNativeAbi(Model, Files, ContractHash, ProjectionHash);
+	const FJson NativeAbi = WriteNativeAbi(Model, Files, ContractHash, ProjectionHash, Lifecycle);
 	for (auto& [Path, Text] : Files)
 	{
 		if (Path.ends_with(".h") || Path.ends_with(".cpp"))
 		{
 			Text = SourceBytes(Text);
 		}
+	}
+	if (!Lifecycle.is_null())
+	{
+		Files[LifecyclePath] = std::move(LifecycleExport);
 	}
 	Files["Contract/" + Model.Input.GameId + ".modcontract.json"] = Contract.dump(2) + '\n';
 	Files["Diagnostics/" + Model.Input.GameId + ".sources.json"] = Sources.dump(2) + '\n';
@@ -584,6 +624,7 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 		     {"ownerModule", Owner.empty() ? FJson(nullptr) : FJson(Owner)},
 		     {"role", Implementation ? (Path.ends_with(".modverify.cpp") ? "CompileVerification" : "HostBinding")
 		              : Host         ? "HostHeader"
+		              : Path == LifecyclePath         ? "SdkResource"
 		              : Path.ends_with(".modabi.h")   ? "SdkHeader"
 		              : Path.starts_with("SDK/")      ? "HostHeader"
 		              : Path.starts_with("Contract/") ? "Contract"
@@ -674,7 +715,7 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 }
 
 void Generate(const fs::path& BuildInput, const fs::path& OutputDirectory, const fs::path& Options,
-              const fs::path& ClangLibrary, const fs::path& HostContexts)
+              const fs::path& ClangLibrary, const fs::path& HostContexts, const fs::path& LifecycleSource)
 {
 	auto Input = LoadGenerationInput(BuildInput);
 	if (HostContexts.empty())
@@ -731,6 +772,14 @@ void Generate(const fs::path& BuildInput, const fs::path& OutputDirectory, const
 		}
 	}
 	auto Model = Analyze(std::move(Input), Options, ClangLibrary, AnalysisDatabase);
+	if (!LifecycleSource.empty())
+	{
+		Model.LifecycleSource = fs::canonical(LifecycleSource);
+		for (const std::string Name : LifecycleClasses)
+		{
+			Model.Dependencies.insert(fs::canonical(Model.LifecycleSource / (Name + ".h")));
+		}
+	}
 	Model.Dependencies.insert(ContextFile);
 	for (const auto& [Owner, File] : Model.Input.HostContexts)
 	{

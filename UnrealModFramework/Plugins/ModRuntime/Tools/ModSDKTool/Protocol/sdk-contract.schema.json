@@ -14,6 +14,16 @@
     "projectionHash": { "$ref": "#/$defs/hash" },
     "nativeAbiHash": { "$ref": "#/$defs/hash" },
     "connectionDescriptor": { "type": "string", "minLength": 1, "description": "Optional public UMF.ClientAbi artifact path relative to the generated root and published bundle/plugin root." },
+    "modLifecycle": {
+      "type": "object",
+      "required": ["schemaVersion", "module", "resource", "resourceHash"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "module": { "const": "ModLoader" },
+        "resource": { "const": "Contract/ModLifecycle.json" },
+        "resourceHash": { "$ref": "#/$defs/hash" }
+      }
+    },
     "types": {
       "type": "array", "minItems": 1, "maxItems": 128,
       "items": {

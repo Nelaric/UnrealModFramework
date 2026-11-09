@@ -209,6 +209,16 @@ internal static class ModRuntimeExporter
 			);
 			arguments.AddRange(new[] { "--build-input", buildInput, "--output-dir", output });
 			arguments.AddRange(new[] { "--host-contexts", hostBuild.ContextSet });
+			string lifecycleSource = Path.Combine(pluginRoot, "Source", "Runtime", "ModLoader", "Public");
+			string lifecycleHeader = Path.Combine(lifecycleSource, "ModInstance.h");
+			if (
+				factory.Session.Manifest.Modules.Any(module =>
+					module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))
+				)
+			)
+			{
+				arguments.AddRange(new[] { "--lifecycle-source", lifecycleSource });
+			}
 			AddDependency(factory, buildInput);
 			foreach (string key in new[] { "compilationDatabase", "typeIdentities" })
 			{
