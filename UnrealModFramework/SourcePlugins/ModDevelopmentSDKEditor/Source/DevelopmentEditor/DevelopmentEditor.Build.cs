@@ -10,6 +10,7 @@ public class DevelopmentEditor : ModuleRules
 		PrivateDependencyModuleNames.AddRange(
 			new[]
 			{
+				"AssetRegistry",
 				"Core",
 				"CoreUObject",
 				"DesktopPlatform",

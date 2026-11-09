@@ -53,6 +53,8 @@ Integers are explicitly unsigned little endian; C++ struct memory is never seria
 
 `UMF.ModPackage` v1 records Mod identity, version, plugin/package root, build options, and base release fingerprints. Index `entries` are ordered by case-sensitive path and contain `path`, `offset`, `size`, `storage: "None"`, and exact payload `sha256`. Absolute paths, traversal, and case-insensitive duplicates are rejected.
 
+When the author SDK supplies `ModInstance` and `ModInstanceSubSystem`, the packager records concrete Blueprint subclasses from the selected content plugin in the optional `lifecycleClasses` field. The game uses these class paths to create session entries after mounting.
+
 `Content/<StageRelativePath>` preserves UE output. `Metadata/CookReceipt.json` records package roots, staged paths, build configuration, and release provenance. `UMF.ModPackageBuildResult` v1 status `Packaged` means packaging and byte verification succeeded and includes the final file's SHA-256.
 
 This version packages content Mods. Runtime mounting, native DLLs, signatures, framework content IDs, and export-usage analysis remain separate work. Manifest and result report `shippingValidated: false`, with `exportRequirements: "NotVerified"` in the manifest. A packaged artifact is not evidence of compatibility with a Shipping game; Pak and IoStore loading require independent validation.
