@@ -1,0 +1,48 @@
+#!/usr/bin/env sh
+# Copyright (c) 2026 Nelaric Contributors
+
+set -eu
+
+if ! command -v cmake >/dev/null 2>&1; then
+    echo "CMake 3.20 or newer is required on PATH." >&2
+    exit 1
+fi
+
+script_dir=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
+toolchain_dir=
+target=all
+jobs=${CMAKE_BUILD_PARALLEL_LEVEL-}
+build_dir="$script_dir/build/Release"
+generator=${CMAKE_GENERATOR-}
+
+usage() {
+    echo "Usage: sh Build.sh [toolchain-directory] [--target name] [--jobs count] [--build-dir directory] [--generator name]" >&2
+    exit 1
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --help) exec cmake -DHELP=ON -P "$script_dir/Build.cmake" ;;
+        --target|--jobs|--build-dir|--generator)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || usage
+            case "$1" in
+                --target) target=$2 ;;
+                --jobs) jobs=$2 ;;
+                --build-dir) build_dir=$2 ;;
+                --generator) generator=$2 ;;
+            esac
+            shift 2
+            ;;
+        -*) usage ;;
+        *)
+            [ -z "$toolchain_dir" ] || usage
+            toolchain_dir=$1
+            shift
+            ;;
+    esac
+done
+
+set -- "-DTOOLCHAIN_DIR=$toolchain_dir" "-DTARGET=$target" "-DBUILD_DIR=$build_dir"
+if [ -n "$jobs" ]; then set -- "$@" "-DJOBS=$jobs"; fi
+if [ -n "$generator" ]; then set -- "$@" "-DGENERATOR=$generator"; fi
+exec cmake "$@" -P "$script_dir/Build.cmake"

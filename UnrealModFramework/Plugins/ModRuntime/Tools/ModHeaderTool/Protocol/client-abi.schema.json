@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MHT generated ContextHandlesV1 connection descriptor",
+  "type": "object",
+  "required": ["format", "schemaVersion", "status", "adapterAbi", "abiVersion", "gameId", "callingConvention", "tablePacking", "pointerBits", "header", "clientOwnerModule", "clientAnchor", "nativeAbiHash", "contractHash", "projectionHash", "connections", "apis", "statusCodes", "contextDelivery"],
+  "properties": {
+    "format": { "const": "UMF.ClientAbi" },
+    "schemaVersion": { "const": 1 },
+    "status": { "const": "Complete" },
+    "adapterAbi": { "const": "ContextHandlesV1" },
+    "abiVersion": { "const": 1 },
+    "gameId": { "type": "string", "minLength": 1 },
+    "callingConvention": { "const": "cdecl" },
+    "tablePacking": { "const": 8 },
+    "pointerBits": { "const": 64 },
+    "header": { "type": "string", "minLength": 1 },
+    "clientOwnerModule": { "$ref": "#/$defs/symbol" },
+    "clientAnchor": { "$ref": "#/$defs/symbol" },
+    "nativeAbiHash": { "$ref": "#/$defs/hash" },
+    "contractHash": { "$ref": "#/$defs/hash" },
+    "projectionHash": { "$ref": "#/$defs/hash" },
+    "statusCodes": { "type": "object", "required": ["None", "NotConnected", "AbiMismatch", "InternalError"], "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 4294967295 } },
+    "contextDelivery": { "type": "object", "required": ["issuer", "scopeToken", "objectToken", "revocation", "releaseRule", "unloadRule"] },
+    "connections": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["ownerModule", "tableType", "querySymbol", "connectSymbol", "disconnectSymbol", "releaseObjectSymbol"],
+        "properties": {
+          "ownerModule": { "$ref": "#/$defs/symbol" },
+          "tableType": { "$ref": "#/$defs/symbol" },
+          "querySymbol": { "$ref": "#/$defs/symbol" },
+          "connectSymbol": { "$ref": "#/$defs/symbol" },
+          "disconnectSymbol": { "$ref": "#/$defs/symbol" },
+          "releaseObjectSymbol": { "$ref": "#/$defs/symbol" }
+        }
+      }
+    },
+    "apis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "ownerModule", "symbol", "hostSymbol", "slot", "signature", "signatureHash", "projectionHash"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "version": { "type": "string", "minLength": 1 },
+          "ownerModule": { "$ref": "#/$defs/symbol" },
+          "symbol": { "$ref": "#/$defs/symbol" },
+          "hostSymbol": { "$ref": "#/$defs/symbol" },
+          "slot": { "$ref": "#/$defs/symbol" },
+          "signatureHash": { "$ref": "#/$defs/hash" },
+          "projectionHash": { "$ref": "#/$defs/hash" },
+          "signature": {
+            "type": "object", "required": ["callingConvention", "returns", "parameters"],
+            "properties": {
+              "callingConvention": { "const": "cdecl" },
+              "returns": { "const": "uint32_t" },
+              "parameters": { "type": "array", "minItems": 2, "items": { "type": "string", "minLength": 1 } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "symbol": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" }
+  }
+}

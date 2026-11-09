@@ -7,6 +7,9 @@ public class ExportCodeGenerator : ModuleRules
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-		PrivateDependencyModuleNames.Add("Core");
+		PublicDependencyModuleNames.Add("ExportMetadata");
+		PrivateDependencyModuleNames.AddRange(
+			new[] { "Core", "CoreUObject", "Engine", "GameplayTags", "Json", "Projects" }
+		);
 	}
 }

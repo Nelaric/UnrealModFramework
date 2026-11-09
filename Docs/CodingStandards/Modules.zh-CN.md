@@ -49,7 +49,7 @@ ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `
 
 `DevelopmentEditor` 通过 UAT `BuildPlugin` 独立构建。它不得静态依赖项目侧的 `ExportMetadata` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
 
-`ExportCodeGenerator` 是为导出代码生成预留的 Editor 模块，在 `Default` 阶段加载，目前仅私有依赖 `Core`。公开头文件 `ModExportMacros.h` 定义可变参数声明标记 `MOD_EXPORT_API(...)`、`MOD_EXPORT_EVENT(...)` 和 `MOD_EXPORT_HOOK(...)`，分别放在函数、事件源或事件签名、业务 Hook 函数的声明前。标记接受元数据 token，普通 C++ 编译时展开为空，不添加 UE 反射或运行时行为；需要反射的声明仍显式使用 `UFUNCTION` 等 UE 宏。标记解析、UHT 共存验收及代码生成尚未实现。代码生成职责由该模块承载，与运行时服务、宿主接入及蓝图声明界面分开。
+`ExportCodeGenerator` 是 Editor 模块，公开依赖 `ExportMetadata`，私有依赖 `Core`、`CoreUObject`、`Engine`、`GameplayTags`、`Json` 和 `Projects`。`ModExportOptions` commandlet 从共用的 `ExportMetadata::FOptions` 导出实际配置与标签目录，不处理蓝图资产。声明宏的规范头为 Runtime 模块中的 `ModExportAnnotations.h`，旧 `ModExportMacros.h` 仅转发。独立 MHT 的 scan 命令保留词法扫描和参数校验；generate 命令通过实际 UBT 编译数据库和 libclang AST 解析活动 API，生成受限 SDK、具体宿主桥、编译验证、契约和清单。首个同步 UObject 后端要求 GameThread、ReturnError、标量值参数及标量/void/World 对象返回；其他形式和 Event/Hook 代码生成明确拒绝。它不依赖 `BlueprintIntegration`。
 
 原生模组 ABI 类型应与面向 UE 的公开 API 分离。UE 内部的 C++ 契约使用 UE 类型；外部 C ABI 使用固定宽度字段、显式长度、不透明句柄及已说明的所有权规则，因为独立构建的二进制不能依赖 UE 对象或 C++ ABI 布局保持可移植。
 
