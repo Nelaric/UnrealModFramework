@@ -53,6 +53,8 @@ UnrealEditor-Cmd <作者工程.uproject> -run=ModPackage -Request=<Request.json>
 
 Manifest 格式为 `UMF.ModPackage` v1，记录 ModId、版本、插件与包根、实际构建配置及基础发布指纹。Index 的 `entries` 按区分大小写的路径升序排列，每项有 `path`、`offset`、`size`、`storage: "None"`、精确载荷 `sha256`。条目路径不得绝对、穿越目录或存在大小写冲突。
 
+作者 SDK 提供 `ModInstance` 和 `ModInstanceSubSystem` 时，打包器会把所选内容插件内的具体派生蓝图类写入可选的 `lifecycleClasses` 字段。游戏挂载后按这些类路径建立会话入口。
+
 载荷中的 `Content/<Stage相对路径>` 保留原生 Cook 产物；`Metadata/CookReceipt.json` 记录资源根、Stage 路径、构建配置和发布信息。结果格式为 `UMF.ModPackageBuildResult` v1，状态 `Packaged` 仅表示打包和文件校验完成，包含最终文件的 SHA-256。
 
 当前范围为内容型 Mod 打包，不实现游戏端挂载、原生 DLL、签名、框架内容 ID 注册或导出 API 使用分析。Manifest 和结果明确记录 `shippingValidated: false`，Manifest 中 `exportRequirements: "NotVerified"`；不能据此声明已与某个 Shipping 游戏兼容。Pak 与 IoStore 的游戏加载仍需各自验证。

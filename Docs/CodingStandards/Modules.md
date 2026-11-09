@@ -85,6 +85,8 @@ On Windows, the host editor uses the same `[ModLoader]` settings and `Saved/Mods
 
 PIE worlds in the same process share the mounted packages and own separate Mod instances. Each instance receives the startup results when its PIE map is ready. At the end of PIE, the loader stops delivering session results, releases loaded packages after world teardown, then unmounts the containers and unregisters their package roots. If an editor object still references a package, the loader reports it and retains the mount until cleanup can succeed.
 
+The author SDK generates `ModInstance` and `ModInstanceSubSystem` from the host's lifecycle export and preserves their `/Script/ModLoader` paths. Packaging automatically collects concrete Blueprint subclasses from the content plugin. After the load batch finishes, the game session creates entries for successful mounts and delivers each result to active entries. C++ subclasses override `OnModLoadCompleted` and call `Super::OnModLoadCompleted` to invoke `ReceiveModLoadCompleted`, displayed as **On Mod Load Completed** in Blueprint. Both entry points receive the same result, including the error code and reason for failures.
+
 ## Framework-only integration
 
 Consumer-facing methods belong in the first `public:` section. Methods used only for framework integration or Unreal lifecycle may occupy a second `public:` section, as specified in [Public API](API.md). An internal access key, if introduced, is an integration convention rather than an authorization boundary. Do not expose a private implementation header through a public header or use a non-reflected key as a `UFUNCTION` parameter. Cross-module access needs an explicit documented contract.
