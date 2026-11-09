@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UMF SDK build request v1",
+  "type": "object",
+  "required": ["format", "schemaVersion", "project", "gameId", "sdkVersion", "pluginName", "contract", "outputDirectory", "developmentPlugin", "tools", "editor", "libraries"],
+  "properties": {
+    "format": { "const": "UMF.SdkBuildRequest" },
+    "schemaVersion": { "const": 1 },
+    "project": { "$ref": "#/$defs/path" },
+    "gameId": { "type": "string", "minLength": 1 },
+    "sdkVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "pluginName": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,79}$" },
+    "contract": { "$ref": "#/$defs/path" },
+    "outputDirectory": { "$ref": "#/$defs/path" },
+    "workDirectory": { "$ref": "#/$defs/path" },
+    "developmentPlugin": { "$ref": "#/$defs/path" },
+    "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 1800 },
+    "tools": {
+      "type": "object", "required": ["mbt", "dotnet", "automationTool"],
+      "properties": {
+        "mbt": { "$ref": "#/$defs/path" },
+        "dotnet": { "$ref": "#/$defs/path" },
+        "automationTool": { "$ref": "#/$defs/path" }
+      }
+    },
+    "editor": {
+      "type": "object", "required": ["platform", "architecture", "configuration", "modules", "buildId"],
+      "properties": {
+        "platform": { "enum": ["Win64", "Linux", "Mac"] },
+        "architecture": { "enum": ["x64", "arm64"] },
+        "configuration": { "const": "Development" },
+        "modules": { "$ref": "#/$defs/path" },
+        "buildId": { "type": "string", "minLength": 1 }
+      }
+    },
+    "libraries": {
+      "type": "array", "minItems": 2, "maxItems": 256,
+      "items": {
+        "type": "object", "required": ["role", "context", "generatedManifest"],
+        "properties": {
+          "role": { "enum": ["Host", "Client"] },
+          "context": { "$ref": "#/$defs/path" },
+          "generatedManifest": { "$ref": "#/$defs/path" }
+        }
+      }
+    }
+  },
+  "$defs": { "path": { "type": "string", "minLength": 1 } }
+}

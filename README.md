@@ -26,6 +26,10 @@ Paths below are relative to the repository root. The UE project lives in `Unreal
 
 See the [coding standards](Docs/CodingStandards/README.md), [contribution guide](CONTRIBUTING.md), and [CircleCI setup](Docs/CircleCI.md) before changing code or build files.
 
+## SDK build tool
+
+`ModSDKTool` (MST) provides `plan`, `build`, and `inspect` for game-specific SDK bundles. Build it with `Tools/Build.bat --target ModSDKTool`. See the [MST guide](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.md) for the request and artifact formats.
+
 ## MHT C++ export parameter validation
 
 MHT is a standalone CMake C++20 tool for C++ `MOD_EXPORT_API`, `MOD_EXPORT_EVENT`, and `MOD_EXPORT_HOOK` declarations. It does not scan or validate Blueprints. Headers live in `include/ModHeaderTool`, implementations in `src`, and `main.cpp` only forwards the entry point. Build the tool:
