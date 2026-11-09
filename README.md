@@ -26,6 +26,48 @@ Paths below are relative to the repository root. The UE project lives in `Unreal
 
 See the [coding standards](Docs/CodingStandards/README.md), [contribution guide](CONTRIBUTING.md), and [CircleCI setup](Docs/CircleCI.md) before changing code or build files.
 
+## MHT C++ export parameter validation
+
+MHT is a standalone CMake C++20 tool for C++ `MOD_EXPORT_API`, `MOD_EXPORT_EVENT`, and `MOD_EXPORT_HOOK` declarations. It does not scan or validate Blueprints. Headers live in `include/ModHeaderTool`, implementations in `src`, and `main.cpp` only forwards the entry point. Build the tool:
+
+```powershell
+.\UnrealModFramework\Plugins\ModRuntime\Tools\Build.bat --target ModHeaderTool
+```
+
+After compiling the UE Editor target, export choices from the shared `ExportMetadata::FOptions` provider. This uses UE-resolved GameMod configuration and the global GameplayTags dictionary, including native and data-table tags. MHT does not maintain an approximate INI/tag parser or depend on `BlueprintIntegration`:
+
+```powershell
+$project = (Resolve-Path UnrealModFramework/UnrealModFrameworkDev.uproject).Path
+& "C:/Program Files/Epic Games/UE_5.6/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" $project -run=ModExportOptions -unattended -NullRHI -nosound
+.\UnrealModFramework\Plugins\ModRuntime\Tools\build\Release\bin\Release\ModHeaderTool.exe scan --project $project --output UnrealModFramework/Intermediate/ModHeaderTool/Exports.json
+```
+
+The catalog defaults to `Saved/ModHeaderTool/MetadataOptions.json` under the project. Override it with the commandlet's `-Output=<file.json>` and MHT's `--options <file.json>`. Added, removed, or changed configuration inputs invalidate its fingerprints and require re-export. Re-export after rebuilding native-tag modules or updating tag data tables as well. A catalog is unnecessary when no export invocations are found. The optional `.modexpot` scan-directory configuration is never created automatically.
+
+`ModExportMetadataSchema.h` defines case-sensitive field names and choice mappings:
+
+| Declaration | Required fields | Optional fields |
+| --- | --- | --- |
+| All three | `ExportId`: string literal naming a registered GameplayTag | `ExportVersion` defaults to `"1.0.0"`; `DisplayName` and `Description` |
+| `MOD_EXPORT_API` | `Scope`, `Thread`, `FailureRule` | `Permissions` defaults to an empty list |
+| `MOD_EXPORT_EVENT` | `SourceScope`, `PublishRule` | `PayloadType` |
+| `MOD_EXPORT_HOOK` | Only the common required field | `ContextType`; `AllowedStages` defaults to `(Observe)` |
+
+Choices accept identifiers or strings. Permissions and stages use parenthesized lists, such as `Permissions = ("WorldRead", "WorldWrite")` or `AllowedStages = (Observe, Modify)`. Stages require at least one item; duplicate items are errors. `ExportVersion` is a two- or three-component numeric version string without redundant leading zeros. `PayloadType` and `ContextType` validate C++ type-name syntax; type existence and declaration binding remain AST-stage concerns.
+
+```cpp
+MOD_EXPORT_API(
+    ExportId = "ModTest.APIExpot.Blueprint.TestFunction",
+    Scope = World,
+    Thread = GameThread,
+    FailureRule = ReturnError,
+    Permissions = ("WorldRead"))
+```
+
+Parsing supports comments, line splices, adjacent strings, ordinary/raw strings, standard escapes, Unicode escapes, and `TEXT("...")`. Arbitrary C++ expressions, named constants, user-defined string suffixes, and nested lists are rejected. Unknown/duplicate fields, missing required fields, wrong literal types, unregistered IDs, invalid choices, and duplicate list entries produce `file(line,column): error: macro: reason` diagnostics. Lines and columns are one-based; columns count UTF-8 bytes.
+
+Recoverable diagnostics are collected before returning `1` without writing a successful report. Success returns `0`. Report schema version `2` preserves raw arguments and adds parsed `Metadata` and `ParametersValidated`. `PreprocessorEvaluated` remains `false`: conditional branches are not evaluated, and AST types, declaration binding, and runtime policy semantics remain outside this stage.
+
 ## Contributing
 
 Use the [contribution guide](CONTRIBUTING.md), [Issue forms](https://github.com/Nelaric/UnrealModFramework/issues/new/choose), and [PR template](.github/pull_request_template.md) to prepare a focused change. The [development workflow](Docs/DevelopmentWorkflow.md) explains local checks, trusted PR builds, and documentation publishing.

@@ -16,6 +16,7 @@ LF_SUFFIXES = {".json", ".yml", ".yaml", ".py", ".ini", ".uproject", ".uplugin",
 LF_NAMES = {".gitattributes", ".gitignore", ".editorconfig", ".clang-format", ".csharpierrc", "Doxyfile", "CNAME"}
 VENDORED_ROOTS: set[Path] = {
     Path("UnrealModFramework/Plugins/ModRuntime/Tools/ThirdParty/nlohmann"),
+    Path("UnrealModFramework/Plugins/ModRuntime/Tools/ThirdParty/clang"),
 }
 
 
