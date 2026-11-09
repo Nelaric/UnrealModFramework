@@ -16,6 +16,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "ModApi",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "BlueprintIntegration",
 			"Type": "Editor",
 			"LoadingPhase": "PostEngineInit"

@@ -6,11 +6,12 @@ English | [简体中文](Modules.zh-CN.md)
 
 The repository contains a development host project and two framework plugins. Each module has one responsibility, declares only the dependencies it uses, and keeps implementation details in `Private`. Public headers are contracts: they must compile when included on their own, and their `.Build.cs` dependencies must be public only when those headers require them. Circular module dependencies are forbidden.
 
-The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory. The `ModRuntime` plugin contains `ExportMetadata`, `BlueprintIntegration`, and `ExportCodeGenerator`; the `ModDevelopmentEditor` plugin contains `DevelopmentEditor`.
+The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory. The `ModRuntime` plugin contains `ExportMetadata`, `ModApi`, `BlueprintIntegration`, and `ExportCodeGenerator`; the `ModDevelopmentEditor` plugin contains `DevelopmentEditor`.
 
 | Responsibility | Location | UE module type |
 | --- | --- | --- |
 | Export identifiers, containers, and configuration choices | `Plugins/ModRuntime/Source/Runtime/ExportMetadata/` | `Runtime` |
+| Generated API results, scopes, bindings, permissions, and revocation | `Plugins/ModRuntime/Source/Runtime/ModApi/` | `Runtime` |
 | Blueprint integration | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
 | Export code generation | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
 | Independent authoring tools | `SourcePlugins/ModDevelopmentEditor/Source/DevelopmentEditor/` | `Editor` |
@@ -43,6 +44,8 @@ Declaration names are `ModAPI_<name>`, `ModEvent_<name>`, and `ModHook_<name>`. 
 The Blueprint extension contributes API, Event, and Hook names, tooltips, and export IDs to Find in Blueprints. Declaration creation, renaming, property edits, deletion, and panel undo/redo refresh the search index for saved assets. The panel search matches canonical names, base names, and export IDs. Refreshing a selected row also refreshes its Details heading, including when the name was edited in Details. Source graphs and compiler copies share the same name-binding routine for entry and result function references, function-display metadata, and local-variable scopes; native Find References therefore uses the declaration's function name as well.
 
 `ExportMetadata` exposes `FModApiTag`, `FModEventTag`, and matching containers to C++. They derive from `FGameplayTag` and `FGameplayTagContainer`; their editor fields use the native GameplayTags property UI. Their conversion and insertion helpers check that tags exist in the global dictionary. Code consuming serialized tags should also call `IsRegistered`, since base-class APIs and imports can bypass those helpers. `Mod::ExportMetadata::FOptions` in `ModExportMetadataOptions.h` enumerates registered tags for API and Event IDs and reads other choices from `[ModExportMetadata]`; the Hook declaration currently uses the same global tag dictionary. C++ metadata literals still need authoring or export-time validation against these choices. The config defines available identifiers, not their runtime implementation. The export panel stores declarations and compiles API and Hook graphs, but it does not yet create Publish Event or Hook Point nodes or enforce runtime contracts. An export generator must validate registered IDs, complete selections, and host policy semantics before export; runtime code must consume generated descriptors rather than editor-only declarations.
+
+`ModApi` is a Runtime module for Game and Editor targets, publicly depending on `Core`, `CoreUObject`, and `Engine`. It owns generated API results, bindings, World/Player scopes, explicit providers, permissions, and revocation; these services are separate from metadata/configuration in `ExportMetadata`.
 
 `DevelopmentEditor` is built independently with UAT `BuildPlugin`. It must not statically depend on the project-side `ExportMetadata` module or a host game's modules. Shared package schemas and SDK contracts belong in versioned `Shared/ModProtocol` definitions when introduced; both plugins compile against those definitions separately. Runtime preview across processes uses a versioned bridge or IPC rather than a UBT dependency on the game project.
 
