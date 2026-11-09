@@ -19,7 +19,8 @@ FCommandLineOptions ParseArguments(const std::vector<std::string>& Arguments)
 	                                       {"--build-input", &Result.BuildInput},
 	                                       {"--output-dir", &Result.OutputDirectory},
 	                                       {"--libclang", &Result.ClangLibrary},
-	                                       {"--host-contexts", &Result.HostContexts}};
+	                                       {"--host-contexts", &Result.HostContexts},
+	                                       {"--lifecycle-source", &Result.LifecycleSource}};
 	std::set<std::string> Supplied;
 	Result.bGenerate = Arguments.size() > 1 && Arguments[1] == "generate";
 	std::size_t Index = Arguments.size() > 1 && (Arguments[1] == "scan" || Result.bGenerate) ? 2 : 1;
@@ -53,10 +54,12 @@ FCommandLineOptions ParseArguments(const std::vector<std::string>& Arguments)
 			throw std::runtime_error("generate requires --build-input, --output-dir and --host-contexts. The project "
 			                         "comes from the build input.");
 		}
-		if (!Result.bGenerate && (!Result.BuildInput.empty() || !Result.OutputDirectory.empty() ||
-		                          !Result.ClangLibrary.empty() || !Result.HostContexts.empty()))
+		if (!Result.bGenerate &&
+		    (!Result.BuildInput.empty() || !Result.OutputDirectory.empty() || !Result.ClangLibrary.empty() ||
+		     !Result.HostContexts.empty() || !Result.LifecycleSource.empty()))
 		{
-			throw std::runtime_error("--build-input, --output-dir, --libclang and --host-contexts require generate.");
+			throw std::runtime_error(
+			    "--build-input, --output-dir, --libclang, --host-contexts and --lifecycle-source require generate.");
 		}
 	}
 	return Result;
@@ -71,7 +74,7 @@ Usage:
                       [--options <metadata-options.json>]
   ModHeaderTool generate --build-input <target.json> --output-dir <directory>
                          [--options <metadata-options.json>] [--libclang <library>]
-                         --host-contexts <contexts.json>
+                         --host-contexts <contexts.json> [--lifecycle-source <directory>]
 
 generate resolves active API markers with libclang and an actual compilation
 database. The build input pins modules, translation units, stable type identities,
@@ -79,6 +82,7 @@ Target context and analysis arguments. It emits SDK views, concrete host bridges
 compile verification, a contract and a complete manifest at fixed output paths.
 Implementation .cpp files are compiled independently by MBT, never by UBT.
 --host-contexts pins each owner's actual MBT producer context in the manifest.
+--lifecycle-source exports the host's lifecycle declarations for SDK generation.
 The first backend supports public UObject instance methods on GameThread,
 by-value scalar parameters, scalar/void or World-scoped UObject pointer returns.
 Object returns use the explicitly selected ErrorIfNull projection. Other forms,

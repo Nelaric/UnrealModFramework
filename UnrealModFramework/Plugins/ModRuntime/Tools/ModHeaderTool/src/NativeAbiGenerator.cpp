@@ -99,7 +99,7 @@ const std::vector<std::string> Errors = {
 } // namespace
 
 FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::string>& Files,
-                     const std::string& ContractHash, const std::string& ProjectionHash)
+                     const std::string& ContractHash, const std::string& ProjectionHash, const FJson& Lifecycle)
 {
 	const std::string Game = Model.Input.GameId;
 	const std::string Prefix = "UMF_" + Game;
@@ -512,6 +512,10 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 	          {"apis", SdkApis},
 	          {"unsupportedApis", Unsupported},
 	          {"connectionDescriptor", "Contract/" + Game + ".clientabi.json"}};
+	if (!Lifecycle.is_null())
+	{
+		Sdk["modLifecycle"] = Lifecycle;
+	}
 	Files["Contract/" + Game + ".sdkcontract.json"] = Sdk.dump(2) + "\n";
 	return {{"nativeAbiHash", AbiHash},
 	        {"requiredSymbols", Required},
