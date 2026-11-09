@@ -65,7 +65,7 @@ jobs:
       - compile_target:
           target: UnrealModFrameworkDevEditor
       - run:
-          name: Package ModDevelopmentEditor for Linux
+          name: Package ModDevelopmentSDKEditor for Linux
           no_output_timeout: 30m
           command: |
             set -euo pipefail
@@ -75,8 +75,8 @@ jobs:
               ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
               /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh \
               BuildPlugin \
-              -Plugin=/workspace/UnrealModFramework/SourcePlugins/ModDevelopmentEditor/ModDevelopmentEditor.uplugin \
-              -Package=/workspace/Dist/ModDevelopmentEditor \
+              -Plugin=/workspace/UnrealModFramework/SourcePlugins/ModDevelopmentSDKEditor/ModDevelopmentSDKEditor.uplugin \
+              -Package=/workspace/Dist/ModDevelopmentSDKEditor \
               -TargetPlatforms=Linux
 
 workflows:

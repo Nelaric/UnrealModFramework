@@ -4,7 +4,7 @@
 
 # CircleCI Linux 构建
 
-[push 配置](../.circleci/config.yml)和[可信 PR 配置](../.circleci/pr-build.yml)都定义了两个并行的 Unreal Engine 5.6.1 Linux Job。`build_game_linux` 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。`build_editor_linux` 编译 `UnrealModFrameworkDevEditor`，包括 `ExportMetadata`、`BlueprintIntegration` 和 `ExportCodeGenerator`，再通过 UAT `BuildPlugin` 为 Linux 打包独立 `ModDevelopmentEditor` 插件。仓库没有 Server Target，也未配置包发布或 Editor 自动化测试步骤。
+[push 配置](../.circleci/config.yml)和[可信 PR 配置](../.circleci/pr-build.yml)都定义了两个并行的 Unreal Engine 5.6.1 Linux Job。`build_game_linux` 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。`build_editor_linux` 编译 `UnrealModFrameworkDevEditor`，包括 `ExportMetadata`、`BlueprintIntegration` 和 `ExportCodeGenerator`，再通过 UAT `BuildPlugin` 为 Linux 打包独立 `ModDevelopmentSDKEditor` 插件。仓库没有 Server Target，也未配置包发布或 Editor 自动化测试步骤。
 
 ## 已启用的 PR 接入
 

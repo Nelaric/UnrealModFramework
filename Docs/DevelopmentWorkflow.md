@@ -30,7 +30,7 @@ Both the push configuration and trusted PR configuration build `UnrealModFramewo
 | CircleCI job | Work |
 | --- | --- |
 | `build_game_linux` | Compile `UnrealModFrameworkDev` and its enabled runtime modules. |
-| `build_editor_linux` | Compile `UnrealModFrameworkDevEditor` and its supported editor modules, then package the independent `ModDevelopmentEditor` plugin with UAT `BuildPlugin`. |
+| `build_editor_linux` | Compile `UnrealModFrameworkDevEditor` and its supported editor modules, then package the independent `ModDevelopmentSDKEditor` plugin with UAT `BuildPlugin`. |
 
 The jobs use separate writable staging directories and run the UE containers without network access after pulling the private engine image.
 

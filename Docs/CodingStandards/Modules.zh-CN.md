@@ -6,7 +6,7 @@
 
 仓库包含一个开发宿主工程和两个框架插件。每个模块只承担明确职责，仅声明实际使用的依赖，并将实现细节放入 `Private`。公开头文件是契约：它们须能够独立包含，且只有当公开头文件确实需要某依赖时，才将该依赖列为 `.Build.cs` 的公开依赖。禁止循环依赖。
 
-UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `ExportMetadata`、`ModApi`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块；`ModDevelopmentEditor` 插件包含 `DevelopmentEditor` 模块。
+UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `ExportMetadata`、`ModApi`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块；`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块。
 
 | 职责 | 位置 | UE 模块类型 |
 | --- | --- | --- |
@@ -14,7 +14,7 @@ UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相�
 | 生成 API 的结果、作用域、绑定、权限与撤销 | `Plugins/ModRuntime/Source/Runtime/ModApi/` | `Runtime` |
 | Blueprint 接入 | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
 | 导出代码生成 | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
-| 独立的制作工具 | `SourcePlugins/ModDevelopmentEditor/Source/DevelopmentEditor/` | `Editor` |
+| 独立的制作工具 | `SourcePlugins/ModDevelopmentSDKEditor/Source/DevelopmentEditor/` | `Editor` |
 | 开发宿主 | `Source/ExportTest/` | `Runtime` |
 
 宿主工程通过 `Config/DefaultEngine.ini` 中的 `[CoreRedirects]` 将 `/Script/ModBlueprintIntegration` 映射到 `/Script/BlueprintIntegration`，保留已有蓝图资产中的引用。

@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 These standards apply to every contribution to UnrealModFramework. Follow both [Epic Games' Unreal Engine C++ Coding Standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) and these project rules. If they conflict, open an issue identifying the exact requirements before proceeding. Pinned formatter output governs layout only when it satisfies both standards.
 
-The development baseline is Unreal Engine 5.6. The repository contains a host project, the game-side `ModRuntime` plugin, and the independently built `ModDevelopmentEditor` plugin. The runtime, authoring editor, shared protocol, and any game-specific SDK have separate ownership and dependency boundaries. A native mod C ABI is an interoperability boundary; it does not inherit UE C++ ABI conventions.
+The development baseline is Unreal Engine 5.6. The repository contains a host project, the game-side `ModRuntime` plugin, and the independently built `ModDevelopmentSDKEditor` plugin. The runtime, authoring editor, shared protocol, and any game-specific SDK have separate ownership and dependency boundaries. A native mod C ABI is an interoperability boundary; it does not inherit UE C++ ABI conventions.
 
 ## Standards
 

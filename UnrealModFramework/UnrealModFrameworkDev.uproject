@@ -3,6 +3,9 @@
 	"EngineAssociation": "5.6",
 	"Category": "Development",
 	"Description": "Development host project for UnrealModFramework.",
+	"AdditionalPluginDirectories": [
+		"SourcePlugins"
+	],
 	"Modules": [
 		{
 			"Name": "ExportTest",
@@ -14,6 +17,13 @@
 		{
 			"Name": "ModRuntime",
 			"Enabled": true
+		},
+		{
+			"Name": "ModDevelopmentSDKEditor",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
 		}
 	]
 }
