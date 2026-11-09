@@ -94,18 +94,22 @@ jobs:
       - compile_target:
           target: UnrealModFrameworkDevEditor
       - run:
-          name: Package ModDevelopmentEditor for Linux
+          name: Package the authoring editor for Linux
           no_output_timeout: 30m
           command: |
             set -euo pipefail
             : "${UE_PROJECT_DIR:?Project staging directory is missing}"
+            authoring_plugin=ModDevelopmentEditor
+            if [ -f "$UE_PROJECT_DIR/UnrealModFramework/SourcePlugins/ModDevelopmentSDKEditor/ModDevelopmentSDKEditor.uplugin" ]; then
+              authoring_plugin=ModDevelopmentSDKEditor
+            fi
             docker run --rm --network none \
               --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
               ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
               /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh \
               BuildPlugin \
-              -Plugin=/workspace/UnrealModFramework/SourcePlugins/ModDevelopmentEditor/ModDevelopmentEditor.uplugin \
-              -Package=/workspace/Dist/ModDevelopmentEditor \
+              "-Plugin=/workspace/UnrealModFramework/SourcePlugins/${authoring_plugin}/${authoring_plugin}.uplugin" \
+              "-Package=/workspace/Dist/${authoring_plugin}" \
               -TargetPlatforms=Linux
 
 workflows:
