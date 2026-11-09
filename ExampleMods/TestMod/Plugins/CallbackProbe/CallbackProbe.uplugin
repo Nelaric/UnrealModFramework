@@ -1,0 +1,9 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "Mod Load Callback Probe",
+	"Category": "Mod Framework",
+	"CanContainContent": true,
+	"EnabledByDefault": true
+}

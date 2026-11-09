@@ -1,0 +1,30 @@
+{
+	"FileVersion": 3,
+	"EngineAssociation": "5.6",
+	"DisableEnginePluginsByDefault": true,
+	"Category": "Development",
+	"Description": "Standalone test project for UnrealModFramework.",
+	"AdditionalPluginDirectories": [
+		"../../Dist/TestModEditorPlugins/0.5.0"
+	],
+	"Modules": [
+		{
+			"Name": "TestMod",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "UMFDevSDK",
+			"Enabled": true
+		},
+		{
+			"Name": "ModDevelopmentSDKEditor",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		}
+	]
+}
