@@ -14,7 +14,7 @@ Wrappers also accept --build-dir directory and --generator name.
 Options (place all -D options before -P):
   TOOLCHAIN_DIR  Optional compiler root or bin directory; takes precedence
                 over environment variables. An invalid directory is an error.
-  TARGET      all (default) or ModHeaderTool
+  TARGET      all (default), ModBuildTool, or ModHeaderTool
   JOBS        Positive parallel job count; defaults to the logical CPU count
               or CMAKE_BUILD_PARALLEL_LEVEL when set. NMake builds serially.
   GENERATOR   Ninja, Ninja Multi-Config, NMake Makefiles (Windows), or
@@ -40,8 +40,8 @@ set(CONFIG Release)
 if(NOT DEFINED TARGET)
     set(TARGET all)
 endif()
-if(NOT "${TARGET}" MATCHES "^(all|ModHeaderTool)$")
-    message(FATAL_ERROR "Invalid TARGET '${TARGET}'. Use all or ModHeaderTool.")
+if(NOT "${TARGET}" MATCHES "^(all|ModBuildTool|ModHeaderTool)$")
+    message(FATAL_ERROR "Invalid TARGET '${TARGET}'. Use all, ModBuildTool, or ModHeaderTool.")
 endif()
 if(NOT DEFINED JOBS)
     if(DEFINED ENV{CMAKE_BUILD_PARALLEL_LEVEL} AND NOT "$ENV{CMAKE_BUILD_PARALLEL_LEVEL}" STREQUAL "")

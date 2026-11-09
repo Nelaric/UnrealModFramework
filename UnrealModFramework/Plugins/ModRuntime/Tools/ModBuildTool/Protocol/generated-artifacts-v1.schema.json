@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Legacy UMF complete generated artifacts v1",
+  "type": "object",
+  "required": ["format", "schemaVersion", "generationId", "status", "unresolvedTypeCount", "buildContextHash", "inputHash", "contractHash", "projectionHash", "nativeAbiHash", "generatedFiles", "compilationUnits"],
+  "properties": {
+    "format": { "const": "UMF.GeneratedArtifacts" },
+    "schemaVersion": { "const": 1 },
+    "status": { "const": "Complete" },
+    "unresolvedTypeCount": { "const": 0 },
+    "generationId": { "$ref": "#/$defs/hash" },
+    "buildContextHash": { "$ref": "#/$defs/hash" },
+    "hostBuildContexts": {
+      "type": "object",
+      "description": "Optional owner-module to exact MBT producer-context hash map; overrides buildContextHash for host compilation.",
+      "additionalProperties": { "$ref": "#/$defs/hash" }
+    },
+    "inputHash": { "$ref": "#/$defs/hash" },
+    "contractHash": { "$ref": "#/$defs/hash" },
+    "projectionHash": { "$ref": "#/$defs/hash" },
+    "nativeAbiHash": { "$ref": "#/$defs/hash" },
+    "generatedFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "contentHash", "ownerModule"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "contentHash": { "$ref": "#/$defs/hash" },
+          "ownerModule": { "type": ["string", "null"] },
+          "role": { "type": "string" }
+        }
+      }
+    },
+    "compilationUnits": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["ownerModule", "source"],
+        "properties": {
+          "ownerModule": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": { "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}

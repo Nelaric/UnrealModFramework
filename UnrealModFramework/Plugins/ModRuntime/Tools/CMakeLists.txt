@@ -11,4 +11,5 @@ if(DEFINED UMF_EXPECTED_COMPILER_ID AND NOT CMAKE_CXX_COMPILER_ID STREQUAL UMF_E
     )
 endif()
 
+add_subdirectory(ModBuildTool)
 add_subdirectory(ModHeaderTool)
