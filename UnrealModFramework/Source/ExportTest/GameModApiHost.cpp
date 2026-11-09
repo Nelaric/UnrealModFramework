@@ -13,7 +13,7 @@ void UGameModApiHost::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 #if MOD_API_BOOTSTRAP
-	UE_LOG(LogTemp, Warning, TEXT("MHT bootstrap: generated Mod API bindings are unavailable."));
+	UE_LOG(LogTemp, Warning, TEXT("Generated native Mod API bindings are disabled for this build."));
 #else
 	Registry = MakeUnique<Mod::Api::FRegistry>();
 	auto Registered = TModResult<TArray<Mod::Api::FRegistration>>::Failure(Mod::Api::EError::NotRegistered);

@@ -75,6 +75,23 @@ internal static class ModRuntimeExporter
 		{
 			throw new UhtException("ModRuntime MHT: mode must be scan or generate.");
 		}
+		AddDependency(factory, configPath);
+		DirectoryInfo? configurationDirectory = null;
+		if (mode == "generate")
+		{
+			// UE 5.6 places the UHT deps at Build/<platform>/<target>/<configuration>/<target>.deps.
+			string deps = factory.Session.Manifest!.ExternalDependenciesFile;
+			configurationDirectory = new DirectoryInfo(Path.GetDirectoryName(deps)!);
+			string targetPlatform = configurationDirectory.Parent!.Parent!.Name;
+			if (targetPlatform != "Win64" || !OperatingSystem.IsWindows())
+			{
+				factory.Session.Logger.LogInformation(
+					"ModRuntime MHT: skipping automatic native generation for {Platform}.",
+					targetPlatform
+				);
+				return;
+			}
+		}
 		int timeout = config.TryGetProperty("timeoutSeconds", out JsonElement seconds) ? seconds.GetInt32() : 600;
 		if (timeout < 1 || timeout > 86400)
 		{
@@ -85,7 +102,6 @@ internal static class ModRuntimeExporter
 			projectRoot,
 			OptionalText(config, "options") ?? "Saved/ModHeaderTool/MetadataOptions.json"
 		);
-		AddDependency(factory, configPath);
 		AddDependency(factory, project);
 		AddDependency(factory, executable);
 		AddDependency(factory, options);
@@ -125,17 +141,10 @@ internal static class ModRuntimeExporter
 				);
 			}
 			string targetName = factory.Session.Manifest.TargetName;
-			// UE 5.6 places the UHT deps at Build/<platform>/<target>/<configuration>/<target>.deps.
 			// Its manifest has no architecture; ConfigureHost restricts this adapter to the actual x64 target.
-			string deps = factory.Session.Manifest.ExternalDependenciesFile;
-			DirectoryInfo configurationDirectory = new(Path.GetDirectoryName(deps)!);
-			string configuration = configurationDirectory.Name;
-			string platform = configurationDirectory.Parent!.Parent!.Name;
+			string configuration = configurationDirectory!.Name;
+			const string platform = "Win64";
 			const string architecture = "x64";
-			if (platform != "Win64" || !OperatingSystem.IsWindows())
-			{
-				throw new UhtException("ModRuntime MHT: automatic UE 5.6 generation requires Win64 x64 MSVC.");
-			}
 			string variantKey = $"{platform}/{configuration}/{architecture}";
 			JsonElement target =
 				config.TryGetProperty("targets", out JsonElement targets)

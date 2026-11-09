@@ -18,11 +18,15 @@ public class ExportMetadata : ModuleRules
 	/// <summary>Tracks MHT inputs and verifies the host archives in UBT's linked images.</summary>
 	public static void ConfigureTarget(TargetRules target)
 	{
-		if (HasArgument("-MhtBootstrap") || HasArgument("-Mode=GenerateClangDatabase"))
+		if (
+			!IsAutomaticHostPlatform(target.Platform)
+			|| HasArgument("-MhtBootstrap")
+			|| HasArgument("-Mode=GenerateClangDatabase")
+		)
 		{
 			return;
 		}
-		RequireAutomaticTarget(target.Platform, target.Architectures);
+		RequireAutomaticArchitecture(target.Architectures);
 		var project = target.ProjectFile ?? throw new BuildException("ModRuntime MBT requires a project target.");
 		string root = project.Directory.FullName;
 		string config = Path.Combine(root, "Config", "ModHeaderTool.json");
@@ -60,14 +64,15 @@ public class ExportMetadata : ModuleRules
 		{
 			throw new BuildException("-MhtBootstrap is restricted to a non-publishable Development Editor build.");
 		}
-		owner.PrivateDefinitions.Add("MOD_API_BOOTSTRAP=" + (bootstrap ? "1" : "0"));
+		bool useGeneratedHost = !bootstrap && IsAutomaticHostPlatform(target.Platform);
+		owner.PrivateDefinitions.Add("MOD_API_BOOTSTRAP=" + (useGeneratedHost ? "0" : "1"));
 		owner.PCHUsage = PCHUsageMode.NoPCHs;
 		owner.bUseUnity = false;
-		if (bootstrap)
+		if (!useGeneratedHost)
 		{
 			return;
 		}
-		RequireAutomaticTarget(target.Platform, target.Architectures);
+		RequireAutomaticArchitecture(target.Architectures);
 		owner.PrivateDefinitions.Add("UMF_MHT_TARGET_CONFIGURATION=" + target.Configuration);
 		if (target.bMergeModules || target.bShouldCompileAsDLL)
 		{
@@ -174,10 +179,15 @@ public class ExportMetadata : ModuleRules
 	public static void ConfigureHostLibrary(ModuleRules libraryModule, ReadOnlyTargetRules target, string owner)
 	{
 		libraryModule.Type = ModuleType.External;
-		if (HasArgument("-MhtBootstrap") || HasArgument("-Mode=GenerateClangDatabase"))
+		if (
+			!IsAutomaticHostPlatform(target.Platform)
+			|| HasArgument("-MhtBootstrap")
+			|| HasArgument("-Mode=GenerateClangDatabase")
+		)
 		{
 			return;
 		}
+		RequireAutomaticArchitecture(target.Architectures);
 		string library = LibraryPath(target, owner);
 		libraryModule.PublicPreBuildLibraries.Add(library);
 		libraryModule.ExternalDependencies.Add(library);
@@ -214,9 +224,12 @@ public class ExportMetadata : ModuleRules
 			architectures.ToString()
 		);
 
-	private static void RequireAutomaticTarget(UnrealTargetPlatform platform, UnrealArchitectures architectures)
+	private static bool IsAutomaticHostPlatform(UnrealTargetPlatform platform) =>
+		platform == UnrealTargetPlatform.Win64 && OperatingSystem.IsWindows();
+
+	private static void RequireAutomaticArchitecture(UnrealArchitectures architectures)
 	{
-		if (platform != UnrealTargetPlatform.Win64 || architectures.ToString() != "x64")
+		if (architectures.ToString() != "x64")
 		{
 			throw new BuildException("ModRuntime's automatic UE 5.6 recipe adapter requires Win64 x64 MSVC.");
 		}
