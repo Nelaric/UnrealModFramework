@@ -9,6 +9,7 @@ commands:
           name: Validate and check out the PR commit
           command: |
             set -euo pipefail
+            printf 'export UMF_CI_BASE_COMMIT=%q\n' "$(git rev-parse HEAD)" >> "$BASH_ENV"
             python3 -c '
             import json
             import os
@@ -28,9 +29,13 @@ commands:
             git checkout --detach "$actual_sha"
             test "$(git rev-parse HEAD)" = "$pr_sha"
   pull_unreal_image:
+    parameters:
+      with_mst:
+        type: boolean
+        default: false
     steps:
       - run:
-          name: Pull Unreal Engine 5.6.1 Linux image
+          name: Prepare Unreal Engine 5.6.1 Linux image
           no_output_timeout: 30m
           command: |
             set -euo pipefail
@@ -38,6 +43,14 @@ commands:
             : "${GHCR_TOKEN:?Set GHCR_TOKEN in CircleCI project settings}"
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
             docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1
+            if << parameters.with_mst >>; then
+              printf '%s\n' \
+                'FROM ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1' \
+                'USER root' \
+                'RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*' \
+                'USER ue4' |
+                docker build --tag umf-ue-mst:5.6.1 -
+            fi
             docker logout ghcr.io
   stage_project:
     steps:
@@ -89,28 +102,34 @@ jobs:
       PR_EVENT_JSON: "<< pipeline.trigger_parameters.webhook.body >>"
     steps:
       - checkout_pr_commit
-      - pull_unreal_image
+      - pull_unreal_image:
+          with_mst: true
       - stage_project
       - compile_target:
           target: UnrealModFrameworkDevEditor
       - run:
-          name: Package the authoring editor for Linux
+          name: Compile the authoring editor with MST for Linux
           no_output_timeout: 30m
           command: |
             set -euo pipefail
             : "${UE_PROJECT_DIR:?Project staging directory is missing}"
-            authoring_plugin=ModDevelopmentEditor
-            if [ -f "$UE_PROJECT_DIR/UnrealModFramework/SourcePlugins/ModDevelopmentSDKEditor/ModDevelopmentSDKEditor.uplugin" ]; then
-              authoring_plugin=ModDevelopmentSDKEditor
+            build_script=.circleci/build-editor-plugin.sh
+            if [ -f "$build_script" ]; then
+              mkdir "$UE_PROJECT_DIR/.circleci"
+              cp -a LICENSE NOTICE.md "$UE_PROJECT_DIR/"
+              cp -a "$build_script" "$UE_PROJECT_DIR/.circleci/"
+            else
+              # Older PRs can build their plugin with the MST entry point from trusted main.
+              mkdir "$UE_PROJECT_DIR/mst"
+              git archive "$UMF_CI_BASE_COMMIT" "$build_script" LICENSE NOTICE.md \
+                UnrealModFramework/Plugins/ModRuntime/Tools | tar -x -C "$UE_PROJECT_DIR/mst"
+              build_script="mst/$build_script"
             fi
-            docker run --rm --network none \
+            docker run --rm --init --network none \
               --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
-              ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
-              /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh \
-              BuildPlugin \
-              "-Plugin=/workspace/UnrealModFramework/SourcePlugins/${authoring_plugin}/${authoring_plugin}.uplugin" \
-              "-Package=/workspace/Dist/${authoring_plugin}" \
-              -TargetPlatforms=Linux
+              --workdir /workspace \
+              umf-ue-mst:5.6.1 \
+              bash "$build_script"
 
 workflows:
   fork_pr_linux_build:

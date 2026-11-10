@@ -42,7 +42,7 @@ Use `ModSDKTool build-editor` to package the independent authoring plugin from
 its descriptor and an installed Editor. Pass a new directory with `--package`,
 the Editor's .NET host, AutomationTool assembly, module manifest and
 architecture, and the MBT executable. MST verifies the Editor BuildId and
-binary before publishing the plugin with the native tools.
+binary before publishing the plugin with the native tools. [CircleCI invocation](../../../../../.circleci/build-editor-plugin.sh)
 
 ## Input contracts
 
