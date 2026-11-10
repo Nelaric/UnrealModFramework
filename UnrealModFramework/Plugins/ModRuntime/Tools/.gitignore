@@ -1,4 +1,6 @@
 # Copyright (c) 2026 Nelaric Contributors
 
 build/
+!/ModBuildTool/src/Build/
+!/ModSDKTool/src/Build/
 CMakeUserPresets.json
