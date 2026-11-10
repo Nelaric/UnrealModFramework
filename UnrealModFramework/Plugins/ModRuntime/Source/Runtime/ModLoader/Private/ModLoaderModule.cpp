@@ -221,7 +221,7 @@ private:
 			}
 			else if (ConflictingIds.Contains(Result.Package.ModId))
 			{
-				Fail(Result, ELoadError::Conflict, TEXT("More than one approved archive declares this mod ID."));
+				Fail(Result, ELoadError::Conflict, TEXT("More than one eligible archive declares this mod ID."));
 			}
 			else
 			{
@@ -389,9 +389,7 @@ private:
 
 	void LoadAtStartup()
 	{
-		bool bLoadAtStartup = false;
-		if (!GConfig || !GConfig->GetBool(ConfigSection, TEXT("bLoadAtStartup"), bLoadAtStartup, GGameIni) ||
-		    !bLoadAtStartup)
+		if (!GConfig || !GConfig->GetBoolOrDefault(ConfigSection, TEXT("bLoadAtStartup"), true, GGameIni))
 		{
 			return;
 		}
@@ -400,6 +398,11 @@ private:
 		GConfig->GetString(ConfigSection, TEXT("BaseReleaseVersion"), Policy.BaseReleaseVersion, GGameIni);
 		GConfig->GetString(ConfigSection, TEXT("BaseRegistrySha256"), Policy.BaseRegistrySha256, GGameIni);
 		GConfig->GetArray(ConfigSection, TEXT("TrustedPackageSha256"), Policy.TrustedPackageSha256, GGameIni);
+		bool bEnforcePackageAllowlist = false;
+		if (GConfig->GetBool(ConfigSection, TEXT("bEnforcePackageAllowlist"), bEnforcePackageAllowlist, GGameIni))
+		{
+			Policy.bEnforcePackageAllowlist = bEnforcePackageAllowlist;
+		}
 		GConfig->GetFloat(ConfigSection, TEXT("PreparationTimeoutSeconds"), Policy.PreparationTimeoutSeconds, GGameIni);
 		const FString Directory =
 		    FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Mods")));
