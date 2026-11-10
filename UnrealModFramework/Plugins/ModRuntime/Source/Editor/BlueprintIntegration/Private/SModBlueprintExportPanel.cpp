@@ -38,23 +38,6 @@ namespace
 {
 const FName ExportSelectionOwner(TEXT("ModBlueprintExport"));
 
-FName GetExportId(const UModBlueprintExportEntry* Entry)
-{
-	if (const UModBlueprintAPIExport* API = Cast<UModBlueprintAPIExport>(Entry))
-	{
-		return API->ExportId;
-	}
-	if (const UModBlueprintEventExport* Event = Cast<UModBlueprintEventExport>(Entry))
-	{
-		return Event->ExportId;
-	}
-	if (const UModBlueprintHookExport* Hook = Cast<UModBlueprintHookExport>(Entry))
-	{
-		return Hook->ExportId;
-	}
-	return NAME_None;
-}
-
 const FSlateBrush* GetEntryIcon(const UModBlueprintExportEntry* Entry)
 {
 	if (Entry && Entry->IsA<UModBlueprintEventExport>())
@@ -70,9 +53,7 @@ const FSlateBrush* GetEntryIcon(const UModBlueprintExportEntry* Entry)
 
 FText GetEntryTooltip(const UModBlueprintExportEntry* Entry)
 {
-	const FName ExportId = GetExportId(Entry);
-	const FText IdText = ExportId.IsNone() ? LOCTEXT("UnassignedId", "尚未选择导出 ID") : FText::FromName(ExportId);
-	FText Tooltip = FText::Format(LOCTEXT("EntryTooltip", "{0}\n{1}"), Entry->GetExportTooltip(), IdText);
+	FText Tooltip = Entry->GetExportTooltip();
 	const UModBlueprintAPIExport* API = Cast<UModBlueprintAPIExport>(Entry);
 	const UModBlueprintHookExport* Hook = Cast<UModBlueprintHookExport>(Entry);
 	if ((API && !Entry->OwnsGraph(API->ImplementationGraph)) || (Hook && !Entry->OwnsGraph(Hook->OriginalGraph)))
@@ -92,10 +73,7 @@ struct FExportSchemaAction final : FEdGraphSchemaAction
 {
 	FExportSchemaAction(UModBlueprintExportEntry* InEntry, const int32 SectionId)
 	    : FEdGraphSchemaAction(FText::GetEmpty(), InEntry->GetExportDisplayName(), GetEntryTooltip(InEntry), 0,
-	                           FText::Format(LOCTEXT("SearchKeywords", "{0} {1}"),
-	                                         FText::FromString(InEntry->DisplayName),
-	                                         FText::FromName(GetExportId(InEntry))),
-	                           SectionId),
+	                           FText::FromString(InEntry->DisplayName), SectionId),
 	      Entry(InEntry)
 	{
 	}

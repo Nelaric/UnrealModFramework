@@ -3,6 +3,7 @@
 
 #include "ModBlueprintExportGraphSchema.h"
 #include "ModExportMetadataOptions.h"
+#include "ModExportMetadataSchema.h"
 
 #include "EdGraph/EdGraph.h"
 #include "EdGraphUtilities.h"
@@ -59,6 +60,50 @@ void ReportExportError(FCompilerResultsLog& Log, const UModBlueprintExportEntry*
 	const TSharedRef<FTokenizedMessage> Message = Log.Error(TEXT("Mod export "));
 	Message->AddToken(FUObjectToken::Create(Entry, Entry->GetExportDisplayName()));
 	Message->AddToken(FTextToken::Create(FText::Format(LOCTEXT("ExportError", ": {0}"), Error)));
+}
+
+bool ValidateHookPolicy(FCompilerResultsLog& Log, const UModBlueprintHookExport* Entry)
+{
+	namespace Schema = Mod::ExportMetadata::Schema;
+	if (Entry->AllowedStages.IsEmpty())
+	{
+		ReportExportError(Log, Entry, LOCTEXT("MissingHookStage", "Hook 至少需要开放一个阶段。"));
+		return false;
+	}
+	const UEnum* StageEnum = StaticEnum<EModBlueprintHookStage>();
+	TSet<FString> Stages;
+	for (const EModBlueprintHookStage Stage : Entry->AllowedStages)
+	{
+		const FString Name = StageEnum->GetNameStringByValue(static_cast<int64>(Stage));
+		if (!Schema::IsHookStage(TCHAR_TO_UTF8(*Name)) || Stages.Contains(Name))
+		{
+			ReportExportError(Log, Entry, LOCTEXT("InvalidHookStage", "开放阶段包含无效值或重复值。"));
+			return false;
+		}
+		Stages.Add(Name);
+	}
+	const UEnum* OperationEnum = StaticEnum<EModBlueprintHookOperation>();
+	TSet<EModBlueprintHookOperation> Operations;
+	for (const EModBlueprintHookOperation Operation : Entry->AllowedOperations)
+	{
+		const FString Name = OperationEnum->GetNameStringByValue(static_cast<int64>(Operation));
+		const Schema::FHookOperationSpec* Spec = Schema::FindHookOperation(TCHAR_TO_UTF8(*Name));
+		if (!Spec || Operations.Contains(Operation))
+		{
+			ReportExportError(Log, Entry, LOCTEXT("InvalidHookOperation", "允许操作包含无效值或重复值。"));
+			return false;
+		}
+		Operations.Add(Operation);
+		const FString RequiredStage = UTF8_TO_TCHAR(Spec->Stage);
+		if (!Stages.Contains(RequiredStage))
+		{
+			ReportExportError(Log, Entry,
+			                  FText::Format(LOCTEXT("HookOperationNeedsStage", "Hook 操作 {0} 需要开放 {1} 阶段。"),
+			                                FText::FromString(Name), FText::FromString(RequiredStage)));
+			return false;
+		}
+	}
+	return true;
 }
 
 bool HasExportName(const UModBlueprintExports* Exports, const UModBlueprintExportEntry* IgnoredEntry, const FName Name)
@@ -403,11 +448,6 @@ void UModBlueprintExportEntry::PostEditChangeProperty(FPropertyChangedEvent& Pro
 	}
 }
 
-TArray<FString> UModBlueprintAPIExport::GetAPIIds() const
-{
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIId);
-}
-
 TArray<FString> UModBlueprintAPIExport::GetScopes() const
 {
 	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIScope);
@@ -428,11 +468,6 @@ TArray<FString> UModBlueprintAPIExport::GetPermissions() const
 	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIPermission);
 }
 
-TArray<FString> UModBlueprintEventExport::GetEventIds() const
-{
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::EventId);
-}
-
 TArray<FString> UModBlueprintEventExport::GetSourceScopes() const
 {
 	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::EventSourceScope);
@@ -441,11 +476,6 @@ TArray<FString> UModBlueprintEventExport::GetSourceScopes() const
 TArray<FString> UModBlueprintEventExport::GetPublishRules() const
 {
 	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::EventPublishRule);
-}
-
-TArray<FString> UModBlueprintHookExport::GetHookIds() const
-{
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIId);
 }
 
 UModBlueprintExports* UModBlueprintExports::Find(const UBlueprint* Blueprint)
@@ -564,7 +594,7 @@ UModBlueprintHookExport* UModBlueprintExports::AddHook(UBlueprint* Blueprint, co
 	Entry->EntryGuid = FGuid::NewGuid();
 	Entry->DisplayName = NormalizeDisplayName(Entry->GetClass(), DisplayName);
 	Entry->ExportVersion = TEXT("1.0.0");
-	Entry->AllowedStages.Add(EModBlueprintHookStage::Observe);
+	Entry->AllowedStages.Add(EModBlueprintHookStage::Post);
 	Entry->OriginalGraph = CreateImplementationGraph(Blueprint, Entry);
 	if (!Entry->OriginalGraph)
 	{
@@ -647,7 +677,7 @@ void UModBlueprintExports::HandleGenerateFunctionGraphs(FKismetCompilerContext* 
 	}
 	for (const UModBlueprintHookExport* Entry : Hooks)
 	{
-		if (Entry)
+		if (Entry && ValidateHookPolicy(CompilerContext->MessageLog, Entry))
 		{
 			GenerateFunctionGraph(CompilerContext, Entry, Entry->OriginalGraph);
 		}
@@ -673,7 +703,6 @@ UModBlueprintExports::FSearchData UModBlueprintExports::HandleGatherSearchData(c
 				FSearchData& Item = Group->SearchSubList.AddDefaulted_GetRef();
 				Item.Datas.Emplace(FFindInBlueprintSearchTags::FiB_Name, Entry->GetExportDisplayName());
 				Item.Datas.Emplace(FFindInBlueprintSearchTags::FiB_Tooltip, Entry->GetExportTooltip());
-				Item.Datas.Emplace(LOCTEXT("ExportIdSearch", "导出 ID"), FText::FromName(Entry->ExportId));
 			}
 		}
 		Data.SearchArrayDatas.Add(MoveTemp(Group));

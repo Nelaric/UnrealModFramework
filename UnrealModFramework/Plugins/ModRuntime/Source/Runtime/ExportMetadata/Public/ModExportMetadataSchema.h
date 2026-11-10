@@ -12,15 +12,59 @@ namespace Mod::ExportMetadata
 namespace Schema
 {
 /// Version of the resolved UE metadata option snapshot.
-inline constexpr int SnapshotVersion = 2;
+inline constexpr int SnapshotVersion = 4;
 /// Default location relative to the project root.
-inline constexpr const char* SnapshotPath = "Saved/ModHeaderTool/MetadataOptions.json";
+inline constexpr const char* SnapshotPath = "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json";
 /// Default declaration export version.
 inline constexpr const char* DefaultExportVersion = "1.0.0";
-/// Default C++ Hook stage.
-inline constexpr const char* DefaultHookStage = "Observe";
+/// Default stage for a read-only Hook declaration.
+inline constexpr const char* DefaultHookStage = "Post";
 /// Supported Hook stages in the metadata contract.
-inline constexpr std::array<const char*, 3> HookStages = {"Observe", "Modify", "Intercept"};
+inline constexpr std::array<std::string_view, 3> HookStages = {"Pre", "On", "Post"};
+
+/// A Hook operation and the stage that must be open to allow it.
+struct FHookOperationSpec
+{
+	/// Operation name in the declaration.
+	const char* Name;
+	/// Required stage name in the declaration.
+	const char* Stage;
+};
+
+/// Operations require an explicit grant in each Hook declaration.
+inline constexpr std::array<FHookOperationSpec, 5> HookOperations = {{
+    {"ModifyInputs", "Pre"},
+    {"Cancel", "Pre"},
+    {"Wrap", "On"},
+    {"Replace", "On"},
+    {"ModifyResult", "Post"},
+}};
+
+/// Checks a Hook stage name against the shared contract.
+inline constexpr bool IsHookStage(std::string_view Name)
+{
+	for (const std::string_view Stage : HookStages)
+	{
+		if (Stage == Name)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/// Finds a Hook operation in the shared contract.
+inline constexpr const FHookOperationSpec* FindHookOperation(std::string_view Name)
+{
+	for (const FHookOperationSpec& Operation : HookOperations)
+	{
+		if (Name == Operation.Name)
+		{
+			return &Operation;
+		}
+	}
+	return nullptr;
+}
 
 /// Literal shapes supported by the declaration DSL.
 enum class EFieldType
@@ -31,8 +75,6 @@ enum class EFieldType
 	NonEmptyText,
 	/// A two- or three-component numeric version string.
 	Version,
-	/// A string literal naming a registered export ID.
-	ExportId,
 	/// One configured identifier or string.
 	Choice,
 	/// A parenthesized list of configured identifiers or strings.
@@ -76,17 +118,16 @@ inline constexpr std::array<FFieldSpec, 6> APIFields = {{
     {"CompatibleNames", EFieldType::FunctionNameList, nullptr, false},
 }};
 /// Fields belonging to Event declarations.
-inline constexpr std::array<FFieldSpec, 4> EventFields = {{
-    {"ExportId", EFieldType::ExportId, "ExportIds", true},
+inline constexpr std::array<FFieldSpec, 3> EventFields = {{
     {"SourceScope", EFieldType::Choice, "EventSourceScopes", true},
     {"PublishRule", EFieldType::Choice, "EventPublishRules", true},
     {"PayloadType", EFieldType::StructType, nullptr, false},
 }};
 /// Fields belonging to Hook declarations.
 inline constexpr std::array<FFieldSpec, 3> HookFields = {{
-    {"ExportId", EFieldType::ExportId, "ExportIds", true},
     {"ContextType", EFieldType::StructType, nullptr, false},
     {"AllowedStages", EFieldType::ChoiceList, "HookStages", false, DefaultHookStage},
+    {"AllowedOperations", EFieldType::ChoiceList, "HookOperations", false},
 }};
 
 /// Returns the fields belonging to a declaration kind.

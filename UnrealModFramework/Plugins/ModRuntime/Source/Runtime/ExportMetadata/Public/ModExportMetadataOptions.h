@@ -6,11 +6,9 @@
 
 namespace Mod::ExportMetadata
 {
-/// An export metadata field backed by GameplayTags or GameMod config.
+/// An export metadata field backed by GameMod configuration.
 enum class EOptionKind : uint8
 {
-	/// Registered GameplayTag API IDs.
-	APIId,
 	/// API instance scopes.
 	APIScope,
 	/// API calling-thread policies.
@@ -19,8 +17,6 @@ enum class EOptionKind : uint8
 	APIPermission,
 	/// API failure policies.
 	APIFailureRule,
-	/// Registered GameplayTag Event IDs.
-	EventId,
 	/// Event source scopes.
 	EventSourceScope,
 	/// Event publication policies.
@@ -33,10 +29,8 @@ class FOptions
 public:
 	/** @brief Returns the available choices for an export metadata field.
 	 *
-	 * @details Reads API and Event IDs from the global GameplayTags
-	 * dictionary and other choices from the ModExportMetadata config section
-	 * on the game thread. IDs are sorted; config choices retain their order.
-	 * Empty and duplicate entries are ignored.
+	 * @details Reads the ModExportMetadata config section on the game thread.
+	 * Preserves config order and skips empty or duplicate entries.
 	 *
 	 * @param Kind Which export metadata field to read.
 	 * @return Configured identifiers, or an empty array if none exist.
