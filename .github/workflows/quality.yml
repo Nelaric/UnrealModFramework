@@ -78,3 +78,104 @@ jobs:
         run: python Scripts/check_doxygen_style.py
       - name: Build API documentation
         run: python Scripts/run_doxygen.py
+
+  mst-compilers:
+    name: MST source analysis on Linux with GCC and Clang
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Clang analysis library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18 libclang-18-dev
+      - name: Build MST
+        run: |
+          tools=UnrealModFramework/Plugins/ModRuntime/Tools
+          cmake -S "$tools/ModSourceTool" -B "$RUNNER_TEMP/mst" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/mst" --parallel 2
+      - name: Compare existing cross-file exception paths
+        run: |
+          export MST_RESOURCE_DIR="$(clang++-18 -print-resource-dir)"
+          python3 - <<'PY'
+          import json
+          import os
+          import shutil
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          runner = Path(os.environ["RUNNER_TEMP"])
+          mst = runner / "mst/bin/Release/ModSourceTool"
+          root = Path(tempfile.mkdtemp(prefix="mst-compilers-", dir=runner))
+          tools = Path("UnrealModFramework/Plugins/ModRuntime/Tools")
+          common = root / "Common"
+          shutil.copytree(tools / "Common", common)
+          response = common / "Process/ResponseFile.cpp"
+          filesystem = common / "Files/File.cpp"
+          sources = (
+              response, filesystem,
+              common / "Process/ProcessArguments.cpp",
+              common / "Files/Path.cpp",
+              common / "Files/TemporaryName.cpp",
+          )
+          catalog = root / "Config/catalog.json"
+          catalog.parent.mkdir()
+          member = "api/ci/build-tool/write-response"
+          catalog.write_text(json.dumps({
+              "format": "UMF.SourceErrorCatalog",
+              "schemaVersion": 2,
+              "members": {member: {
+                  "function": "Mod::BuildTool::ResponseFile::WriteResponseFile",
+                  "module": "ModBuildTool",
+                  "source": str(response),
+                  "reasons": {},
+              }},
+              "nextDetailByType": {},
+          }), encoding="utf-8")
+
+          previous = None
+          for compiler in ("g++", "clang++-18"):
+              driver = shutil.which(compiler)
+              if not driver:
+                  raise SystemExit(f"Missing native compiler {compiler}")
+              directory = root / compiler
+              directory.mkdir()
+              database = directory / "compile_commands.json"
+              database.write_text(json.dumps([{
+                  "directory": str(directory),
+                  "file": str(source),
+                  "arguments": [
+                      driver, "-std=c++20", "-O2", "-g", "-fexceptions", "-I" + str(root),
+                      "-DUE_TARGET_NAME=MSTNative", '-DUE_MODULE_NAME="ModBuildTool"',
+                      "-DWITH_EDITOR=0", "-c", str(source), "-o", source.with_suffix(".o").name,
+                  ],
+              } for source in sources]), encoding="utf-8")
+              command = [
+                  str(mst), "analyze-errors", "--compdb", str(database),
+                  "--target", "MSTNative", "--catalog", str(catalog), "--member", member,
+                  "--libclang", "/usr/lib/llvm-18/lib/libclang.so",
+                  "--resource-dir", os.environ["MST_RESOURCE_DIR"],
+              ]
+              if previous is None:
+                  command.append("--update-catalog")
+              result = json.loads(subprocess.check_output(command, text=True))
+              failures = result["failures"]
+              direct = any(
+                  item["originFunction"] == "Mod::BuildTool::ResponseFile::WriteResponseFile"
+                  and item["exitKind"] == "throw" and not item["callChain"]
+                  for item in failures
+              )
+              rethrow = any(
+                  item["originFunction"] == "Mod::BuildTool::File::WriteFileAtomically"
+                  and item["exitKind"] == "throw" and item["callChain"] and item.get("rethrowLocations")
+                  for item in failures
+              )
+              if not direct or not rethrow or str(filesystem) not in result["analyzedFiles"]:
+                  raise SystemExit(f"{compiler} did not resolve the direct and cross-file rethrow paths")
+              codes = {item["key"]: (item["macro"], item["code"]) for item in failures}
+              snapshot = (codes, catalog.read_bytes())
+              if previous is not None and snapshot != previous:
+                  raise SystemExit("GCC and Clang disagree on the persisted error reasons")
+              previous = snapshot
+              print(compiler, json.dumps(codes, sort_keys=True))
+          PY

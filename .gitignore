@@ -10,6 +10,7 @@ Saved/
 
 # Generated API documentation and local tooling outputs
 /.tools/
+*.modsource-lock
 /.csharpier/
 __pycache__/
 *.pyc
