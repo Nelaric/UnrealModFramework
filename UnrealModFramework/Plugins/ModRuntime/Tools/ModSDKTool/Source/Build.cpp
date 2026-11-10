@@ -17,11 +17,8 @@ using namespace Mod::BuildTool;
 struct FWorkspace
 {
 	fs::path Root;
-	explicit FWorkspace(const FSdkRequest& Request)
+	explicit FWorkspace(const fs::path& Base)
 	{
-		const fs::path Base = Request.Document.contains("workDirectory")
-		                          ? ResolvePath(Request.File.parent_path(), Text(Request.Document, "workDirectory"))
-		                          : fs::temp_directory_path();
 		fs::create_directories(Base);
 		Root = Base / PathFromUtf8("umf-mst-" + UniqueSuffix());
 		if (!fs::create_directory(Root))
@@ -42,7 +39,7 @@ void CopyFile(const fs::path& Source, const fs::path& Destination)
 	fs::copy_file(Source, Destination);
 }
 
-void CopyTree(const fs::path& Source, const fs::path& Destination)
+void CopyTree(const fs::path& Source, const fs::path& Destination, bool bPluginSource = false)
 {
 	if (!fs::is_directory(Source))
 	{
@@ -54,9 +51,11 @@ void CopyTree(const fs::path& Source, const fs::path& Destination)
 		{
 			throw std::runtime_error("SDK packages cannot contain symbolic links.");
 		}
-		if (Entry.is_regular_file())
+		const fs::path Relative = Entry.path().lexically_relative(Source);
+		if (Entry.is_regular_file() &&
+		    (!bPluginSource || (*Relative.begin() != "Binaries" && *Relative.begin() != "Intermediate")))
 		{
-			CopyFile(Entry.path(), Destination / Entry.path().lexically_relative(Source));
+			CopyFile(Entry.path(), Destination / Relative);
 		}
 	}
 }
@@ -97,15 +96,14 @@ FJson Inventory(const fs::path& Root)
 	return Result;
 }
 
-void BuildPlugin(const FSdkRequest& Request, const fs::path& Plugin, const fs::path& Package)
+void BuildPlugin(const FEditorBuild& Editor, const fs::path& Plugin, const fs::path& Package)
 {
-	const FJson& Editor = Request.Document.at("editor");
-	const int Code = RunTool(Request.Dotnet,
-	                         {PathToUtf8(Request.AutomationTool), "BuildPlugin", "-Plugin=" + PathToUtf8(Plugin),
-	                          "-Package=" + PathToUtf8(Package), "-HostPlatforms=" + Text(Editor, "platform"),
-	                          "-Architecture_" + Text(Editor, "platform") + "=" + Text(Editor, "architecture"),
-	                          "-NoTargetPlatforms", "-StrictIncludes", "-Unattended", "-UTF8Output"},
-	                         Request.AutomationTool.parent_path(), Request.Document.value("timeoutSeconds", 1800u));
+	const int Code = RunTool(Editor.Dotnet,
+	                         {PathToUtf8(Editor.AutomationTool), "BuildPlugin", "-Plugin=" + PathToUtf8(Plugin),
+	                          "-Package=" + PathToUtf8(Package), "-HostPlatforms=" + Editor.Platform,
+	                          "-Architecture_" + Editor.Platform + "=" + Editor.Architecture, "-NoTargetPlatforms",
+	                          "-StrictIncludes", "-Unattended", "-UTF8Output"},
+	                         Editor.AutomationTool.parent_path(), Editor.TimeoutSeconds);
 	if (Code != 0)
 	{
 		throw std::runtime_error("UE BuildPlugin failed with exit code " + std::to_string(Code) + ": " +
@@ -113,7 +111,7 @@ void BuildPlugin(const FSdkRequest& Request, const fs::path& Plugin, const fs::p
 	}
 }
 
-void VerifyEditorModule(const FSdkRequest& Request, const fs::path& Package, const std::string& Module)
+void VerifyEditorModule(const FEditorBuild& Editor, const fs::path& Package, const std::string& Module)
 {
 	const fs::path Binaries = Package / "Binaries";
 	if (!fs::is_directory(Binaries))
@@ -136,7 +134,7 @@ void VerifyEditorModule(const FSdkRequest& Request, const fs::path& Package, con
 		{
 			continue;
 		}
-		if (bFound || Modules.at("BuildId") != Request.Document.at("editor").at("buildId"))
+		if (bFound || Modules.at("BuildId") != Editor.BuildId)
 		{
 			throw std::runtime_error("Duplicate or incompatible UE Editor module: " + Module);
 		}
@@ -146,11 +144,10 @@ void VerifyEditorModule(const FSdkRequest& Request, const fs::path& Package, con
 			throw std::runtime_error("UE module metadata contains a non-local binary name.");
 		}
 		const fs::path Binary = Entry.path().parent_path() / PathFromUtf8(BinaryName);
-		const int Code = RunTool(Request.Mbt,
-		                         {"inspect-binary", "--file", PathToUtf8(Binary), "--platform",
-		                          Text(Request.Document.at("editor"), "platform"), "--architecture",
-		                          Text(Request.Document.at("editor"), "architecture"), "--kind", "DynamicLibrary"},
-		                         Request.Project.parent_path(), Request.Document.value("timeoutSeconds", 1800u));
+		const int Code = RunTool(Editor.Mbt,
+		                         {"inspect-binary", "--file", PathToUtf8(Binary), "--platform", Editor.Platform,
+		                          "--architecture", Editor.Architecture, "--kind", "DynamicLibrary"},
+		                         Package, Editor.TimeoutSeconds);
 		if (Code != 0)
 		{
 			throw std::runtime_error("MBT rejected the built Editor binary: " + Module);
@@ -160,6 +157,21 @@ void VerifyEditorModule(const FSdkRequest& Request, const fs::path& Package, con
 	if (!bFound)
 	{
 		throw std::runtime_error("Missing successful UE Editor module metadata: " + Module);
+	}
+}
+
+void BuildDevelopmentPlugin(const FEditorBuild& Editor, const fs::path& Plugin, const fs::path& Package)
+{
+	ReportStage("BuildDevelopmentPlugin", "Building the independent SDK development editor plugin.");
+	BuildPlugin(Editor, Plugin, Package);
+	VerifyEditorModule(Editor, Package, "DevelopmentEditor");
+	const fs::path Tool = ExecutablePath();
+	const fs::path ToolDirectory = Package / "Binaries" / "ThirdParty" / "ModSDKTool" / Editor.Platform;
+	CopyFile(Tool, ToolDirectory / Tool.filename());
+	CopyFile(Editor.Mbt, ToolDirectory / Editor.Mbt.filename());
+	for (const char* Name : {"UnrealModFramework.LICENSE", "nlohmann.LICENSE.MIT", "NOTICE.md"})
+	{
+		CopyFile(Tool.parent_path() / "Licenses" / Name, ToolDirectory / "Licenses" / Name);
 	}
 }
 
@@ -198,6 +210,47 @@ void Publish(const FSdkRequest& Request, const fs::path& Stage)
 	}
 }
 } // namespace
+
+void BuildEditorPlugin(const FEditorBuild& Editor, const fs::path& Plugin, const fs::path& Package)
+{
+	using namespace Mod::BuildTool;
+	const fs::path Source = fs::canonical(Plugin);
+	if (!fs::is_regular_file(Source) || Source.extension() != ".uplugin")
+	{
+		throw std::runtime_error("The authoring plugin must be a .uplugin file.");
+	}
+	fs::path Output = fs::weakly_canonical(fs::absolute(Package));
+	if (Output.has_relative_path() && !Output.has_filename())
+	{
+		Output = Output.parent_path();
+	}
+	if (IsInside(Output, Source.parent_path()))
+	{
+		throw std::runtime_error("The package directory must be outside the plugin source.");
+	}
+	FBuildLock Lock(Output, ".mst-lock");
+	if (fs::exists(Output))
+	{
+		throw std::runtime_error("The package directory already exists: " + PathToUtf8(Output));
+	}
+
+	const FWorkspace Work(fs::temp_directory_path());
+	const fs::path StagedSource = Work.Root / "Source";
+	const fs::path StagedPackage = Work.Root / "Package";
+	CopyTree(Source.parent_path(), StagedSource, true);
+	BuildDevelopmentPlugin(Editor, StagedSource / Source.filename(), StagedPackage);
+
+	// Copy onto the destination filesystem before committing the package.
+	const FWorkspace Incoming(Output.parent_path());
+	const fs::path IncomingPackage = Incoming.Root / "Package";
+	CopyTree(StagedPackage, IncomingPackage);
+	if (fs::exists(Output))
+	{
+		throw std::runtime_error("The package directory already exists: " + PathToUtf8(Output));
+	}
+	fs::rename(IncomingPackage, Output);
+	ReportStage("Publish", "Published verified authoring plugin at " + PathToUtf8(Output));
+}
 
 FJson InspectSdk(const fs::path& Directory)
 {
@@ -307,7 +360,9 @@ FJson BuildSdk(FSdkRequest& Request)
 		}
 		throw std::runtime_error("Published SDK inputs changed; select a new versioned output directory.");
 	}
-	FWorkspace Work(Request);
+	const FWorkspace Work(Request.Document.contains("workDirectory")
+	                          ? ResolvePath(Request.File.parent_path(), Text(Request.Document, "workDirectory"))
+	                          : fs::temp_directory_path());
 	FJson LibraryResults = FJson::array();
 	ReportStage("BuildLibraries", "Building the declared generated native libraries with MBT.");
 	for (std::size_t Index = 0; Index < Request.Libraries.size(); ++Index)
@@ -358,24 +413,22 @@ FJson BuildSdk(FSdkRequest& Request)
 			CopyFile(Path, DevelopmentSource / Relative);
 		}
 	}
+	const FJson& EditorDocument = Request.Document.at("editor");
+	const FEditorBuild Editor{Request.Dotnet,
+	                          Request.AutomationTool,
+	                          Request.Mbt,
+	                          Text(EditorDocument, "platform"),
+	                          Text(EditorDocument, "architecture"),
+	                          Text(EditorDocument, "buildId"),
+	                          Request.Document.value("timeoutSeconds", 1800u)};
 	ReportStage("BuildSdkPlugin", "Building an author-Editor SDK with normal UHT and UBT.");
-	BuildPlugin(Request, Source / (Plugin + ".uplugin"), SdkPackage);
-	VerifyEditorModule(Request, SdkPackage, Plugin + "Runtime");
+	BuildPlugin(Editor, Source / (Plugin + ".uplugin"), SdkPackage);
+	VerifyEditorModule(Editor, SdkPackage, Plugin + "Runtime");
 	if (!Request.LifecycleArtifact.is_null())
 	{
-		VerifyEditorModule(Request, SdkPackage, "ModLoader");
+		VerifyEditorModule(Editor, SdkPackage, "ModLoader");
 	}
-	ReportStage("BuildDevelopmentPlugin", "Building the independent SDK development editor plugin.");
-	BuildPlugin(Request, DevelopmentSource / Request.DevelopmentPlugin.filename(), DevelopmentPackage);
-	VerifyEditorModule(Request, DevelopmentPackage, "DevelopmentEditor");
-	const std::string Platform = Text(Request.Document.at("editor"), "platform");
-	const fs::path ToolDirectory = DevelopmentPackage / "Binaries" / "ThirdParty" / "ModSDKTool" / Platform;
-	CopyFile(ExecutablePath(), ToolDirectory / ExecutablePath().filename());
-	CopyFile(Request.Mbt, ToolDirectory / Request.Mbt.filename());
-	for (const char* Name : {"UnrealModFramework.LICENSE", "nlohmann.LICENSE.MIT", "NOTICE.md"})
-	{
-		CopyFile(ExecutablePath().parent_path() / "Licenses" / Name, ToolDirectory / "Licenses" / Name);
-	}
+	BuildDevelopmentPlugin(Editor, DevelopmentSource / Request.DevelopmentPlugin.filename(), DevelopmentPackage);
 	const fs::path Bundle = Work.Root / "Bundle";
 	CopyTree(SdkPackage, Bundle / "Plugins" / Plugin);
 	CopyTree(DevelopmentPackage, Bundle / "Plugins" / Request.DevelopmentPlugin.stem());

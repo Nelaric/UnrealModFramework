@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 Enable `ModDevelopmentSDKEditor` to add a **Mod** dropdown to the Level Editor toolbar, beside the Platforms area. Choose **打包 Mod…** (Package Mod), select the content plugin and release options in the native details panel, and start packaging.
 
-The development host discovers `SourcePlugins` through `AdditionalPluginDirectories` and enables this plugin for Editor targets only. Independent distribution still uses UE 5.6 UAT `BuildPlugin`. Install the built plugin in the author's project `Plugins` or matching engine `Engine/Plugins`, then enable it. The development module does not depend on the game's ModRuntime modules.
+Build the authoring plugin independently with UE 5.6 UAT `BuildPlugin`. Install the built plugin in the author's project `Plugins` or the matching engine's `Engine/Plugins`, then enable it in the authoring project. The development module is independent of the game's ModRuntime modules.
 
 ## Inputs
 

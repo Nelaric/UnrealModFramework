@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <map>
+#include <set>
 #include <stdexcept>
 
 namespace Mod::SdkTool
@@ -24,6 +25,10 @@ int Run(const std::vector<std::string>& Arguments)
 Usage:
   ModSDKTool plan --request <SdkBuildRequest.json> [--output <plan.json>]
   ModSDKTool build --request <SdkBuildRequest.json> [--output <result.json>]
+  ModSDKTool build-editor --plugin <plugin.uplugin> --package <directory>
+                          --dotnet <host> --automation-tool <AutomationTool.dll>
+                          --editor-modules <UnrealEditor.modules>
+                          --architecture <x64|arm64> --mbt <ModBuildTool>
   ModSDKTool inspect --bundle <directory> [--output <inspection.json>]
   ModSDKTool --help | --version
 
@@ -38,6 +43,7 @@ from the contract. No game private source is copied into the public SDK.
 plan asks MBT to validate its inputs but does not compile or publish.
 build calls MBT and UE AutomationTool, builds the SDK and independent developer
 plugin, verifies their artifacts, then publishes a versioned bundle.
+build-editor packages the independent authoring plugin for the installed Editor.
 Host library creation does not prove final game linkage or runtime binding.
 
 Progress and child diagnostics use stderr; the final JSON uses stdout or
@@ -51,7 +57,21 @@ Progress and child diagnostics use stderr; the final JSON uses stdout or
 			return 0;
 		}
 		const std::string Command = Arguments.at(1);
-		if (Command != "plan" && Command != "build" && Command != "inspect")
+		std::set<std::string> RequiredOptions;
+		if (Command == "plan" || Command == "build")
+		{
+			RequiredOptions = {"--request"};
+		}
+		else if (Command == "inspect")
+		{
+			RequiredOptions = {"--bundle"};
+		}
+		else if (Command == "build-editor")
+		{
+			RequiredOptions = {"--plugin",         "--package",      "--dotnet", "--automation-tool",
+			                   "--editor-modules", "--architecture", "--mbt"};
+		}
+		else
 		{
 			throw std::runtime_error("Unknown command '" + Command + "'. Use --help.");
 		}
@@ -59,7 +79,7 @@ Progress and child diagnostics use stderr; the final JSON uses stdout or
 		for (std::size_t Index = 2; Index < Arguments.size(); ++Index)
 		{
 			const std::string& Key = Arguments[Index];
-			if ((Key != "--output" && Key != (Command == "inspect" ? "--bundle" : "--request")) ||
+			if ((!RequiredOptions.contains(Key) && (Key != "--output" || Command == "build-editor")) ||
 			    Options.contains(Key) || Index + 1 == Arguments.size() || Arguments[Index + 1].empty() ||
 			    Arguments[Index + 1].starts_with("--"))
 			{
@@ -67,19 +87,46 @@ Progress and child diagnostics use stderr; the final JSON uses stdout or
 			}
 			Options.emplace(Key, Arguments[++Index]);
 		}
-		const std::string InputKey = Command == "inspect" ? "--bundle" : "--request";
-		if (!Options.contains(InputKey))
+		for (const std::string& Key : RequiredOptions)
 		{
-			throw std::runtime_error("Required option: " + InputKey);
+			if (!Options.contains(Key))
+			{
+				throw std::runtime_error("Required option: " + Key);
+			}
+		}
+		const auto OptionPath = [&Options](const char* Key) { return Mod::BuildTool::PathFromUtf8(Options.at(Key)); };
+		if (Command == "build-editor")
+		{
+			const std::string& Architecture = Options.at("--architecture");
+			if (Architecture != "x64" && Architecture != "arm64")
+			{
+				throw std::runtime_error("--architecture must be x64 or arm64.");
+			}
+			const FEditorBuild Editor{
+			    .Dotnet = fs::canonical(OptionPath("--dotnet")),
+			    .AutomationTool = fs::canonical(OptionPath("--automation-tool")),
+			    .Mbt = fs::canonical(OptionPath("--mbt")),
+#ifdef _WIN32
+			    .Platform = "Win64",
+#elif defined(__APPLE__)
+			    .Platform = "Mac",
+#else
+			    .Platform = "Linux",
+#endif
+			    .Architecture = Architecture,
+			    .BuildId = Text(ReadJson(OptionPath("--editor-modules")), "BuildId"),
+			};
+			BuildEditorPlugin(Editor, OptionPath("--plugin"), OptionPath("--package"));
+			return 0;
 		}
 		if (Options.contains("--output"))
 		{
-			Output = fs::weakly_canonical(fs::absolute(Mod::BuildTool::PathFromUtf8(Options.at("--output"))));
+			Output = fs::weakly_canonical(fs::absolute(OptionPath("--output")));
 		}
 		FJson Result;
 		if (Command == "inspect")
 		{
-			const fs::path Bundle = fs::canonical(Mod::BuildTool::PathFromUtf8(Options.at("--bundle")));
+			const fs::path Bundle = fs::canonical(OptionPath("--bundle"));
 			if (!Output.empty())
 			{
 				if (IsInside(Output, Bundle))
@@ -92,7 +139,7 @@ Progress and child diagnostics use stderr; the final JSON uses stdout or
 		}
 		else
 		{
-			FSdkRequest Request = ReadSdkRequest(Mod::BuildTool::PathFromUtf8(Options.at("--request")));
+			FSdkRequest Request = ReadSdkRequest(OptionPath("--request"));
 			ValidateResultOutput(Request, Output);
 			bResultValidated = true;
 			Result = Command == "plan" ? PlanSdk(Request) : BuildSdk(Request);
