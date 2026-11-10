@@ -77,54 +77,54 @@ std::string Wide(const std::string& Text)
 	return "TEXT(" + Quote(Text) + ")";
 }
 
-std::string ResultType(const FApi& Api)
+std::string ResultType(const FAPI& API)
 {
-	return "TModResult<" + Api.Return.Public + ">";
+	return "TModResult<" + API.Return.Public + ">";
 }
 
-std::string Parameters(const FApi& Api, bool bSource = false, bool bOriginalNames = false)
+std::string Parameters(const FAPI& API, bool bSource = false, bool bOriginalNames = false)
 {
 	std::string Result;
-	for (std::size_t I = 0; I < Api.Parameters.size(); ++I)
+	for (std::size_t I = 0; I < API.Parameters.size(); ++I)
 	{
 		if (I)
 		{
 			Result += ", ";
 		}
 		Result +=
-		    (bSource ? Api.Parameters[I].Type.Cpp : Api.Parameters[I].Type.Public) + " " +
-		    (bOriginalNames && !Api.Parameters[I].Name.empty() ? Api.Parameters[I].Name : "Arg" + std::to_string(I));
+		    (bSource ? API.Parameters[I].Type.Cpp : API.Parameters[I].Type.Public) + " " +
+		    (bOriginalNames && !API.Parameters[I].Name.empty() ? API.Parameters[I].Name : "Arg" + std::to_string(I));
 	}
 	return Result;
 }
 
-std::string Arguments(const FApi& Api, bool bSource = false)
+std::string Arguments(const FAPI& API, bool bSource = false)
 {
 	std::string Result;
-	for (std::size_t I = 0; I < Api.Parameters.size(); ++I)
+	for (std::size_t I = 0; I < API.Parameters.size(); ++I)
 	{
 		if (I)
 		{
 			Result += ", ";
 		}
 		const auto Argument = "Arg" + std::to_string(I);
-		Result += bSource ? "static_cast<" + Api.Parameters[I].Type.Cpp + ">(" + Argument + ")" : Argument;
+		Result += bSource ? "static_cast<" + API.Parameters[I].Type.Cpp + ">(" + Argument + ")" : Argument;
 	}
 	return Result;
 }
 
-std::string PointerType(const FApi& Api)
+std::string PointerType(const FAPI& API)
 {
-	std::string Result = Api.Return.Cpp + " (" + Api.Owner + "::*)(";
-	for (std::size_t I = 0; I < Api.Parameters.size(); ++I)
+	std::string Result = API.Return.Cpp + " (" + API.DeclaringType + "::*)(";
+	for (std::size_t I = 0; I < API.Parameters.size(); ++I)
 	{
 		if (I)
 		{
 			Result += ", ";
 		}
-		Result += Api.Parameters[I].Type.Cpp;
+		Result += API.Parameters[I].Type.Cpp;
 	}
-	return Result + ")" + (Api.bConst ? " const" : "") + (Api.bNoexcept ? " noexcept" : "");
+	return Result + ")" + (API.bConst ? " const" : "") + (API.bNoexcept ? " noexcept" : "");
 }
 
 std::string Prologue(const std::string& File)
@@ -135,9 +135,9 @@ std::string Prologue(const std::string& File)
 	       (File.ends_with(".h") ? "#pragma once\n\n" : "\n");
 }
 
-FJson TypeJson(const FGenerationModel& Model, const FApiType& Type)
+FJson TypeJson(const FGenerationModel& Model, const FAPIType& Type)
 {
-	if (Type.Kind == EApiTypeKind::Object)
+	if (Type.Kind == EAPITypeKind::Object)
 	{
 		return {{"kind", "ObjectView"},
 		        {"typeId", Model.Types.at(Type.Object).Identity.Id},
@@ -145,13 +145,17 @@ FJson TypeJson(const FGenerationModel& Model, const FApiType& Type)
 		        {"ownership", "Weak"},
 		        {"null", "ErrorIfNull"}};
 	}
-	return {{"kind", Type.Kind == EApiTypeKind::Void ? "Void" : "Scalar"}, {"cppType", Type.Public}};
+	if (Type.Kind == EAPITypeKind::ObjectInput)
+	{
+		return {{"kind", "ObjectInput"}, {"cppType", Type.Public}, {"ownership", "Borrowed"}};
+	}
+	return {{"kind", Type.Kind == EAPITypeKind::Void ? "Void" : "Scalar"}, {"cppType", Type.Public}};
 }
 
-FJson ApiJson(const FGenerationModel& Model, const FApi& Api)
+FJson APIJson(const FGenerationModel& Model, const FAPI& API)
 {
 	FJson Metadata = FJson::object();
-	for (const auto& Field : Api.Macro.Fields)
+	for (const auto& Field : API.Macro.Fields)
 	{
 		if (Field.Value.Kind == EMetadataValueKind::List)
 		{
@@ -168,29 +172,33 @@ FJson ApiJson(const FGenerationModel& Model, const FApi& Api)
 		}
 	}
 	FJson Params = FJson::array();
-	for (const auto& Param : Api.Parameters)
+	for (const auto& Param : API.Parameters)
 	{
 		Params.push_back(TypeJson(Model, Param.Type));
 	}
-	const FJson Signature{{"name", Api.Name},
-	                      {"const", Api.bConst},
+	const FJson Signature{{"name", API.ExportName},
+	                      {"const", API.bConst},
 	                      {"parameters", Params},
-	                      {"returns", TypeJson(Model, Api.Return)},
+	                      {"returns", TypeJson(Model, API.Return)},
 	                      {"failureRule", "ReturnError"}};
-	const FJson Policy{{"scope", Api.Scope},
-	                   {"thread", "GameThread"},
-	                   {"permissions", Api.Permissions},
-	                   {"failureRule", "ReturnError"}};
-	return {{"kind", "Api"},
+	FJson Policy{{"scope", API.Scope},
+	             {"thread", "GameThread"},
+	             {"permissions", API.Permissions},
+	             {"failureRule", "ReturnError"}};
+	if (API.bFullViewMember)
+	{
+		Policy["fullViewMember"] = true;
+	}
+	return {{"kind", "API"},
 	        {"metadata", Metadata},
-	        {"exportId", Api.Id},
-	        {"exportVersion", Api.Version},
-	        {"ownerTypeId", Model.Types.at(Api.Owner).Identity.Id},
+	        {"exportId", API.Id},
+	        {"exportVersion", API.Version},
+	        {"ownerTypeId", Model.Types.at(API.Owner).Identity.Id},
 	        {"signature", Signature},
 	        {"policy", Policy},
-	        {"sourceSignatureHash", HashBytes(Api.SourceSignature)},
+	        {"sourceSignatureHash", HashBytes(API.SourceSignature)},
 	        {"signatureHash", HashBytes(Signature.dump())},
-	        {"projectionHash", HashBytes(Signature.dump() + ":UObjectApiProjection1")},
+	        {"projectionHash", HashBytes(Signature.dump() + ":UObjectAPIProjection1")},
 	        {"policyHash", HashBytes(Policy.dump())}};
 }
 
@@ -201,7 +209,7 @@ std::string Forward(const std::string& Name)
 	                        : "namespace " + Name.substr(0, End) + " { class " + Name.substr(End + 2) + "; }\n";
 }
 
-std::string ApiMacro(std::string Module)
+std::string APIMacro(std::string Module)
 {
 	for (char& Character : Module)
 	{
@@ -220,12 +228,27 @@ void WriteSdk(const FGenerationModel& Model, FFiles& Files)
 		                             << ".modviews.h\"\n\n";
 	}
 	std::ostringstream Calls;
-	Calls << Prologue(Game + ".modcalls.h") << "#include \"ModApiObject.h\"\n\n";
+	Calls << Prologue(Game + ".modcalls.h") << "#include \"ModAPIObject.h\"\n\n";
 	for (const auto& Module : Model.Input.Modules)
 	{
-		const auto Api = ApiMacro(Module.Name);
-		Calls << "#if defined(" << Api << ")\n#define UMF_" << Api << " " << Api << "\n#else\n#define UMF_" << Api
+		const auto API = APIMacro(Module.Name);
+		Calls << "#if defined(" << API << ")\n#define UMF_" << API << " " << API << "\n#else\n#define UMF_" << API
 		      << " DLLIMPORT\n#endif\n\n";
+	}
+	std::set<std::string> ArgumentClasses;
+	for (const auto& API : Model.APIs)
+	{
+		for (const auto& Parameter : API.Parameters)
+		{
+			if (Parameter.Type.Kind == EAPITypeKind::ObjectInput && !Model.Types.contains(Parameter.Type.Object))
+			{
+				ArgumentClasses.insert(Parameter.Type.Object);
+			}
+		}
+	}
+	for (const auto& Name : ArgumentClasses)
+	{
+		Calls << Forward(Name);
 	}
 	for (const auto& [Name, Type] : Model.Types)
 	{
@@ -236,30 +259,30 @@ void WriteSdk(const FGenerationModel& Model, FFiles& Files)
 	for (const auto& [Name, Type] : Model.Types)
 	{
 		Calls << "struct " << Type.Symbol << "Calls\n{\n";
-		for (auto Index : Type.Apis)
+		for (auto Index : Type.APIs)
 		{
-			const auto& Api = Model.Apis[Index];
-			Calls << "    " << ResultType(Api) << " (*" << Api.Symbol << ")(const Mod::Api::FObjectBinding&";
-			if (!Api.Parameters.empty())
+			const auto& API = Model.APIs[Index];
+			Calls << "    " << ResultType(API) << " (*" << API.Symbol << ")(const Mod::API::FObjectBinding&";
+			if (!API.Parameters.empty())
 			{
-				Calls << ", " << Parameters(Api);
+				Calls << ", " << Parameters(API);
 			}
 			Calls << ");\n";
 		}
-		if (Type.Apis.empty())
+		if (Type.APIs.empty())
 		{
 			Calls << "    uint8 Reserved = 0;\n";
 		}
 		Calls << "};\n";
 	}
-	Calls << "}\n\nnamespace Mod::Api\n{\n";
+	Calls << "}\n\nnamespace Mod::API\n{\n";
 	for (const auto& [Name, Type] : Model.Types)
 	{
 		Calls << "template<> struct TBindingTraits<" << Name << ">\n{\n"
-		      << "    static UMF_" << ApiMacro(Type.Module) << " FName TypeId();\n"
+		      << "    static UMF_" << APIMacro(Type.Module) << " FName TypeId();\n"
 		      << "    static constexpr const TCHAR* Signature = " << Wide(Type.Signature) << ";\n};\n"
 		      << "template<> struct TBindingTraits<const " << Name << "> : TBindingTraits<" << Name << "> {};\n";
-		Implementations[Type.Module] << ApiMacro(Type.Module) << " FName Mod::Api::TBindingTraits<" << Name
+		Implementations[Type.Module] << APIMacro(Type.Module) << " FName Mod::API::TBindingTraits<" << Name
 		                             << ">::TypeId()\n{\n    static const FName Id(" << Wide(Type.Identity.Id)
 		                             << ");\n    return Id;\n}\n\n";
 	}
@@ -274,22 +297,22 @@ void WriteSdk(const FGenerationModel& Model, FFiles& Files)
 		{
 			const std::string Owner = (ReadOnly ? "const " : "") + Name;
 			Views << "template<> class FModRuntimeObject<" << Owner << ">\n{\npublic:\n";
-			for (auto Index : Type.Apis)
+			for (auto Index : Type.APIs)
 			{
-				const auto& Api = Model.Apis[Index];
-				if (ReadOnly && !Api.bConst)
+				const auto& API = Model.APIs[Index];
+				if (ReadOnly && (!API.bConst || API.bFullViewMember))
 				{
 					continue;
 				}
-				Views << "    UMF_" << ApiMacro(Type.Module) << " " << ResultType(Api) << " " << Api.Name << "("
-				      << Parameters(Api, false, true) << ")" << (Api.bConst ? " const" : "") << ";\n";
+				Views << "    UMF_" << APIMacro(Type.Module) << " " << ResultType(API) << " " << API.ExportName << "("
+				      << Parameters(API, false, true) << ")" << (API.bConst ? " const" : "") << ";\n";
 			}
-			Views << "private:\n    friend struct Mod::Api::FViewFactory;\n"
-			      << "    UMF_" << ApiMacro(Type.Module)
-			      << " explicit FModRuntimeObject(Mod::Api::FObjectBinding InBinding);\n"
-			      << "    Mod::Api::FObjectBinding Binding;\n};\n\n";
-			Implementations[Type.Module] << ApiMacro(Type.Module) << " FModRuntimeObject<" << Owner
-			                             << ">::FModRuntimeObject(Mod::Api::FObjectBinding InBinding)\n"
+			Views << "private:\n    friend struct Mod::API::FViewFactory;\n"
+			      << "    UMF_" << APIMacro(Type.Module)
+			      << " explicit FModRuntimeObject(Mod::API::FObjectBinding InBinding);\n"
+			      << "    Mod::API::FObjectBinding Binding;\n};\n\n";
+			Implementations[Type.Module] << APIMacro(Type.Module) << " FModRuntimeObject<" << Owner
+			                             << ">::FModRuntimeObject(Mod::API::FObjectBinding InBinding)\n"
 			                                "    : Binding(MoveTemp(InBinding)) {}\n\n";
 		}
 	}
@@ -298,21 +321,22 @@ void WriteSdk(const FGenerationModel& Model, FFiles& Files)
 		for (bool ReadOnly : {false, true})
 		{
 			const std::string Owner = (ReadOnly ? "const " : "") + Name;
-			for (auto Index : Type.Apis)
+			for (auto Index : Type.APIs)
 			{
-				const auto& Api = Model.Apis[Index];
-				if (ReadOnly && !Api.bConst)
+				const auto& API = Model.APIs[Index];
+				if (ReadOnly && (!API.bConst || API.bFullViewMember))
 				{
 					continue;
 				}
 				Implementations[Type.Module]
-				    << ApiMacro(Type.Module) << " " << ResultType(Api) << " FModRuntimeObject<" << Owner
-				    << ">::" << Api.Name << "(" << Parameters(Api) << ")" << (Api.bConst ? " const" : "") << "\n{\n"
-				    << "    auto Calls = this->Binding.ResolveCalls(Mod::Api::TBindingTraits<" << Name
-				    << ">::TypeId(), Mod::Api::TBindingTraits<" << Name << ">::Signature);\n"
-				    << "    if (!Calls.IsSuccess()) { return " << ResultType(Api) << "::Failure(Calls.GetError()); }\n"
+				    << APIMacro(Type.Module) << " " << ResultType(API) << " FModRuntimeObject<" << Owner
+				    << ">::" << API.ExportName << "(" << Parameters(API) << ")" << (API.bConst ? " const" : "")
+				    << "\n{\n"
+				    << "    auto Calls = this->Binding.ResolveCalls(Mod::API::TBindingTraits<" << Name
+				    << ">::TypeId(), Mod::API::TBindingTraits<" << Name << ">::Signature);\n"
+				    << "    if (!Calls.IsSuccess()) { return " << ResultType(API) << "::Failure(Calls.GetError()); }\n"
 				    << "    return static_cast<const Mod::Generated::" << Type.Symbol << "Calls*>(Calls.GetValue())->"
-				    << Api.Symbol << "(this->Binding" << (Api.Parameters.empty() ? "" : ", ") << Arguments(Api)
+				    << API.Symbol << "(this->Binding" << (API.Parameters.empty() ? "" : ", ") << Arguments(API)
 				    << ");\n}\n\n";
 			}
 		}
@@ -340,28 +364,40 @@ void WriteHost(const FGenerationModel& Model, FFiles& Files)
 		ExportMacro += "_API";
 		const std::string Namespace = "Mod::Generated::" + Module.Name;
 		Files[Prefix + Module.Name + ".modexports.h"] =
-		    Prologue(Module.Name + ".modexports.h") + "#include \"ModApiRegistry.h\"\n#include \"" +
+		    Prologue(Module.Name + ".modexports.h") + "#include \"ModAPIRegistry.h\"\n#include \"" +
 		    Model.Input.GameId + ".modviews.h\"\n\nextern \"C\" UMF_" + ExportMacro + " void UMF_ModHost_" +
-		    Module.Name + "(Mod::Api::FRegistry& Registry, TModResult<TArray<Mod::Api::FRegistration>>& Result);\n" +
+		    Module.Name + "(Mod::API::FRegistry& Registry, TModResult<TArray<Mod::API::FRegistration>>& Result);\n" +
 		    "extern \"C\" " + ExportMacro + " uint32 UMF_ModHost_" + Module.Name + "_RetainAbi(void);\n";
 
 		std::ostringstream Host, Verify;
 		Host << Prologue(Module.Name + ".modhost.cpp") << "#include \"" << Module.Name << ".modexports.h\"\n"
-		     << "#include \"ModApiHost.h\"\n";
+		     << "#include \"ModAPIHost.h\"\n";
 		Verify << Prologue(Module.Name + ".modverify.cpp") << "#include <type_traits>\n#include <string_view>\n";
-		std::set<fs::path> Headers;
+		std::set<std::string> Headers;
 		for (const auto& [Name, Type] : Model.Types)
 		{
 			if (Type.Module == Module.Name)
 			{
-				Headers.insert(Type.Header);
+				Headers.insert(Type.HeaderInclude);
+			}
+		}
+		for (const auto& API : Model.APIs)
+		{
+			if (API.Module == Module.Name)
+			{
+				for (const auto& Parameter : API.Parameters)
+				{
+					if (Parameter.Type.Kind == EAPITypeKind::ObjectInput)
+					{
+						Headers.insert(Parameter.Type.HostInclude);
+					}
+				}
 			}
 		}
 		for (const auto& Header : Headers)
 		{
-			const auto Relative = PathToUtf8(Header.lexically_relative(Module.Root));
-			Host << "#include " << Quote(Relative) << "\n";
-			Verify << "#include " << Quote(Relative) << "\n";
+			Host << "#include " << Quote(Header) << "\n";
+			Verify << "#include " << Quote(Header) << "\n";
 		}
 		Verify << "\n#define UMF_MHT_STRINGIZE_INNER(Value) #Value\n#define UMF_MHT_STRINGIZE(Value) "
 		          "UMF_MHT_STRINGIZE_INNER(Value)\n";
@@ -374,51 +410,61 @@ void WriteHost(const FGenerationModel& Model, FFiles& Files)
 		Verify << "#undef UMF_MHT_STRINGIZE\n#undef UMF_MHT_STRINGIZE_INNER\n";
 		Host << "\nnamespace " << Namespace << "\n{\n";
 		Verify << "\nnamespace " << Namespace << "::Verification\n{\n";
-		for (const auto& Api : Model.Apis)
+		for (const auto& API : Model.APIs)
 		{
-			if (Api.Module != Module.Name)
+			if (API.Module != Module.Name)
 			{
 				continue;
 			}
-			Verify << "using " << Api.Symbol << "Member = " << PointerType(Api) << ";\n"
-			       << "static_assert(std::is_same_v<decltype(static_cast<" << Api.Symbol << "Member>(&" << Api.Owner
-			       << "::" << Api.Name << ")), " << Api.Symbol << "Member>);\n";
-			Host << "static " << ResultType(Api) << " " << Api.Symbol << "(const Mod::Api::FObjectBinding& Binding"
-			     << (Api.Parameters.empty() ? "" : ", ") << Parameters(Api) << ")\n{\n";
-			if (!Api.Permissions.empty())
+			Verify << "using " << API.Symbol << "Member = " << PointerType(API) << ";\n"
+			       << "static_assert(std::is_same_v<decltype(static_cast<" << API.Symbol << "Member>(&"
+			       << API.DeclaringType << "::" << API.Name << ")), " << API.Symbol << "Member>);\n";
+			Host << "static " << ResultType(API) << " " << API.Symbol << "(const Mod::API::FObjectBinding& Binding"
+			     << (API.Parameters.empty() ? "" : ", ") << Parameters(API) << ")\n{\n";
+			if (!API.Permissions.empty())
 			{
 				Host << "    static const FName Permissions[] = {";
-				for (const auto& Permission : Api.Permissions)
+				for (const auto& Permission : API.Permissions)
 				{
 					Host << "FName(" << Wide(Permission) << "),";
 				}
 				Host << "};\n";
 			}
-			Host << "    auto Target = Mod::Api::FHostAccess::Enter(Binding, Mod::Api::TBindingTraits<" << Api.Owner
-			     << ">::TypeId(), Mod::Api::EScope::" << Api.Scope << ", "
-			     << (Api.Permissions.empty() ? "TConstArrayView<FName>()" : "MakeArrayView(Permissions)") << ", "
-			     << (Api.bConst ? "false" : "true") << ");\n"
-			     << "    if (!Target.IsSuccess()) { return " << ResultType(Api) << "::Failure(Target.GetError()); }\n"
-			     << "    using FMember = " << PointerType(Api) << ";\n"
-			     << "    constexpr FMember Member = static_cast<FMember>(&" << Api.Owner << "::" << Api.Name << ");\n"
-			     << "    " << (Api.Return.Kind == EApiTypeKind::Void ? "" : "auto Value = ") << "(CastChecked<"
-			     << Api.Owner << ">(Target.GetValue())->*Member)(" << Arguments(Api, true) << ");\n";
-			if (Api.Return.Kind == EApiTypeKind::Object)
+			Host << "    auto Target = Mod::API::FHostAccess::Enter(Binding, Mod::API::TBindingTraits<" << API.Owner
+			     << ">::TypeId(), Mod::API::EScope::" << API.Scope << ", "
+			     << (API.Permissions.empty() ? "TConstArrayView<FName>()" : "MakeArrayView(Permissions)") << ", "
+			     << (API.bConst && !API.bFullViewMember ? "false" : "true") << ");\n"
+			     << "    if (!Target.IsSuccess()) { return " << ResultType(API) << "::Failure(Target.GetError()); }\n";
+			for (std::size_t I = 0; I < API.Parameters.size(); ++I)
 			{
-				Host << "    auto Projected = Mod::Api::FHostAccess::ProjectObject(Binding, const_cast<"
-				     << Api.Return.Object << "*>(Value), Mod::Api::TBindingTraits<" << Api.Return.Object
-				     << ">::TypeId(), Mod::Api::TBindingTraits<" << Api.Return.Object << ">::Signature, "
-				     << (Api.Return.bConst ? "true" : "false") << ");\n"
-				     << "    if (!Projected.IsSuccess()) { return " << ResultType(Api)
+				if (API.Parameters[I].Type.Kind == EAPITypeKind::ObjectInput)
+				{
+					Host << "    if (auto Status = Mod::API::FHostAccess::ValidateObjectInput(Binding, Arg" << I
+					     << "); !Status.IsSuccess()) { return " << ResultType(API)
+					     << "::Failure(Status.GetError()); }\n";
+				}
+			}
+			Host << "    using FMember = " << PointerType(API) << ";\n"
+			     << "    constexpr FMember Member = static_cast<FMember>(&" << API.DeclaringType << "::" << API.Name
+			     << ");\n"
+			     << "    " << (API.Return.Kind == EAPITypeKind::Void ? "" : "auto Value = ") << "(CastChecked<"
+			     << API.Owner << ">(Target.GetValue())->*Member)(" << Arguments(API, true) << ");\n";
+			if (API.Return.Kind == EAPITypeKind::Object)
+			{
+				Host << "    auto Projected = Mod::API::FHostAccess::ProjectObject(Binding, const_cast<"
+				     << API.Return.Object << "*>(Value), Mod::API::TBindingTraits<" << API.Return.Object
+				     << ">::TypeId(), Mod::API::TBindingTraits<" << API.Return.Object << ">::Signature, "
+				     << (API.Return.bConst ? "true" : "false") << ");\n"
+				     << "    if (!Projected.IsSuccess()) { return " << ResultType(API)
 				     << "::Failure(Projected.GetError()); }\n"
-				     << "    return " << ResultType(Api) << "::Success(Mod::Api::FViewFactory::Make<"
-				     << (Api.Return.bConst ? "const " : "") << Api.Return.Object
+				     << "    return " << ResultType(API) << "::Success(Mod::API::FViewFactory::Make<"
+				     << (API.Return.bConst ? "const " : "") << API.Return.Object
 				     << ">(MoveTemp(Projected.GetValue())));\n";
 			}
 			else
 			{
-				Host << "    return " << ResultType(Api) << "::Success("
-				     << (Api.Return.Kind == EApiTypeKind::Void ? "" : "Value") << ");\n";
+				Host << "    return " << ResultType(API) << "::Success("
+				     << (API.Return.Kind == EAPITypeKind::Void ? "" : "Value") << ");\n";
 			}
 			Host << "}\n\n";
 		}
@@ -429,48 +475,56 @@ void WriteHost(const FGenerationModel& Model, FFiles& Files)
 				continue;
 			}
 			Host << "static const Mod::Generated::" << Type.Symbol << "Calls " << Type.Symbol << "Table = {";
-			for (auto Index : Type.Apis)
+			for (auto Index : Type.APIs)
 			{
-				Host << "&" << Model.Apis[Index].Symbol << ",";
+				Host << "&" << Model.APIs[Index].Symbol << ",";
 			}
 			Host << "};\n";
 		}
-		Host << "\nstatic TModResult<TArray<Mod::Api::FRegistration>> Register(Mod::Api::FRegistry& Registry)\n{\n"
-		     << "    TArray<Mod::Api::FRegistration> Registrations;\n";
+		Host << "\nstatic TModResult<TArray<Mod::API::FRegistration>> Register(Mod::API::FRegistry& Registry)\n{\n"
+		     << "    TArray<Mod::API::FRegistration> Registrations;\n";
 		for (const auto& [Name, Type] : Model.Types)
 		{
 			if (Type.Module != Module.Name)
 			{
 				continue;
 			}
-			Host << "    {\n    Mod::Api::FTypeDescriptor Descriptor;\n"
-			     << "    Descriptor.TypeId = Mod::Api::TBindingTraits<" << Name << ">::TypeId();\n"
+			Host << "    {\n    Mod::API::FTypeDescriptor Descriptor;\n"
+			     << "    Descriptor.TypeId = Mod::API::TBindingTraits<" << Name << ">::TypeId();\n"
 			     << "    Descriptor.Class = " << Name << "::StaticClass();\n"
-			     << "    Descriptor.Scope = Mod::Api::EScope::" << Type.Identity.Scope << ";\n"
-			     << "    Descriptor.Signature = Mod::Api::TBindingTraits<" << Name << ">::Signature;\n"
+			     << "    Descriptor.Scope = Mod::API::EScope::" << Type.Identity.Scope << ";\n"
+			     << "    Descriptor.Signature = Mod::API::TBindingTraits<" << Name << ">::Signature;\n"
 			     << "    Descriptor.Calls = &" << Type.Symbol << "Table;\n";
-			for (auto Index : Type.Apis)
+			if (Type.bAllowWorldless)
 			{
-				const auto& Api = Model.Apis[Index];
-				Host << "    Descriptor.Apis.Add({" << Wide(Api.Id) << ", " << Wide(Api.Version) << ", "
-				     << Wide(ApiJson(Model, Api)["signatureHash"].get<std::string>()) << "});\n";
+				Host << "    Descriptor.bAllowWorldless = true;\n";
+			}
+			if (Type.bFullView)
+			{
+				Host << "    Descriptor.bFullView = true;\n";
+			}
+			for (auto Index : Type.APIs)
+			{
+				const auto& API = Model.APIs[Index];
+				Host << "    Descriptor.APIs.Add({" << Wide(API.Id) << ", " << Wide(API.Version) << ", "
+				     << Wide(APIJson(Model, API)["signatureHash"].get<std::string>()) << "});\n";
 			}
 			Host << "    auto Registration = Registry.RegisterType(MoveTemp(Descriptor));\n"
 			     << "    if (!Registration.IsSuccess()) { return "
-			        "TModResult<TArray<Mod::Api::FRegistration>>::Failure(Registration.GetError()); }\n"
+			        "TModResult<TArray<Mod::API::FRegistration>>::Failure(Registration.GetError()); }\n"
 			     << "    Registrations.Add(MoveTemp(Registration.GetValue()));\n    }\n";
 		}
-		Host << "    return TModResult<TArray<Mod::Api::FRegistration>>::Success(MoveTemp(Registrations));\n}\n}\n";
+		Host << "    return TModResult<TArray<Mod::API::FRegistration>>::Success(MoveTemp(Registrations));\n}\n}\n";
 		Verify << "}\n";
 		Host << "\n#if defined(UMF_MOD_HOST_LINK_WITNESS)\n"
 		        "extern \"C\" __declspec(dllexport) decltype(&UMF_ModHost_"
 		     << Module.Name << ") UMF_MOD_HOST_LINK_WITNESS(void)\n{\n    return &UMF_ModHost_" << Module.Name
 		     << ";\n}\n#endif\n";
 		Host << "\nextern \"C\" " << ExportMacro << " void UMF_ModHost_" << Module.Name
-		     << "(Mod::Api::FRegistry& Registry, TModResult<TArray<Mod::Api::FRegistration>>& Result)\n{\n"
+		     << "(Mod::API::FRegistry& Registry, TModResult<TArray<Mod::API::FRegistration>>& Result)\n{\n"
 		     << "    if (UMF_ModHost_" << Module.Name << "_RetainAbi() != 1)\n    {\n"
 		     << "        Result = "
-		        "TModResult<TArray<Mod::Api::FRegistration>>::Failure(Mod::Api::EError::SignatureMismatch);\n"
+		        "TModResult<TArray<Mod::API::FRegistration>>::Failure(Mod::API::EError::SignatureMismatch);\n"
 		     << "        return;\n    }\n    Result = " << Namespace << "::Register(Registry);\n}\n";
 		Files[Prefix + Module.Name + ".modhost.cpp"] = Host.str();
 		Files[Prefix + Module.Name + ".modverify.cpp"] = Verify.str();
@@ -500,37 +554,44 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 	{
 		FJson Members = FJson::array();
 		std::set<std::string> Shapes;
-		for (auto Index : Type.Apis)
+		for (auto Index : Type.APIs)
 		{
-			const auto& Api = Model.Apis[Index];
-			std::string Shape = Api.Name + "(" + Parameters(Api) + ")" + (Api.bConst ? " const" : "");
+			const auto& API = Model.APIs[Index];
+			std::string Shape = API.ExportName + "(" + Parameters(API) + ")" + (API.bConst ? " const" : "");
 			if (!Shapes.insert(Shape).second)
 			{
 				throw std::runtime_error("Projected overload collision: " + Name + "::" + Shape);
 			}
-			auto Member = ApiJson(Model, Api);
+			auto Member = APIJson(Model, API);
 			Member.erase("metadata");
 			Members.push_back(std::move(Member));
 		}
-		Type.Signature = HashBytes(FJson{
-		    {"typeId", Type.Identity.Id},
-		    {"scope", Type.Identity.Scope},
-		    {"apis", Members},
-		    {"projectionVersion", 1}}.dump());
-		Types.push_back({{"typeId", Type.Identity.Id},
-		                 {"cppName", Name},
-		                 {"scope", Type.Identity.Scope},
-		                 {"callingTableHash", Type.Signature}});
+		FJson TypeContract{
+		    {"typeId", Type.Identity.Id}, {"scope", Type.Identity.Scope}, {"apis", Members}, {"projectionVersion", 1}};
+		if (Type.bFullView)
+		{
+			TypeContract["view"] = "Full";
+		}
+		if (Type.bAllowWorldless)
+		{
+			TypeContract["allowWorldless"] = true;
+		}
+		Type.Signature = HashBytes(TypeContract.dump());
+		TypeContract.erase("apis");
+		TypeContract.erase("projectionVersion");
+		TypeContract["cppName"] = Name;
+		TypeContract["callingTableHash"] = Type.Signature;
+		Types.push_back(std::move(TypeContract));
 	}
-	for (const auto& Api : Model.Apis)
+	for (const auto& API : Model.APIs)
 	{
-		Exports.push_back(ApiJson(Model, Api));
-		Sources.push_back({{"exportId", Api.Id},
-		                   {"module", Api.Module},
-		                   {"sourceSignature", Api.SourceSignature},
-		                   {"file", NormalizeInput(Model.Input, PathToUtf8(Api.Macro.File))},
-		                   {"line", Api.Macro.Line},
-		                   {"column", Api.Macro.Column}});
+		Exports.push_back(APIJson(Model, API));
+		Sources.push_back({{"exportId", API.Id},
+		                   {"module", API.Module},
+		                   {"sourceSignature", API.SourceSignature},
+		                   {"file", NormalizeInput(Model.Input, PathToUtf8(API.Macro.File))},
+		                   {"line", API.Macro.Line},
+		                   {"column", API.Macro.Column}});
 	}
 	FJson Contract{{"schemaVersion", 1},
 	               {"projectionVersion", 1},
@@ -550,12 +611,12 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 		Contract["modLifecycle"] = Lifecycle;
 	}
 	FJson Compatibility = Contract;
-	for (auto& Api : Compatibility["exports"])
+	for (auto& API : Compatibility["exports"])
 	{
-		Api.erase("metadata");
+		API.erase("metadata");
 	}
 	const std::string ContractHash = HashBytes(Compatibility.dump());
-	const std::string ProjectionHash = HashBytes(Types.dump() + "UObjectApiProjection1:ContextHandlesV1" +
+	const std::string ProjectionHash = HashBytes(Types.dump() + "UObjectAPIProjection1:ContextHandlesV1" +
 	                                             (Lifecycle.is_null() ? "" : Lifecycle.dump()));
 	FFiles Files;
 	WriteSdk(Model, Files);
@@ -638,8 +699,8 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 	for (const auto& [Owner, File] : Model.Input.HostContexts)
 	{
 		const auto Context = FJson::parse(ReadTextFile(File));
-		if (Context.value("format", "") != "UMF.ModHostContext" || Context.value("schemaVersion", 0) != 1 ||
-		    Context.value("ownerModule", "") != Owner || Context.value("moduleApiMode", "") != "Producer" ||
+		if (Context.value("format", "") != "UMF.ModHostContext" || Context.value("schemaVersion", 0) != 2 ||
+		    Context.value("ownerModule", "") != Owner || Context.value("moduleAPIMode", "") != "Producer" ||
 		    Context.at("target").value("name", "") != Model.Input.Target ||
 		    Context.at("target").value("platform", "") != Model.Input.Platform ||
 		    Context.at("target").value("architecture", "") != Model.Input.Architecture ||
@@ -675,7 +736,7 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 	                     {"generatorVersion", GeneratorVersion},
 	                     {"format", "UMF.GeneratedArtifacts"},
 	                     {"outputLayout", "Flat"},
-	                     {"backend", "UObjectApi.Win64.v1"},
+	                     {"backend", "UObjectAPI.Win64.v1"},
 	                     {"gameId", Model.Input.GameId},
 	                     {"target", Model.Input.Target},
 	                     {"platform", Model.Input.Platform},

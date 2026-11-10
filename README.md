@@ -52,16 +52,15 @@ The catalog defaults to `Saved/ModHeaderTool/MetadataOptions.json` under the pro
 
 | Declaration | Required fields | Optional fields |
 | --- | --- | --- |
-| All three | `ExportId`: string literal naming a registered GameplayTag | `ExportVersion` defaults to `"1.0.0"`; `DisplayName` and `Description` |
-| `MOD_EXPORT_API` | `Scope`, `Thread`, `FailureRule` | `Permissions` defaults to an empty list |
-| `MOD_EXPORT_EVENT` | `SourceScope`, `PublishRule` | `PayloadType` |
-| `MOD_EXPORT_HOOK` | Only the common required field | `ContextType`; `AllowedStages` defaults to `(Observe)` |
+| All three | — | `ExportVersion` defaults to `"1.0.0"`, plus `DisplayName` and `Description` |
+| `MOD_EXPORT_API` | `Scope`, `Thread`, `FailureRule` | `Permissions` defaults to an empty list, plus `FullView` and `CompatibleNames` |
+| `MOD_EXPORT_EVENT` | `ExportId` (registered GameplayTag), `SourceScope`, `PublishRule` | `PayloadType` |
+| `MOD_EXPORT_HOOK` | `ExportId` (registered GameplayTag) | `ContextType` and `AllowedStages` (defaults to `(Observe)`) |
 
 Choices accept identifiers or strings. Permissions and stages use parenthesized lists, such as `Permissions = ("WorldRead", "WorldWrite")` or `AllowedStages = (Observe, Modify)`. Stages require at least one item; duplicate items are errors. `ExportVersion` is a two- or three-component numeric version string without redundant leading zeros. `PayloadType` and `ContextType` validate C++ type-name syntax; type existence and declaration binding remain AST-stage concerns.
 
 ```cpp
 MOD_EXPORT_API(
-    ExportId = "ModTest.APIExpot.Blueprint.TestFunction",
     Scope = World,
     Thread = GameThread,
     FailureRule = ReturnError,
@@ -76,11 +75,15 @@ Recoverable diagnostics are collected before returning `1` without writing a suc
 
 The [thin UHT adapter](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md) provides an automatically discovered `ModRuntime.ubtplugin.csproj` entry. The development project's `Config/ModHeaderTool.json` selects `generate`; without configuration the adapter defaults to `scan`. Output remains beside UHT under `Inc/ExportMetadata/MHT`. In generate mode the adapter runs MHT, then independent MBT host compilation before returning from UHT. UBT links the resulting archive through the owning module's private External dependency.
 
-The first backend generates synchronous UObject instance APIs: public non-static members, scalar value parameters, scalar/void or World-scoped UObject pointer returns, GameThread, and ReturnError. MHT binds active markers to real libclang AST declarations and exact overloads using UBT's compilation database. Object classes must have their own generated StaticClass, a persistent identity, and a header in a participating module. The explicit `ErrorIfNull` projection returns `FModRuntimeObject<T>`, with read-only views for const objects. MHT also generates a fixed-width ContextHandlesV1 C ABI and independent client endpoints. Event/Hook generation, structures/containers, and reference parameters remain unsupported and fail explicitly.
+The synchronous UObject backend generates public non-static instance APIs with scalar values or loaded UObject pointer inputs, scalar/void or World-scoped UObject pointer results, GameThread, and ReturnError. MHT binds active markers to real libclang AST declarations and exact overloads using UBT's compilation database. The `ErrorIfNull` projection returns `FModRuntimeObject<T>`, with read-only views for const objects. MHT also generates a fixed-width ContextHandlesV1 C ABI and independent client endpoints. Generation reports missing projections for Event/Hook, structures, containers, and reference parameters.
 
-Runtime annotations now live in `ExportMetadata/Public/ModExportAnnotations.h`; the Editor module's existing `ModExportMacros.h` forwards to that header. The `ModApi` Runtime module owns results, cached typed tables, World/Player scopes, explicit providers, permissions, and revocation. Views do not own or expose their UObject. Gameplay lifetime, world cleanup, controller changes, provider removal, and caller revocation invalidate affected calls. A read grant does not implicitly grant mutation.
+MHT generates each API ID from its type ID and public function name. `CompatibleNames = ("OldName")` adds a callable entry under the old name. When the field is omitted, MHT uses applicable UE function redirects from the refreshed metadata catalog. See [API compatibility names](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.md#api-compatibility-names).
 
-The development host implements `AGameCharacter::AddHealth` and `UGameLocalPlayerApi::GetLocalCharacter`. Health changes ignore non-finite/non-positive amounts, clamp to the maximum, and return resulting health. The getter uses its own LocalPlayer's controlled game character. The game still owns spawning, possession, and networking behavior.
+`FullView = ("USkeletalMesh")` selects a UObject pointer class from the signature. MHT checks the public instance members visible in the target build, including public bases. Generated members require the permissions specified by the declarations that select the class. An unresolved member projection fails the generation batch and names the class and member. See [FullView and object inputs](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.md#fullview-and-object-inputs).
+
+Runtime annotations now live in `ExportMetadata/Public/ModExportAnnotations.h`; the Editor module's existing `ModExportMacros.h` forwards to that header. The `ModAPI` Runtime module owns results, cached typed tables, World/Player scopes, explicit providers, permissions, and revocation. Views do not own or expose their UObject. Gameplay lifetime, world cleanup, controller changes, provider removal, and caller revocation invalidate affected calls. A read grant does not implicitly grant mutation.
+
+The development host exposes the current character through `UGameLocalPlayerAPI::GetLocalCharacter`. On that view, `AddHealth` returns updated health and `SetMesh` accepts a loaded skeletal mesh with a compatible skeleton.
 
 Generation workflow:
 
@@ -89,7 +92,7 @@ Generation workflow:
 3. Prepare the output directory and use UBT `-Mode=GenerateClangDatabase -NoPCH` with the actual Target and `-Compiler=VisualStudio2022`. The exporter skips this preparation invocation. Prepare the matching build input shown below; repeat preparation after changing the Target or toolchain configuration.
 4. Run the normal UE build. UHT transports the actual owner compiler recipe, generates MHT sources, and runs MBT before UBT links. Editor and Game use separate output roots and host archives. Direct MHT invocation below is also available for standalone generation, but does not build or link a host library.
 
-A build input identifies `schemaVersion: 1`, `project`, `gameId`, `target`, `platform`, `configuration`, `architecture`, `objectReturnPolicy: "ErrorIfNull"`, `compilationDatabase`, and `modules`. Each module supplies `name`, `sourceDirectory`, and explicit `translationUnits`. `project` resolves from the input file; other source paths resolve from the project. `typeIdentities` references the versioned `Config/ModApiTypes.json`; alternatively provide an inline `types` map. `analysisArguments` pins toolchain adapters/resource headers; `pathRoots` names machine-specific roots for normalized diagnostics and hashes. The database uses the [standard Clang format](https://clang.llvm.org/docs/JSONCompilationDatabase.html); every selected TU must have exactly one actual command, and UBT Target/platform/configuration/module macros are checked.
+A build input identifies `schemaVersion: 1`, `project`, `gameId`, `target`, `platform`, `configuration`, `architecture`, `objectReturnPolicy: "ErrorIfNull"`, `compilationDatabase`, and `modules`. Each module supplies `name`, `sourceDirectory`, and explicit `translationUnits`. `project` resolves from the input file; other source paths resolve from the project. `typeIdentities` references the versioned `Config/ModAPITypes.json`; alternatively provide an inline `types` map. `analysisArguments` pins toolchain adapters/resource headers; `pathRoots` names machine-specific roots for normalized diagnostics and hashes. The database uses the [standard Clang format](https://clang.llvm.org/docs/JSONCompilationDatabase.html); every selected TU must have exactly one actual command, and UBT Target/platform/configuration/module macros are checked.
 
 ```json
 {
@@ -102,13 +105,13 @@ A build input identifies `schemaVersion: 1`, `project`, `gameId`, `target`, `pla
   "architecture": "x64",
   "objectReturnPolicy": "ErrorIfNull",
   "compilationDatabase": "Intermediate/ModHeaderTool/Clang/Editor/compile_commands.json",
-  "typeIdentities": "Config/ModApiTypes.json",
+  "typeIdentities": "Config/ModAPITypes.json",
   "modules": [{
     "name": "ExportTest",
     "sourceDirectory": "Source/ExportTest",
     "translationUnits": [
       "Source/ExportTest/GameCharacter.cpp",
-      "Source/ExportTest/GameLocalPlayerApi.cpp"
+      "Source/ExportTest/GameLocalPlayerAPI.cpp"
     ]
   }],
   "analysisArguments": [
@@ -131,13 +134,13 @@ $contexts = "UnrealModFramework/Intermediate/ModHeaderTool/HostTargets/UnrealMod
 
 Generation directly replaces fixed paths below MHT: `SDK`, `Host`, `Client`, `Contract`, `Diagnostics`, and `<gameId>.generated-artifacts.json`. There are no profile/batch directories or `current.json`. Removed outputs are cleaned and unchanged files keep their timestamps. The complete manifest is committed last; interrupted replacement cannot be consumed as a complete result. `generationId` remains a content fingerprint.
 
-Generated headers contain declarations and signature data. All generated function implementations live in `Host/<owner>/<owner>.modhost.cpp`, `<owner>.modabi.cpp`, `<owner>.modverify.cpp`, `SDK/Private/<owner>.modviews.cpp`, and the independent `Client/<game>ModClient/<game>ModClient.modclient.cpp`; only MBT compiles these units. `GameModExports.cpp` contains no generated implementation. `UGameModApiHost` calls the declared `UMF_ModHost_ExportTest` anchor, whose definition is resolved from the MBT archive. `ExportTest` privately depends on the External `ExportTestHost` rules; `PublicPreBuildLibraries` supplies the stable library path before its first build without propagating it to other DLLs. Libraries and receipts live in `Intermediate/MBT/<Target>/<Platform>/<Configuration>/<Architecture>`.
+Generated headers contain declarations and signature data. All generated function implementations live in `Host/<owner>/<owner>.modhost.cpp`, `<owner>.modabi.cpp`, `<owner>.modverify.cpp`, `SDK/Private/<owner>.modviews.cpp`, and the independent `Client/<game>ModClient/<game>ModClient.modclient.cpp`; only MBT compiles these units. `GameModExports.cpp` contains no generated implementation. `UGameModAPIHost` calls the declared `UMF_ModHost_ExportTest` anchor, whose definition is resolved from the MBT archive. `ExportTest` privately depends on the External `ExportTestHost` rules; `PublicPreBuildLibraries` supplies the stable library path before its first build without propagating it to other DLLs. Libraries and receipts live in `Intermediate/MBT/<Target>/<Platform>/<Configuration>/<Architecture>`.
 
 MHT publishes `.modabi.h`, `.clientabi.json`, and `.sdkcontract.json` with a v2 artifact manifest, explicit compilation units, and checked Host/Client API symbols. The [client ABI documentation](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.md) defines query, Connect/Disconnect, token delivery, and lifecycle rules. MST consumes the resolved SDK contract; internal UE-view headers are private host artifacts.
 
 The automatic adapter supports Win64 x64 MSVC and preserves the real UBT producer flags. The pre-build watch invalidates UHT on directory changes, and the post-build step verifies the archive's witness export in the actual owning binary before publishing its link receipt. See the [UHT integration](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md).
 
-Host code calls `UGameModApiHost::OpenLocalPlayer(Player, Permissions)` and gives the caller a generated view from `Mod::Api::FViewFactory::Make<UGameLocalPlayerApi>(Binding)`. Call `GetLocalCharacter()`, then `AddHealth(Amount)` on the successful character view, checking both results. Revoke the caller when its mod stops. Player removal/controller changes close the player scope; an unavailable character produces `ObjectUnavailable`.
+Host code calls `UGameModAPIHost::OpenLocalPlayer(Player, Permissions)` and gives the caller a generated view from `Mod::API::FViewFactory::Make<UGameLocalPlayerAPI>(Binding)`. Call `GetLocalCharacter()`, then `AddHealth(Amount)` on the successful character view, checking both results. Revoke the caller when its mod stops. Player removal/controller changes close the player scope; an unavailable character produces `ObjectUnavailable`.
 
 ## Contributing
 

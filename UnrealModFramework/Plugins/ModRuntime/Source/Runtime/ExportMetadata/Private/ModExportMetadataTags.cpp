@@ -9,23 +9,23 @@ bool IsRegisteredTag(const FGameplayTag& Tag)
 }
 } // namespace
 
-FModApiTag::FModApiTag(const FGameplayTag& Tag)
+FModAPITag::FModAPITag(const FGameplayTag& Tag)
 {
 	TagName = Tag.GetTagName();
 }
 
-FModApiTag FModApiTag::Request(const FName TagName, const bool bErrorIfNotFound)
+FModAPITag FModAPITag::Request(const FName TagName, const bool bErrorIfNotFound)
 {
 	const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TagName, bErrorIfNotFound);
-	return Tag.IsValid() ? FModApiTag(Tag) : FModApiTag();
+	return Tag.IsValid() ? FModAPITag(Tag) : FModAPITag();
 }
 
-FModApiTag FModApiTag::TryConvert(const FGameplayTag& Tag)
+FModAPITag FModAPITag::TryConvert(const FGameplayTag& Tag)
 {
-	return IsRegisteredTag(Tag) ? FModApiTag(Tag) : FModApiTag();
+	return IsRegisteredTag(Tag) ? FModAPITag(Tag) : FModAPITag();
 }
 
-bool FModApiTag::IsRegistered() const
+bool FModAPITag::IsRegistered() const
 {
 	return IsRegisteredTag(*this);
 }
@@ -51,7 +51,7 @@ bool FModEventTag::IsRegistered() const
 	return IsRegisteredTag(*this);
 }
 
-bool FModApiTagContainer::AddTag(const FModApiTag& Tag)
+bool FModAPITagContainer::AddTag(const FModAPITag& Tag)
 {
 	if (!Tag.IsRegistered())
 	{
@@ -61,14 +61,14 @@ bool FModApiTagContainer::AddTag(const FModApiTag& Tag)
 	return true;
 }
 
-bool FModApiTagContainer::TryConvert(const FGameplayTagContainer& Tags, FModApiTagContainer& OutTags)
+bool FModAPITagContainer::TryConvert(const FGameplayTagContainer& Tags, FModAPITagContainer& OutTags)
 {
-	FModApiTagContainer Converted;
+	FModAPITagContainer Converted;
 	for (const FGameplayTag& Tag : Tags)
 	{
-		if (!Converted.AddTag(FModApiTag::TryConvert(Tag)))
+		if (!Converted.AddTag(FModAPITag::TryConvert(Tag)))
 		{
-			OutTags = FModApiTagContainer();
+			OutTags = FModAPITagContainer();
 			return false;
 		}
 	}
@@ -76,7 +76,7 @@ bool FModApiTagContainer::TryConvert(const FGameplayTagContainer& Tags, FModApiT
 	return true;
 }
 
-bool FModApiTagContainer::IsRegistered() const
+bool FModAPITagContainer::IsRegistered() const
 {
 	for (const FGameplayTag& Tag : *this)
 	{

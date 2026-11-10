@@ -16,7 +16,7 @@
 			"LoadingPhase": "Default"
 		},
 		{
-			"Name": "ModApi",
+			"Name": "ModAPI",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		},

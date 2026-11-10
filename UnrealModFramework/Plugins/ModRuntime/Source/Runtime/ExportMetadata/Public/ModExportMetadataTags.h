@@ -8,13 +8,13 @@
 
 /// A typed API ID backed by the global GameplayTags dictionary.
 USTRUCT(BlueprintType)
-struct EXPORTMETADATA_API FModApiTag : public FGameplayTag
+struct EXPORTMETADATA_API FModAPITag : public FGameplayTag
 {
 	GENERATED_BODY()
 
 public:
 	/// Creates an empty API ID.
-	FModApiTag() = default;
+	FModAPITag() = default;
 
 	/** @brief Resolves a registered API ID on the game thread.
 	 *
@@ -22,23 +22,23 @@ public:
 	 * @param bErrorIfNotFound Report a missing tag.
 	 * @return Valid API ID, or an invalid tag.
 	 */
-	static FModApiTag Request(FName TagName, bool bErrorIfNotFound = false);
+	static FModAPITag Request(FName TagName, bool bErrorIfNotFound = false);
 
 	/** @brief Converts a registered GameplayTag to an API ID.
 	 *
 	 * @param Tag Tag to check in the global dictionary.
 	 * @return Valid API ID, or an invalid tag.
 	 */
-	static FModApiTag TryConvert(const FGameplayTag& Tag);
+	static FModAPITag TryConvert(const FGameplayTag& Tag);
 
 	/// Returns whether this tag exists in the global dictionary.
 	bool IsRegistered() const;
 
 private:
-	explicit FModApiTag(const FGameplayTag& Tag);
+	explicit FModAPITag(const FGameplayTag& Tag);
 };
 
-template <> struct TStructOpsTypeTraits<FModApiTag> : public TStructOpsTypeTraitsBase2<FModApiTag>
+template <> struct TStructOpsTypeTraits<FModAPITag> : public TStructOpsTypeTraitsBase2<FModAPITag>
 {
 	enum
 	{
@@ -96,7 +96,7 @@ template <> struct TStructOpsTypeTraits<FModEventTag> : public TStructOpsTypeTra
 
 /// A typed container for API IDs from the global GameplayTags dictionary.
 USTRUCT(BlueprintType)
-struct EXPORTMETADATA_API FModApiTagContainer : public FGameplayTagContainer
+struct EXPORTMETADATA_API FModAPITagContainer : public FGameplayTagContainer
 {
 	GENERATED_BODY()
 
@@ -106,7 +106,7 @@ public:
 	 * @param Tag API ID to add.
 	 * @return Whether the tag is registered.
 	 */
-	bool AddTag(const FModApiTag& Tag);
+	bool AddTag(const FModAPITag& Tag);
 
 	/** @brief Converts a container only if every tag is registered.
 	 *
@@ -114,13 +114,13 @@ public:
 	 * @param[out] OutTags Converted tags, or empty on failure.
 	 * @return Whether all source tags are registered.
 	 */
-	static bool TryConvert(const FGameplayTagContainer& Tags, FModApiTagContainer& OutTags);
+	static bool TryConvert(const FGameplayTagContainer& Tags, FModAPITagContainer& OutTags);
 
 	/// Returns whether every contained tag is registered.
 	bool IsRegistered() const;
 };
 
-template <> struct TStructOpsTypeTraits<FModApiTagContainer> : public TStructOpsTypeTraitsBase2<FModApiTagContainer>
+template <> struct TStructOpsTypeTraits<FModAPITagContainer> : public TStructOpsTypeTraitsBase2<FModAPITagContainer>
 {
 	enum
 	{

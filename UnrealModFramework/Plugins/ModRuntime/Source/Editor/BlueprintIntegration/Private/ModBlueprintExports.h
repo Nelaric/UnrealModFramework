@@ -48,12 +48,12 @@ private:
 
 /// A callable API declaration with its own implementation graph.
 UCLASS(MinimalAPI)
-class UModBlueprintApiExport final : public UModBlueprintExportEntry
+class UModBlueprintAPIExport final : public UModBlueprintExportEntry
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, Category = "API", meta = (GetOptions = "GetApiIds"))
+	UPROPERTY(EditAnywhere, Category = "API", meta = (GetOptions = "GetAPIIds"))
 	FName ExportId;
 
 	UPROPERTY(EditAnywhere, Category = "API", meta = (GetOptions = "GetScopes"))
@@ -72,7 +72,7 @@ public:
 	TObjectPtr<UEdGraph> ImplementationGraph;
 
 	UFUNCTION()
-	TArray<FString> GetApiIds() const;
+	TArray<FString> GetAPIIds() const;
 
 	UFUNCTION()
 	TArray<FString> GetScopes() const;
@@ -155,7 +155,7 @@ class UModBlueprintExports final : public UBlueprintExtension
 
 public:
 	UPROPERTY()
-	TArray<TObjectPtr<UModBlueprintApiExport>> APIs;
+	TArray<TObjectPtr<UModBlueprintAPIExport>> APIs;
 
 	UPROPERTY()
 	TArray<TObjectPtr<UModBlueprintEventExport>> Events;
@@ -169,7 +169,7 @@ public:
 	static bool CanAddEntry(const UBlueprint* Blueprint, TSubclassOf<UModBlueprintExportEntry> EntryClass,
 	                        const FString& DisplayName, FText& ErrorMessage);
 
-	UModBlueprintApiExport* AddApi(UBlueprint* Blueprint, const FString& DisplayName, FText& ErrorMessage);
+	UModBlueprintAPIExport* AddAPI(UBlueprint* Blueprint, const FString& DisplayName, FText& ErrorMessage);
 	UModBlueprintEventExport* AddEvent(UBlueprint* Blueprint, const FString& DisplayName, FText& ErrorMessage);
 	UModBlueprintHookExport* AddHook(UBlueprint* Blueprint, const FString& DisplayName, FText& ErrorMessage);
 	void RemoveEntry(UBlueprint* Blueprint, UModBlueprintExportEntry* Entry);

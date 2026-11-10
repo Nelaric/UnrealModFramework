@@ -4,7 +4,7 @@
 
 # ModSDKTool
 
-MST 将已经解析的导出结果构建为可独立安装的制作 SDK。首版支持“获取当前本地玩家的角色，再增加生命”所需的对象获取，以及单个 float 参数、float 返回值的实例调用。API ID、公开类型、名称与原生符号来自契约，不写死具体游戏函数。
+MST 将已经解析的导出结果构建为可独立安装的制作 SDK。玩家上下文和对象视图可以调用按签名生成的方法，方法接受标量和公开 UE 对象入参。API ID、公开类型、名称与原生符号来自契约。
 
 MHT 负责 C++ 分析和投影，ExportCodeGenerator 负责蓝图导出。MST 消费完整结果，调用 MBT 构建库，生成 UE 适配层，通过 AutomationTool 构建插件，最后发布带完整文件哈希的 SDK。MHT 的 scan 报告不能代替完整生成清单。
 
@@ -37,7 +37,7 @@ uint32_t ObjectGetter(uint64_t ModContext, uint64_t PlayerScope, uint64_t* OutOb
 uint32_t FloatMethod(uint64_t ModContext, uint64_t Object, float Amount, float* OutValue);
 ```
 
-状态零表示成功，非零表示宿主错误。上下文、作用域和对象均为非零进程内令牌。公开类型 `ObjectReference` 包含稳定 `id` 和 `cppName`。`ObjectGetter` 提供 `provider: LocalPlayerSubsystem`、`resultTypeId` 和 `nullResult: Error`；`FloatMethod` 提供 `targetTypeId`、`parameterName` 和稳定 `parameterId`。实例方法目标必须由同一契约的获取 API 返回。
+状态零表示成功，非零表示宿主错误。上下文、作用域和对象均为非零进程内令牌。公开类型 `ObjectReference` 包含稳定 `id` 和 `cppName`。`ObjectGetter` 提供 `provider: LocalPlayerSubsystem`、`resultTypeId` 和 `nullResult: Error`。`FloatMethod` 提供 `targetTypeId`、`parameterName` 和稳定 `parameterId`。`TypedMethod` 描述参数和结果，目标可为玩家上下文或对象视图。`ObjectInput` 指定 UE 类、头文件和模块。对象结果指定投影视图 TypeId。`blueprint` 字段决定是否生成蓝图节点。
 
 获取接口使用 Player Scope，实例方法支持 Player 或 World；均要求 `thread: GameThread` 和 `failureRule: ReturnError`；权限保留为逐 API 列表。每项还提供 `id`、稳定公开 `name`、`displayName`、`signatureHash`、`projectionHash` 和 `native: {header, symbol}`。Client v2 清单的必需符号记录须匹配实际入口。头路径相对生成根保留，不支持的形状直接报错。
 

@@ -6,12 +6,12 @@
 
 仓库包含一个开发宿主工程和两个框架插件。每个模块只承担明确职责，仅声明实际使用的依赖，并将实现细节放入 `Private`。公开头文件是契约：它们须能够独立包含，且只有当公开头文件确实需要某依赖时，才将该依赖列为 `.Build.cs` 的公开依赖。禁止循环依赖。
 
-UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `ExportMetadata`、`ModApi`、`ModLoader`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块。`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块。
+UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `ExportMetadata`、`ModAPI`、`ModLoader`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块。`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块。
 
 | 职责 | 位置 | UE 模块类型 |
 | --- | --- | --- |
 | 导出标识、容器与配置选项 | `Plugins/ModRuntime/Source/Runtime/ExportMetadata/` | `Runtime` |
-| 生成 API 的结果、作用域、绑定、权限与撤销 | `Plugins/ModRuntime/Source/Runtime/ModApi/` | `Runtime` |
+| 生成 API 的结果、作用域、绑定、权限与撤销 | `Plugins/ModRuntime/Source/Runtime/ModAPI/` | `Runtime` |
 | 模组加载器 | `Plugins/ModRuntime/Source/Runtime/ModLoader/` | `Runtime` |
 | Blueprint 接入 | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
 | 导出代码生成 | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
@@ -36,7 +36,7 @@ UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相�
 
 声明字段统一命名为 `ExportId` 和 `ExportVersion`。
 
-ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `Config/Tags/GameMod.ini`、其他 GameplayTags 来源或 Unreal 的 GameplayTags 编辑器中，不要求固定前缀。其他选项位于 `Config/DefaultGameMod.ini` 的 `[ModExportMetadata]` 节：API 使用 `ApiScopes`、`ApiThreads`、`ApiPermissions`、`ApiFailureRules`；Event 使用 `EventSourceScopes`、`EventPublishRules`。使用 `+键=值` 添加数组项。API 权限以标识符数组保存。外部编辑配置后，重启编辑器或刷新 GameplayTags 界面。
+ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `Config/Tags/GameMod.ini`、其他 GameplayTags 来源或 Unreal 的 GameplayTags 编辑器中，不要求固定前缀。其他选项位于 `Config/DefaultGameMod.ini` 的 `[ModExportMetadata]` 节：API 使用 `APIScopes`、`APIThreads`、`APIPermissions`、`APIFailureRules`；Event 使用 `EventSourceScopes`、`EventPublishRules`。使用 `+键=值` 添加数组项。API 权限以标识符数组保存。外部编辑配置后，重启编辑器或刷新 GameplayTags 界面。
 
 蓝图 Mod 导出只由在此面板中创建的独立声明定义。API 和 Hook 的实现图由各自声明独占；Event 保存自己的载荷及发布设置。模块不包含从普通函数或事件分发器导入、迁移、修复归属或兼容旧声明的路径；不受支持的声明需重新创建。实现图的生命周期由导出面板控制。图发现、打开和编译均校验归属，图缺失或脱离声明时给出诊断，不再打开失去所属蓝图的图。
 
@@ -44,9 +44,9 @@ ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `
 
 蓝图扩展向“在蓝图中查找”提供 API、Event、Hook 的完整名称、提示文字及导出 ID。新建、重命名、属性编辑、删除和面板撤销/重做会刷新已保存资产的搜索索引。面板搜索同时匹配完整名称、基础名称及导出 ID。刷新选中行时也会刷新细节标题，包括从细节面板发起的改名。源图与编译副本共用同一名称绑定过程，同步入口及返回节点的函数引用、函数显示元数据和局部变量作用域，使原生“查找引用”也使用声明的函数名。
 
-`ExportMetadata` 向 C++ 公开 `FModApiTag`、`FModEventTag` 及对应容器，分别派生自 `FGameplayTag` 和 `FGameplayTagContainer`；编辑器字段使用原生 GameplayTags 属性界面。转换与添加接口检查标签是否存在于全局字典。由于基类接口和导入过程可以绕过这些接口，读取序列化标签的代码还应调用 `IsRegistered`。`ModExportMetadataOptions.h` 中的 `Mod::ExportMetadata::FOptions` 从全局管理器枚举 API 与 Event ID 可用的标签，并从 `[ModExportMetadata]` 读取其他选项；Hook 声明目前使用同一全局标签字典。C++ 元数据参数是编译期字面量，仍需在编写或导出阶段对照配置校验。配置只定义候选标识符，不实现运行时策略。导出面板保存声明并编译 API 和 Hook 图，但尚未创建 Publish Event 或 Hook Point 节点，也不执行运行时契约。后续生成器须在导出前校验已注册的 ID、完整选择及宿主策略语义，运行时代码应消费生成的描述符，而不是 Editor 专用声明。
+`ExportMetadata` 向 C++ 公开 `FModAPITag`、`FModEventTag` 及对应容器，分别派生自 `FGameplayTag` 和 `FGameplayTagContainer`；编辑器字段使用原生 GameplayTags 属性界面。转换与添加接口检查标签是否存在于全局字典。由于基类接口和导入过程可以绕过这些接口，读取序列化标签的代码还应调用 `IsRegistered`。`ModExportMetadataOptions.h` 中的 `Mod::ExportMetadata::FOptions` 从全局管理器枚举 API 与 Event ID 可用的标签，并从 `[ModExportMetadata]` 读取其他选项；Hook 声明目前使用同一全局标签字典。C++ 元数据参数是编译期字面量，仍需在编写或导出阶段对照配置校验。配置只定义候选标识符，不实现运行时策略。导出面板保存声明并编译 API 和 Hook 图，但尚未创建 Publish Event 或 Hook Point 节点，也不执行运行时契约。后续生成器须在导出前校验已注册的 ID、完整选择及宿主策略语义，运行时代码应消费生成的描述符，而不是 Editor 专用声明。
 
-`ModApi` 是 Game 与 Editor Target 共用的 Runtime 模块，公开依赖 `Core`、`CoreUObject` 和 `Engine`。它负责生成 API 的结果、绑定、World/Player 作用域、显式实例提供者、权限与撤销；这类服务不放入仅承载声明配置的 `ExportMetadata`。宿主 `ExportTest` 提供角色和 LocalPlayer 两个 API，并通过 `UGameModApiHost` 编排生成注册和实例生命周期。
+`ModAPI` 是 Game 与 Editor Target 共用的 Runtime 模块，公开依赖 `Core`、`CoreUObject` 和 `Engine`。它负责生成 API 的结果、绑定、World/Player 作用域、显式实例提供者、权限与撤销；这类服务不放入仅承载声明配置的 `ExportMetadata`。宿主 `ExportTest` 提供角色和 LocalPlayer 两个 API，并通过 `UGameModAPIHost` 编排生成注册和实例生命周期。
 
 `DevelopmentEditor` 通过 UAT `BuildPlugin` 独立构建。它不得静态依赖项目侧的 `ExportMetadata` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
 
@@ -58,7 +58,7 @@ ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `
 
 ## 模组加载器
 
-`ModLoader` 负责发现、验证、提取和挂载 `.mod` v1 内容包，并将挂载结果分发给游戏会话。公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`RenderCore` 和引擎自带的 OpenSSL。Editor Target 另外私有依赖 `UnrealEd`，用于跟踪 PIE 会话和释放已加载的包。插件描述文件为 Win64、Linux 和 Mac 的 Game 与 Editor Target 启用模块。挂载要求匹配的 Pak 或 IoStore 后端。它独立于负责 API 绑定的 `ModApi`、导出描述的 `ExportMetadata` 和制作编辑器。
+`ModLoader` 负责发现、验证、提取和挂载 `.mod` v1 内容包，并将挂载结果分发给游戏会话。公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`RenderCore` 和引擎自带的 OpenSSL。Editor Target 另外私有依赖 `UnrealEd`，用于跟踪 PIE 会话和释放已加载的包。插件描述文件为 Win64、Linux 和 Mac 的 Game 与 Editor Target 启用模块。挂载要求匹配的 Pak 或 IoStore 后端。它独立于负责 API 绑定的 `ModAPI`、导出描述的 `ExportMetadata` 和制作编辑器。
 
 游戏可在引擎初始化完成后由 Game Thread 调用 `Mod::Loader::IModLoaderModule::Get().LoadPackage(Path, Policy)` 或 `LoadDirectory(Directory, Policy)`。C++ 调用方在自身模块的 Build.cs 声明 `ModLoader` 依赖。调用会同步验证文件和准备资源，应在进入玩法前完成。成功结果返回已挂载资源的长包名，宿主可据此按需加载资产。
 

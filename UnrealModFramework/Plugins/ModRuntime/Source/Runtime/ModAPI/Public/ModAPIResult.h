@@ -1,10 +1,10 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-/** @file ModApiResult.h */
+/** @file ModAPIResult.h */
 #pragma once
 
 #include "CoreMinimal.h"
 
-namespace Mod::Api
+namespace Mod::API
 {
 /// Recoverable failures of generated synchronous API calls.
 enum class EError : uint8
@@ -30,7 +30,7 @@ enum class EError : uint8
 	/// A registration or scope argument is invalid or already in use.
 	InvalidArgument,
 };
-} // namespace Mod::Api
+} // namespace Mod::API
 
 /// A synchronous API result containing either a value or a stable error.
 template <class T> class TModResult
@@ -42,7 +42,7 @@ public:
 	 */
 	static TModResult Success(T InValue)
 	{
-		TModResult Result(Mod::Api::EError::None);
+		TModResult Result(Mod::API::EError::None);
 		Result.Value.Emplace(MoveTemp(InValue));
 		return Result;
 	}
@@ -51,9 +51,9 @@ public:
 	 * @param InError A non-success error.
 	 * @return A result containing no value.
 	 */
-	static TModResult Failure(Mod::Api::EError InError)
+	static TModResult Failure(Mod::API::EError InError)
 	{
-		check(InError != Mod::Api::EError::None);
+		check(InError != Mod::API::EError::None);
 		return TModResult(InError);
 	}
 
@@ -62,13 +62,13 @@ public:
 	 */
 	bool IsSuccess() const
 	{
-		return Error == Mod::Api::EError::None;
+		return Error == Mod::API::EError::None;
 	}
 
 	/** @brief Returns the operation status.
 	 * @return None on success or a stable failure.
 	 */
-	Mod::Api::EError GetError() const
+	Mod::API::EError GetError() const
 	{
 		return Error;
 	}
@@ -92,10 +92,10 @@ public:
 	}
 
 private:
-	explicit TModResult(Mod::Api::EError InError) : Error(InError)
+	explicit TModResult(Mod::API::EError InError) : Error(InError)
 	{
 	}
-	Mod::Api::EError Error;
+	Mod::API::EError Error;
 	TOptional<T> Value;
 };
 
@@ -108,16 +108,16 @@ public:
 	 */
 	static TModResult Success()
 	{
-		return TModResult(Mod::Api::EError::None);
+		return TModResult(Mod::API::EError::None);
 	}
 
 	/** @brief Constructs a failed result.
 	 * @param InError A non-success error.
 	 * @return A failed status.
 	 */
-	static TModResult Failure(Mod::Api::EError InError)
+	static TModResult Failure(Mod::API::EError InError)
 	{
-		check(InError != Mod::Api::EError::None);
+		check(InError != Mod::API::EError::None);
 		return TModResult(InError);
 	}
 
@@ -126,20 +126,20 @@ public:
 	 */
 	bool IsSuccess() const
 	{
-		return Error == Mod::Api::EError::None;
+		return Error == Mod::API::EError::None;
 	}
 
 	/** @brief Returns the operation status.
 	 * @return None on success or a stable failure.
 	 */
-	Mod::Api::EError GetError() const
+	Mod::API::EError GetError() const
 	{
 		return Error;
 	}
 
 private:
-	explicit TModResult(Mod::Api::EError InError) : Error(InError)
+	explicit TModResult(Mod::API::EError InError) : Error(InError)
 	{
 	}
-	Mod::Api::EError Error;
+	Mod::API::EError Error;
 };

@@ -1,30 +1,30 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-/** @file GameModApiHost.h */
+/** @file GameModAPIHost.h */
 #pragma once
 
-#include "ModApiRegistry.h"
-#include "ModApiNative.h"
+#include "ModAPIRegistry.h"
+#include "ModAPINative.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 
-#include "GameModApiHost.generated.h"
+#include "GameModAPIHost.generated.h"
 
 class ULocalPlayer;
 class UWorld;
 
 /// A host-issued caller and its bound local-player service.
-struct FGameModApiCaller
+struct FGameModAPICaller
 {
 	/// Revocable caller identity.
-	Mod::Api::FCaller Caller;
+	Mod::API::FCaller Caller;
 	/// Authorized service binding, suitable for the generated view factory.
-	Mod::Api::FObjectBinding Binding;
+	Mod::API::FObjectBinding Binding;
 	/// Opaque context and scope tokens for the generated C ABI client.
-	Mod::Api::FNativeContext Native;
+	Mod::API::FNativeContext Native;
 };
 
 /// Composes generated definitions and explicit local-player providers.
 UCLASS()
-class EXPORTTEST_API UGameModApiHost : public UGameInstanceSubsystem
+class EXPORTTEST_API UGameModAPIHost : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
 
@@ -34,12 +34,12 @@ public:
 	 * @param Permissions Grants approved by the host for this caller.
 	 * @return A revocable caller and binding, or a preparation error.
 	 */
-	TModResult<FGameModApiCaller> OpenLocalPlayer(ULocalPlayer* Player, TSet<FName> Permissions);
+	TModResult<FGameModAPICaller> OpenLocalPlayer(ULocalPlayer* Player, TSet<FName> Permissions);
 	/** @brief Revokes one caller and all views issued to it.
 	 * @param Caller The identity returned when opening the service.
 	 * @return Success or a lifecycle error.
 	 */
-	TModResult<void> RevokeCaller(const Mod::Api::FCaller& Caller);
+	TModResult<void> RevokeCaller(const Mod::API::FCaller& Caller);
 	/** @brief Closes the local player's scopes and providers.
 	 * @param Player The local player being removed or changing controller.
 	 */
@@ -54,12 +54,12 @@ private:
 	{
 		TWeakObjectPtr<ULocalPlayer> Player;
 		TWeakObjectPtr<UWorld> World;
-		Mod::Api::FScope Scope;
-		Mod::Api::FRegistration Registration;
+		Mod::API::FScope Scope;
+		Mod::API::FRegistration Registration;
 	};
 
-	TUniquePtr<Mod::Api::FRegistry> Registry;
-	TArray<Mod::Api::FRegistration> Types;
-	TMap<TWeakObjectPtr<UWorld>, Mod::Api::FScope> Worlds;
+	TUniquePtr<Mod::API::FRegistry> Registry;
+	TArray<Mod::API::FRegistration> Types;
+	TMap<TWeakObjectPtr<UWorld>, Mod::API::FScope> Worlds;
 	TArray<FPlayerProvider> Providers;
 };

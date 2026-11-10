@@ -123,6 +123,12 @@ void CheckInputs(const FJson& Document)
 		                         ". Run the UE ModExportOptions commandlet again.");
 	}
 }
+
+FRedirectFunctionName RedirectName(const FJson& Name)
+{
+	return {Name.at("Package").get<std::string>(), Name.at("Class").get<std::string>(),
+	        Name.at("Function").get<std::string>()};
+}
 } // namespace
 
 FMetadataOptions LoadMetadataOptions(const FProject& Project, const fs::path& File)
@@ -136,7 +142,8 @@ FMetadataOptions LoadMetadataOptions(const FProject& Project, const fs::path& Fi
 	const FJson Document = FJson::parse(ReadTextFile(File));
 	if (!Document.is_object() || Document.value("SchemaVersion", 0) != Schema::SnapshotVersion)
 	{
-		throw std::runtime_error("Unsupported metadata option catalog schema.");
+		throw std::runtime_error(
+		    "Unsupported metadata option catalog schema. Run the UE ModExportOptions commandlet again.");
 	}
 	if (!Document.contains("Project") || !Document["Project"].is_string())
 	{
@@ -155,6 +162,17 @@ FMetadataOptions LoadMetadataOptions(const FProject& Project, const fs::path& Fi
 	FMetadataOptions Result;
 	Result.File = fs::canonical(File);
 	Result.ConfigRoots = PathArray(Document, "ConfigRoots");
+	if (!Document.contains("FunctionRedirects") || !Document["FunctionRedirects"].is_array())
+	{
+		throw std::runtime_error("Metadata options require a 'FunctionRedirects' array.");
+	}
+	for (const auto& Redirect : Document["FunctionRedirects"])
+	{
+		Result.FunctionRedirects.push_back({RedirectName(Redirect.at("OldName")), RedirectName(Redirect.at("NewName")),
+		                                    Redirect.at("Location").get<std::string>(),
+		                                    Redirect.at("Entry").get<std::string>(), Redirect.at("Pattern").get<bool>(),
+		                                    Redirect.at("HasNewName").get<bool>()});
+	}
 	for (const auto& Entry : Document["Inputs"].items())
 	{
 		Result.Inputs.push_back(PathFromUtf8(Entry.key()));
@@ -179,7 +197,7 @@ FMetadataOptions LoadMetadataOptions(const FProject& Project, const fs::path& Fi
 			}
 		}
 	}
-	for (const char* Key : {"ExportIds", "ApiScopes", "ApiThreads", "ApiPermissions", "ApiFailureRules",
+	for (const char* Key : {"ExportIds", "APIScopes", "APIThreads", "APIPermissions", "APIFailureRules",
 	                        "EventSourceScopes", "EventPublishRules", "HookStages"})
 	{
 		if (!Result.Choices.contains(Key))

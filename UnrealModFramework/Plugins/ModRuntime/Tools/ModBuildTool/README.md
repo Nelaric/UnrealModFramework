@@ -35,7 +35,7 @@ ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 -
 
 See [host-context.schema.json](Protocol/host-context.schema.json). The UHT adapter transports the real owner MSVC recipe from an actual UBT compilation database and verifies its producer definitions. Other integrations must likewise export the real owning-module context. MBT does not infer it from a default CMake compiler or a hand-written approximation.
 
-The context requires `format: "UMF.ModHostContext"`, `schemaVersion: 1`, `ownerModule`, `moduleApiMode: "Producer"`, an undecorated C `registrationAnchor`, and `target` fields `name`, `type`, `configuration`, `linkType`, `platform`, and `architecture`. Explicit `lto`, `pch`, and `unity` values must be `false` in this version.
+The context requires `format: "UMF.ModHostContext"`, `schemaVersion: 2`, `ownerModule`, `moduleAPIMode: "Producer"`, an undecorated C `registrationAnchor`, and `target` fields `name`, `type`, `configuration`, `linkType`, `platform`, and `architecture`. Explicit `lto`, `pch`, and `unity` values must be `false` in this version.
 
 Optional `owningBinary` specifies the real UBT binary's stable `id`, context-relative `path`, and `kind` (`Executable` or `DynamicLibrary`). It is mandatory for `finalize-host`.
 

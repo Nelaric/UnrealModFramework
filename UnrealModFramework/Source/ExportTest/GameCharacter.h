@@ -2,12 +2,13 @@
 /** @file GameCharacter.h */
 #pragma once
 
+#include "Engine/SkeletalMesh.h"
 #include "GameFramework/Character.h"
 #include "ModExportAnnotations.h"
 
 #include "GameCharacter.generated.h"
 
-/// A host character exposing a bounded health modification API.
+/// A host character exposing bounded health and appearance changes.
 UCLASS()
 class EXPORTTEST_API AGameCharacter : public ACharacter
 {
@@ -18,9 +19,17 @@ public:
 	 * @param Amount Requested increase; other values leave health unchanged.
 	 * @return The resulting health.
 	 */
-	MOD_EXPORT_API(ExportId = "Game.Character.AddHealth", ExportVersion = "1.0.0", Scope = World, Thread = GameThread,
-	               FailureRule = ReturnError, Permissions = (WorldWrite))
+	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldWrite))
 	float AddHealth(float Amount);
+
+	/** @brief Sets the character's skeletal mesh on the game thread.
+	 * @param NewMesh A loaded mesh with a skeleton. When replacing a mesh,
+	 * use the same skeleton asset as the current mesh.
+	 * @return Whether the character accepted the mesh.
+	 */
+	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldWrite))
+	UFUNCTION(BlueprintCallable, Category = "Character|Appearance")
+	bool SetMesh(USkeletalMesh* NewMesh);
 
 private:
 	UPROPERTY(VisibleInstanceOnly, Category = "Health")

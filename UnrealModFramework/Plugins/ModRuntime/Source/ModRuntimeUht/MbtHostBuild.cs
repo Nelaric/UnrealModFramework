@@ -174,9 +174,9 @@ internal sealed class MbtHostBuild
 					new
 					{
 						format = "UMF.ModHostContext",
-						schemaVersion = 1,
+						schemaVersion = 2,
 						ownerModule = owner,
-						moduleApiMode = "Producer",
+						moduleAPIMode = "Producer",
 						registrationAnchor = "UMF_ModHost_" + owner,
 						target = descriptor.GetProperty("target"),
 						workingDirectory = working,

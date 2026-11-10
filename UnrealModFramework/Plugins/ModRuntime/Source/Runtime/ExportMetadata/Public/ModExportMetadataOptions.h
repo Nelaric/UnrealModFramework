@@ -10,15 +10,15 @@ namespace Mod::ExportMetadata
 enum class EOptionKind : uint8
 {
 	/// Registered GameplayTag API IDs.
-	ApiId,
+	APIId,
 	/// API instance scopes.
-	ApiScope,
+	APIScope,
 	/// API calling-thread policies.
-	ApiThread,
+	APIThread,
 	/// Individual API permission identifiers.
-	ApiPermission,
+	APIPermission,
 	/// API failure policies.
-	ApiFailureRule,
+	APIFailureRule,
 	/// Registered GameplayTag Event IDs.
 	EventId,
 	/// Event source scopes.

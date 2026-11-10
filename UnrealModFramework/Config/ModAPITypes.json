@@ -5,7 +5,7 @@
       "typeId": "game.character",
       "scope": "World"
     },
-    "UGameLocalPlayerApi": {
+    "UGameLocalPlayerAPI": {
       "typeId": "game.local_player_api",
       "scope": "Player"
     }

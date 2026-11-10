@@ -12,7 +12,7 @@ namespace Mod::ExportMetadata
 namespace Schema
 {
 /// Version of the resolved UE metadata option snapshot.
-inline constexpr int SnapshotVersion = 1;
+inline constexpr int SnapshotVersion = 2;
 /// Default location relative to the project root.
 inline constexpr const char* SnapshotPath = "Saved/ModHeaderTool/MetadataOptions.json";
 /// Default declaration export version.
@@ -39,6 +39,10 @@ enum class EFieldType
 	ChoiceList,
 	/// A qualified C++ struct name.
 	StructType,
+	/// A parenthesized list of quoted C++ class names.
+	ClassNameList,
+	/// A parenthesized list of quoted function names.
+	FunctionNameList,
 };
 
 /// A declaration field and its choice source.
@@ -57,27 +61,30 @@ struct FFieldSpec
 };
 
 /// Fields accepted by all three declarations.
-inline constexpr std::array<FFieldSpec, 4> CommonFields = {{
-    {"ExportId", EFieldType::ExportId, "ExportIds", true},
+inline constexpr std::array<FFieldSpec, 3> CommonFields = {{
     {"ExportVersion", EFieldType::Version, nullptr, false, DefaultExportVersion},
     {"DisplayName", EFieldType::NonEmptyText, nullptr, false},
     {"Description", EFieldType::Text, nullptr, false},
 }};
 /// Fields belonging to API declarations.
-inline constexpr std::array<FFieldSpec, 4> ApiFields = {{
-    {"Scope", EFieldType::Choice, "ApiScopes", true},
-    {"Thread", EFieldType::Choice, "ApiThreads", true},
-    {"FailureRule", EFieldType::Choice, "ApiFailureRules", true},
-    {"Permissions", EFieldType::ChoiceList, "ApiPermissions", false},
+inline constexpr std::array<FFieldSpec, 6> APIFields = {{
+    {"Scope", EFieldType::Choice, "APIScopes", true},
+    {"Thread", EFieldType::Choice, "APIThreads", true},
+    {"FailureRule", EFieldType::Choice, "APIFailureRules", true},
+    {"Permissions", EFieldType::ChoiceList, "APIPermissions", false},
+    {"FullView", EFieldType::ClassNameList, nullptr, false},
+    {"CompatibleNames", EFieldType::FunctionNameList, nullptr, false},
 }};
 /// Fields belonging to Event declarations.
-inline constexpr std::array<FFieldSpec, 3> EventFields = {{
+inline constexpr std::array<FFieldSpec, 4> EventFields = {{
+    {"ExportId", EFieldType::ExportId, "ExportIds", true},
     {"SourceScope", EFieldType::Choice, "EventSourceScopes", true},
     {"PublishRule", EFieldType::Choice, "EventPublishRules", true},
     {"PayloadType", EFieldType::StructType, nullptr, false},
 }};
 /// Fields belonging to Hook declarations.
-inline constexpr std::array<FFieldSpec, 2> HookFields = {{
+inline constexpr std::array<FFieldSpec, 3> HookFields = {{
+    {"ExportId", EFieldType::ExportId, "ExportIds", true},
     {"ContextType", EFieldType::StructType, nullptr, false},
     {"AllowedStages", EFieldType::ChoiceList, "HookStages", false, DefaultHookStage},
 }};
@@ -87,7 +94,7 @@ inline constexpr std::span<const FFieldSpec> FieldsFor(std::string_view Macro)
 {
 	if (Macro == "MOD_EXPORT_API")
 	{
-		return ApiFields;
+		return APIFields;
 	}
 	if (Macro == "MOD_EXPORT_EVENT")
 	{

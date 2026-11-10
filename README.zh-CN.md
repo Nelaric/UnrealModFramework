@@ -52,16 +52,15 @@ $project = (Resolve-Path UnrealModFramework/UnrealModFrameworkDev.uproject).Path
 
 | 宏 | 必填字段 | 可选字段 |
 | --- | --- | --- |
-| 全部 | `ExportId`：已注册 GameplayTag 的字符串字面量 | `ExportVersion` 默认 `"1.0.0"`；`DisplayName`、`Description` |
-| `MOD_EXPORT_API` | `Scope`、`Thread`、`FailureRule` | `Permissions` 默认空列表 |
-| `MOD_EXPORT_EVENT` | `SourceScope`、`PublishRule` | `PayloadType` |
-| `MOD_EXPORT_HOOK` | 仅公共必填字段 | `ContextType`；`AllowedStages` 默认 `(Observe)` |
+| 全部 | — | `ExportVersion` 默认 `"1.0.0"`，以及 `DisplayName`、`Description` |
+| `MOD_EXPORT_API` | `Scope`、`Thread`、`FailureRule` | `Permissions` 默认空列表，以及 `FullView`、`CompatibleNames` |
+| `MOD_EXPORT_EVENT` | `ExportId`（已注册 GameplayTag）、`SourceScope`、`PublishRule` | `PayloadType` |
+| `MOD_EXPORT_HOOK` | `ExportId`（已注册 GameplayTag） | `ContextType`、`AllowedStages`（默认 `(Observe)`） |
 
 `Scope` 等候选值接受标识符或字符串。权限和阶段使用括号列表，如 `Permissions = ("WorldRead", "WorldWrite")`、`AllowedStages = (Observe, Modify)`；阶段至少有一个，列表项不能重复。`ExportVersion` 为两段或三段数字版本字符串，各段不允许多余的前导零。`PayloadType`、`ContextType` 校验 C++ 类型名语法，类型是否存在及声明绑定仍留给 AST 阶段。
 
 ```cpp
 MOD_EXPORT_API(
-    ExportId = "ModTest.APIExpot.Blueprint.TestFunction",
     Scope = World,
     Thread = GameThread,
     FailureRule = ReturnError,
@@ -76,11 +75,15 @@ MOD_EXPORT_API(
 
 已加入[薄 UHT 适配工程](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md) `ModRuntime.ubtplugin.csproj`，由 UBT 自动发现。开发工程的 `Config/ModHeaderTool.json` 选择 `generate`；未配置时适配层仍默认 `scan`。输出位于 UHT 同级的 `Inc/ExportMetadata/MHT`。生成模式在 UHT 返回前依次调用 MHT 和独立的 MBT 宿主编译，UBT 通过所属模块的私有 External 依赖链接所得静态库。
 
-首个生成后端已实现同步 UObject 成员 API：公开、非静态成员，按值标量参数，标量、void 或 World 作用域 UObject 指针返回值，GameThread 与 ReturnError。MHT 使用 libclang 的真实 AST 和 UBT 编译数据库，关联活动宏与具体重载。对象类型须拥有自身生成的 StaticClass，在参与模块头文件中定义并显式登记类型身份。对象返回值按 `ErrorIfNull` 规则投影为 `FModRuntimeObject<T>`，const 对象返回只读视图。MHT 还生成定宽类型的 ContextHandlesV1 C ABI 与独立客户端入口。Event、Hook、任意结构/容器及引用参数尚不生成；不支持的声明直接失败。
+同步 UObject 成员 API 支持公开、非静态成员，按值标量或已加载 UObject 指针入参，标量、void 或 World 作用域 UObject 指针返回值，GameThread 与 ReturnError。MHT 使用 libclang 的真实 AST 和 UBT 编译数据库，关联活动宏与具体重载。对象返回值按 `ErrorIfNull` 规则投影为 `FModRuntimeObject<T>`，const 对象返回只读视图。MHT 还生成定宽类型的 ContextHandlesV1 C ABI 与独立客户端入口。Event、Hook、结构体、容器及引用参数缺少投影时，生成阶段报错。
 
-`ExportMetadata/Public/ModExportAnnotations.h` 是 Game/Shipping 可使用的声明头；原 Editor 模块的 `ModExportMacros.h` 保留转发。`ModApi` Runtime 模块提供 `TModResult`、类型化调用表绑定、World/Player 作用域、显式提供者、权限检查和撤销。视图不拥有或公开原始 UObject；Actor 结束玩法、World 清理、玩家控制器变化、提供者撤销或调用者撤销后拒绝旧绑定。权限由宿主显式授予，查询角色不会隐含授予写权限。
+MHT 按类型 ID 和公开函数名生成 API ID。`CompatibleNames = ("OldName")` 为同一实现生成一个可调用的旧名入口。省略该字段时，MHT 使用配置快照中适用的 UE 函数重定向。详见 [API 兼容名](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md#api-兼容名)。
 
-开发宿主实现了 `AGameCharacter::AddHealth` 与 `UGameLocalPlayerApi::GetLocalCharacter`。前者忽略非有限或非正数增量，将生命限制到上限并返回新生命；后者查询其所属 LocalPlayer 当前控制的 `AGameCharacter`。游戏仍决定角色的生成、控制与联机业务。
+`FullView = ("USkeletalMesh")` 选择签名里的 UObject 指针入参类。MHT 检查目标构建可见的公开实例成员和公开基类，自动生成的成员采用选择该类的声明所要求的权限。任一成员缺少投影时，MHT 报出类名和具体成员，整个生成批次失败。详见 [FullView 与对象输入](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md#fullview-与对象输入)。
+
+`ExportMetadata/Public/ModExportAnnotations.h` 是 Game/Shipping 可使用的声明头；原 Editor 模块的 `ModExportMacros.h` 保留转发。`ModAPI` Runtime 模块提供 `TModResult`、类型化调用表绑定、World/Player 作用域、显式提供者、权限检查和撤销。视图不拥有或公开原始 UObject；Actor 结束玩法、World 清理、玩家控制器变化、提供者撤销或调用者撤销后拒绝旧绑定。权限由宿主显式授予，查询角色不会隐含授予写权限。
+
+开发宿主的 `UGameLocalPlayerAPI::GetLocalCharacter` 查询其 LocalPlayer 当前控制的 `AGameCharacter`。角色的 `AddHealth` 返回更新后的生命值，`SetMesh` 接受已加载的骨骼网格并验证骨架兼容性。
 
 生成工作流：
 
@@ -102,13 +105,13 @@ MOD_EXPORT_API(
   "architecture": "x64",
   "objectReturnPolicy": "ErrorIfNull",
   "compilationDatabase": "Intermediate/ModHeaderTool/Clang/Editor/compile_commands.json",
-  "typeIdentities": "Config/ModApiTypes.json",
+  "typeIdentities": "Config/ModAPITypes.json",
   "modules": [{
     "name": "ExportTest",
     "sourceDirectory": "Source/ExportTest",
     "translationUnits": [
       "Source/ExportTest/GameCharacter.cpp",
-      "Source/ExportTest/GameLocalPlayerApi.cpp"
+      "Source/ExportTest/GameLocalPlayerAPI.cpp"
     ]
   }],
   "analysisArguments": [
@@ -133,13 +136,13 @@ $contexts = "UnrealModFramework/Intermediate/ModHeaderTool/HostTargets/UnrealMod
 
 输出直接覆盖 MHT 下固定的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 及 `<gameId>.generated-artifacts.json`，不再建立 Profile/批次目录或 `current.json`。已移除的文件会清理，内容相同则保留时间戳；完整清单最后提交，中断的替换不会被当作完整结果消费。`generationId` 仅保留为内容摘要。
 
-生成头文件仅包含声明与签名数据。全部生成函数实现在 `Host/<owner>/<owner>.modhost.cpp`、`<owner>.modabi.cpp`、`<owner>.modverify.cpp`、`SDK/Private/<owner>.modviews.cpp` 及独立的 `Client/<game>ModClient/<game>ModClient.modclient.cpp` 中，只由 MBT 编译。`GameModExports.cpp` 已不包含生成实现。`UGameModApiHost` 调用声明的 `UMF_ModHost_ExportTest` 入口，定义由 MBT 静态库提供。`ExportTest` 私有依赖 External 模块 `ExportTestHost`，通过 `PublicPreBuildLibraries` 预先登记首次构建尚未产出的库路径，也避免该库传播到其他 DLL。库与回执位于 `Intermediate/MBT/<Target>/<Platform>/<Configuration>/<Architecture>`。
+生成头文件仅包含声明与签名数据。全部生成函数实现在 `Host/<owner>/<owner>.modhost.cpp`、`<owner>.modabi.cpp`、`<owner>.modverify.cpp`、`SDK/Private/<owner>.modviews.cpp` 及独立的 `Client/<game>ModClient/<game>ModClient.modclient.cpp` 中，只由 MBT 编译。`GameModExports.cpp` 已不包含生成实现。`UGameModAPIHost` 调用声明的 `UMF_ModHost_ExportTest` 入口，定义由 MBT 静态库提供。`ExportTest` 私有依赖 External 模块 `ExportTestHost`，通过 `PublicPreBuildLibraries` 预先登记首次构建尚未产出的库路径，也避免该库传播到其他 DLL。库与回执位于 `Intermediate/MBT/<Target>/<Platform>/<Configuration>/<Architecture>`。
 
 MHT 交付 `.modabi.h`、`.clientabi.json`、`.sdkcontract.json` 和 v2 产物清单，明确列出编译单元及经过库检查的 Host/Client API 符号。[客户端 ABI 文档](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md) 规定查询、Connect/Disconnect、token 交付与生命周期；MST 消费已解析 SDK 契约，内部 UE 视图头作为私有宿主产物。
 
 自动编译配方支持 Win64 x64 MSVC，保留真实 UBT 模块的生产者参数。构建前检查目录清单，链接后核对实际所属二进制中的归档见证并发布链接回执。参见 [UHT 接入](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
 
-宿主代码通过 `UGameModApiHost::OpenLocalPlayer(Player, Permissions)` 创建显式调用者和服务绑定，将 `Mod::Api::FViewFactory::Make<UGameLocalPlayerApi>(Binding)` 得到的 SDK 视图交给模组。之后调用 `GetLocalCharacter()`，成功后调用角色视图的 `AddHealth(Amount)`，并检查两个结果。模组结束时调用 `RevokeCaller`；玩家移除或控制器变化会关闭玩家作用域。首次角色尚未准备好时返回 `ObjectUnavailable`。
+宿主代码通过 `UGameModAPIHost::OpenLocalPlayer(Player, Permissions)` 创建显式调用者和服务绑定，将 `Mod::API::FViewFactory::Make<UGameLocalPlayerAPI>(Binding)` 得到的 SDK 视图交给模组。之后调用 `GetLocalCharacter()`，成功后调用角色视图的 `AddHealth(Amount)`，并检查两个结果。模组结束时调用 `RevokeCaller`；玩家移除或控制器变化会关闭玩家作用域。首次角色尚未准备好时返回 `ObjectUnavailable`。
 
 ## 参与贡献
 

@@ -27,7 +27,7 @@ namespace
 {
 const TCHAR* GetExportPrefix(const UClass* EntryClass)
 {
-	if (EntryClass->IsChildOf<UModBlueprintApiExport>())
+	if (EntryClass->IsChildOf<UModBlueprintAPIExport>())
 	{
 		return TEXT("ModAPI");
 	}
@@ -63,7 +63,7 @@ void ReportExportError(FCompilerResultsLog& Log, const UModBlueprintExportEntry*
 
 bool HasExportName(const UModBlueprintExports* Exports, const UModBlueprintExportEntry* IgnoredEntry, const FName Name)
 {
-	for (const UModBlueprintApiExport* Entry : Exports->APIs)
+	for (const UModBlueprintAPIExport* Entry : Exports->APIs)
 	{
 		if (Entry && Entry != IgnoredEntry && Entry->GetExportName() == Name)
 		{
@@ -320,9 +320,9 @@ void UModBlueprintExportEntry::ApplyGraphNames(UEdGraph* Graph, const FString& S
 
 UEdGraph* UModBlueprintExportEntry::GetImplementationGraph() const
 {
-	if (const UModBlueprintApiExport* Api = Cast<UModBlueprintApiExport>(this))
+	if (const UModBlueprintAPIExport* API = Cast<UModBlueprintAPIExport>(this))
 	{
-		return Api->ImplementationGraph;
+		return API->ImplementationGraph;
 	}
 	if (const UModBlueprintHookExport* Hook = Cast<UModBlueprintHookExport>(this))
 	{
@@ -403,29 +403,29 @@ void UModBlueprintExportEntry::PostEditChangeProperty(FPropertyChangedEvent& Pro
 	}
 }
 
-TArray<FString> UModBlueprintApiExport::GetApiIds() const
+TArray<FString> UModBlueprintAPIExport::GetAPIIds() const
 {
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiId);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIId);
 }
 
-TArray<FString> UModBlueprintApiExport::GetScopes() const
+TArray<FString> UModBlueprintAPIExport::GetScopes() const
 {
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiScope);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIScope);
 }
 
-TArray<FString> UModBlueprintApiExport::GetThreads() const
+TArray<FString> UModBlueprintAPIExport::GetThreads() const
 {
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiThread);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIThread);
 }
 
-TArray<FString> UModBlueprintApiExport::GetFailureRules() const
+TArray<FString> UModBlueprintAPIExport::GetFailureRules() const
 {
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiFailureRule);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIFailureRule);
 }
 
-TArray<FString> UModBlueprintApiExport::GetPermissions() const
+TArray<FString> UModBlueprintAPIExport::GetPermissions() const
 {
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiPermission);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIPermission);
 }
 
 TArray<FString> UModBlueprintEventExport::GetEventIds() const
@@ -445,7 +445,7 @@ TArray<FString> UModBlueprintEventExport::GetPublishRules() const
 
 TArray<FString> UModBlueprintHookExport::GetHookIds() const
 {
-	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::ApiId);
+	return Mod::ExportMetadata::FOptions::Load(Mod::ExportMetadata::EOptionKind::APIId);
 }
 
 UModBlueprintExports* UModBlueprintExports::Find(const UBlueprint* Blueprint)
@@ -495,7 +495,7 @@ bool UModBlueprintExports::CanAddEntry(const UBlueprint* Blueprint, TSubclassOf<
 {
 	const bool bEvent = EntryClass == UModBlueprintEventExport::StaticClass();
 	const bool bFunction =
-	    EntryClass == UModBlueprintApiExport::StaticClass() || EntryClass == UModBlueprintHookExport::StaticClass();
+	    EntryClass == UModBlueprintAPIExport::StaticClass() || EntryClass == UModBlueprintHookExport::StaticClass();
 	if (!Blueprint || (!bEvent && !bFunction) || Blueprint->BlueprintType == BPTYPE_Interface ||
 	    Blueprint->BlueprintType == BPTYPE_MacroLibrary ||
 	    (bEvent ? !Blueprint->SupportsEventGraphs() && !Blueprint->SupportsFunctions()
@@ -507,16 +507,16 @@ bool UModBlueprintExports::CanAddEntry(const UBlueprint* Blueprint, TSubclassOf<
 	return ValidateDisplayName(Blueprint, EntryClass.Get(), nullptr, DisplayName, ErrorMessage);
 }
 
-UModBlueprintApiExport* UModBlueprintExports::AddApi(UBlueprint* Blueprint, const FString& DisplayName,
+UModBlueprintAPIExport* UModBlueprintExports::AddAPI(UBlueprint* Blueprint, const FString& DisplayName,
                                                      FText& ErrorMessage)
 {
-	if (!CanAddEntry(Blueprint, UModBlueprintApiExport::StaticClass(), DisplayName, ErrorMessage))
+	if (!CanAddEntry(Blueprint, UModBlueprintAPIExport::StaticClass(), DisplayName, ErrorMessage))
 	{
 		return nullptr;
 	}
 	Blueprint->Modify();
 	Modify();
-	UModBlueprintApiExport* Entry = NewObject<UModBlueprintApiExport>(this, NAME_None, RF_Transactional);
+	UModBlueprintAPIExport* Entry = NewObject<UModBlueprintAPIExport>(this, NAME_None, RF_Transactional);
 	Entry->EntryGuid = FGuid::NewGuid();
 	Entry->DisplayName = NormalizeDisplayName(Entry->GetClass(), DisplayName);
 	Entry->ExportVersion = TEXT("1.0.0");
@@ -583,13 +583,13 @@ void UModBlueprintExports::RemoveEntry(UBlueprint* Blueprint, UModBlueprintExpor
 	{
 		return;
 	}
-	if (UModBlueprintApiExport* Api = Cast<UModBlueprintApiExport>(Entry))
+	if (UModBlueprintAPIExport* API = Cast<UModBlueprintAPIExport>(Entry))
 	{
-		if (APIs.Contains(Api))
+		if (APIs.Contains(API))
 		{
 			Blueprint->Modify();
 			Modify();
-			APIs.Remove(Api);
+			APIs.Remove(API);
 			FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 		}
 	}
@@ -618,7 +618,7 @@ void UModBlueprintExports::RemoveEntry(UBlueprint* Blueprint, UModBlueprintExpor
 
 void UModBlueprintExports::GetAllGraphs(TArray<UEdGraph*>& Graphs) const
 {
-	for (const UModBlueprintApiExport* Entry : APIs)
+	for (const UModBlueprintAPIExport* Entry : APIs)
 	{
 		if (Entry && Entry->OwnsGraph(Entry->ImplementationGraph) &&
 		    UModBlueprintExportGraphSchema::BindToDeclaration(Entry->ImplementationGraph))
@@ -638,7 +638,7 @@ void UModBlueprintExports::GetAllGraphs(TArray<UEdGraph*>& Graphs) const
 
 void UModBlueprintExports::HandleGenerateFunctionGraphs(FKismetCompilerContext* CompilerContext)
 {
-	for (const UModBlueprintApiExport* Entry : APIs)
+	for (const UModBlueprintAPIExport* Entry : APIs)
 	{
 		if (Entry)
 		{
@@ -678,7 +678,7 @@ UModBlueprintExports::FSearchData UModBlueprintExports::HandleGatherSearchData(c
 		}
 		Data.SearchArrayDatas.Add(MoveTemp(Group));
 	};
-	AddGroup(LOCTEXT("ApiSearchGroup", "API"), APIs);
+	AddGroup(LOCTEXT("APISearchGroup", "API"), APIs);
 	AddGroup(LOCTEXT("EventSearchGroup", "Event"), Events);
 	AddGroup(LOCTEXT("HookSearchGroup", "Hook"), Hooks);
 	return Data;

@@ -1,10 +1,10 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-/** @file ModApiNative.h */
+/** @file ModAPINative.h */
 #pragma once
 
-#include "ModApiRegistry.h"
+#include "ModAPIRegistry.h"
 
-namespace Mod::Api
+namespace Mod::API
 {
 /// Process-local tokens issued by the host for an authorized caller.
 struct FNativeContext
@@ -50,4 +50,4 @@ struct MODAPI_API FNativeAccess
 	 */
 	static TModResult<void> Release(uint64 Context, uint64 Object);
 };
-} // namespace Mod::Api
+} // namespace Mod::API
