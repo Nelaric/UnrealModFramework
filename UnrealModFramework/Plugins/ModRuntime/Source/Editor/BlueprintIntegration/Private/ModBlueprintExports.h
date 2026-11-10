@@ -53,9 +53,6 @@ class UModBlueprintAPIExport final : public UModBlueprintExportEntry
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, Category = "API", meta = (GetOptions = "GetAPIIds"))
-	FName ExportId;
-
 	UPROPERTY(EditAnywhere, Category = "API", meta = (GetOptions = "GetScopes"))
 	FString Scope;
 
@@ -70,9 +67,6 @@ public:
 
 	UPROPERTY()
 	TObjectPtr<UEdGraph> ImplementationGraph;
-
-	UFUNCTION()
-	TArray<FString> GetAPIIds() const;
 
 	UFUNCTION()
 	TArray<FString> GetScopes() const;
@@ -94,9 +88,6 @@ class UModBlueprintEventExport final : public UModBlueprintExportEntry
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, Category = "Event", meta = (GetOptions = "GetEventIds"))
-	FName ExportId;
-
 	UPROPERTY(EditAnywhere, Category = "Event")
 	TObjectPtr<UScriptStruct> PayloadType;
 
@@ -107,44 +98,50 @@ public:
 	FString PublishRule;
 
 	UFUNCTION()
-	TArray<FString> GetEventIds() const;
-
-	UFUNCTION()
 	TArray<FString> GetSourceScopes() const;
 
 	UFUNCTION()
 	TArray<FString> GetPublishRules() const;
 };
 
-/// A hook declaration with a typed context and original behavior graph.
+/// Stages that a Hook declaration can open to Mod handlers.
 UENUM()
 enum class EModBlueprintHookStage : uint8
 {
-	Observe,
-	Modify,
-	Intercept,
+	Pre,
+	On,
+	Post,
 };
 
+/// Operations that require an explicit grant on a Hook declaration.
+UENUM()
+enum class EModBlueprintHookOperation : uint8
+{
+	ModifyInputs UMETA(ToolTip = "Pre: Modify the inputs permitted by this Hook."),
+	Cancel UMETA(ToolTip = "Pre: Cancel the operation before it executes."),
+	Wrap UMETA(ToolTip = "On: Wrap execution with a continuation."),
+	Replace UMETA(ToolTip = "On: Replace the original implementation."),
+	ModifyResult UMETA(ToolTip = "Post: Modify the result permitted by this Hook."),
+};
+
+/// A Hook declaration with a typed context and original behavior graph.
 UCLASS(MinimalAPI)
 class UModBlueprintHookExport final : public UModBlueprintExportEntry
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, Category = "Hook", meta = (GetOptions = "GetHookIds"))
-	FName ExportId;
-
 	UPROPERTY(EditAnywhere, Category = "Hook")
 	TObjectPtr<UScriptStruct> ContextType;
 
 	UPROPERTY(EditAnywhere, Category = "Hook")
 	TArray<EModBlueprintHookStage> AllowedStages;
 
+	UPROPERTY(EditAnywhere, Category = "Hook")
+	TArray<EModBlueprintHookOperation> AllowedOperations;
+
 	UPROPERTY()
 	TObjectPtr<UEdGraph> OriginalGraph;
-
-	UFUNCTION()
-	TArray<FString> GetHookIds() const;
 };
 
 /// Editor-owned declarations serialized inside a Blueprint asset.

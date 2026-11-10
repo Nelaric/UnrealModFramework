@@ -1,8 +1,6 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModExportMetadataOptions.h"
 
-#include "GameplayTagContainer.h"
-#include "GameplayTagsManager.h"
 #include "Misc/ConfigCacheIni.h"
 
 namespace Mod::ExportMetadata
@@ -13,9 +11,6 @@ const TCHAR* GetConfigKey(const EOptionKind Kind)
 {
 	switch (Kind)
 	{
-	case EOptionKind::APIId:
-	case EOptionKind::EventId:
-		return nullptr;
 	case EOptionKind::APIScope:
 		return TEXT("APIScopes");
 	case EOptionKind::APIThread:
@@ -36,17 +31,6 @@ const TCHAR* GetConfigKey(const EOptionKind Kind)
 TArray<FString> FOptions::Load(const EOptionKind Kind)
 {
 	TArray<FString> Choices;
-	if (Kind == EOptionKind::APIId || Kind == EOptionKind::EventId)
-	{
-		FGameplayTagContainer Tags;
-		UGameplayTagsManager::Get().RequestAllGameplayTags(Tags, false);
-		for (const FGameplayTag& Tag : Tags)
-		{
-			Choices.Add(Tag.ToString());
-		}
-		Choices.Sort();
-		return Choices;
-	}
 	const TCHAR* Key = GetConfigKey(Kind);
 	if (!GConfig || !Key)
 	{

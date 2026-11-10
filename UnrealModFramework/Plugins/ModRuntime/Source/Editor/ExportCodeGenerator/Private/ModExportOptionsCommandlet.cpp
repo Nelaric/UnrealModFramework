@@ -3,14 +3,12 @@
 
 #include "Dom/JsonObject.h"
 #include "HAL/FileManager.h"
-#include "GameplayTagsSettings.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/ConfigContext.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
-#include "Misc/PackageName.h"
 #include "ModExportMetadataOptions.h"
 #include "ModExportMetadataSchema.h"
 #include "Serialization/JsonSerializer.h"
@@ -197,7 +195,6 @@ int32 UModExportOptionsCommandlet::Main(const FString& Params)
 		return 1;
 	}
 	const FOptionBinding Bindings[] = {
-	    {TEXT("ExportIds"), EOptionKind::APIId},
 	    {TEXT("APIScopes"), EOptionKind::APIScope},
 	    {TEXT("APIThreads"), EOptionKind::APIThread},
 	    {TEXT("APIPermissions"), EOptionKind::APIPermission},
@@ -211,11 +208,17 @@ int32 UModExportOptionsCommandlet::Main(const FString& Params)
 		Options->SetArrayField(Binding.Key, JsonStrings(FOptions::Load(Binding.Kind)));
 	}
 	TArray<FString> Stages;
-	for (const char* Stage : Schema::HookStages)
+	for (const std::string_view Stage : Schema::HookStages)
 	{
-		Stages.Add(UTF8_TO_TCHAR(Stage));
+		Stages.Add(UTF8_TO_TCHAR(Stage.data()));
 	}
 	Options->SetArrayField(TEXT("HookStages"), JsonStrings(Stages));
+	TArray<FString> Operations;
+	for (const Schema::FHookOperationSpec& Operation : Schema::HookOperations)
+	{
+		Operations.Add(UTF8_TO_TCHAR(Operation.Name));
+	}
+	Options->SetArrayField(TEXT("HookOperations"), JsonStrings(Operations));
 
 	TMap<FString, FString> Redirects;
 	FConfigFile EngineConfig;
@@ -236,15 +239,6 @@ int32 UModExportOptionsCommandlet::Main(const FString& Params)
 	}
 	TArray<FString> InputFiles;
 	InputFiles.Add(ProjectFile);
-	for (const FSoftObjectPath& Table : GetDefault<UGameplayTagsSettings>()->GameplayTagTableList)
-	{
-		FString Filename;
-		if (FPackageName::TryConvertLongPackageNameToFilename(Table.GetLongPackageName(), Filename,
-		                                                      FPackageName::GetAssetPackageExtension()))
-		{
-			InputFiles.AddUnique(AbsolutePath(Filename));
-		}
-	}
 	for (const TSharedRef<IPlugin>& Plugin : IPluginManager::Get().GetEnabledPlugins())
 	{
 		ConfigRoots.AddUnique(AbsolutePath(FPaths::Combine(Plugin->GetBaseDir(), TEXT("Config"))));
