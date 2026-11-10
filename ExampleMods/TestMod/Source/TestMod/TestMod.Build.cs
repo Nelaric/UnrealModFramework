@@ -7,6 +7,8 @@ public class TestMod : ModuleRules
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-		PrivateDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ModLoader" });
+		PrivateDependencyModuleNames.AddRange(
+			new[] { "Core", "CoreUObject", "Engine", "ModLoader", "UMFDevSDKRuntime" }
+		);
 	}
 }
