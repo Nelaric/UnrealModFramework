@@ -116,7 +116,18 @@ FString FModSdkBuildEditor::FindExecutable() const
 	const FString Relative = TEXT("Binaries/ThirdParty/ModSDKTool/Linux/ModSDKTool");
 #endif
 	const FString Packaged = FPaths::Combine(Plugin->GetBaseDir(), Relative);
-	return FPaths::FileExists(Packaged) ? FPaths::ConvertRelativePathToFull(Packaged) : FString();
+	if (FPaths::FileExists(Packaged))
+	{
+		return FPaths::ConvertRelativePathToFull(Packaged);
+	}
+	const TSharedPtr<IPlugin> RuntimePlugin = IPluginManager::Get().FindPlugin(TEXT("ModRuntime"));
+	if (!RuntimePlugin)
+	{
+		return FString();
+	}
+	const FString Local = FPaths::Combine(RuntimePlugin->GetBaseDir(), TEXT("Tools/build/ModSDKTool"),
+	                                      FPaths::GetCleanFilename(Relative));
+	return FPaths::FileExists(Local) ? FPaths::ConvertRelativePathToFull(Local) : FString();
 }
 
 void FModSdkBuildEditor::Start(const FString& Command)
@@ -147,7 +158,7 @@ void FModSdkBuildEditor::Start(const FString& Command)
 		GConfig->SetString(TEXT("ModSDKTool"), TEXT("Executable"), *Executable, GEditorPerProjectIni);
 		GConfig->Flush(false, GEditorPerProjectIni);
 	}
-	const FString Results = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("ModSDKTool"));
+	const FString Results = FPaths::Combine(FPaths::ProjectIntermediateDir(), TEXT("ModTools/ModSDKTool/Results"));
 	IFileManager::Get().MakeDirectory(*Results, true);
 	ResultFile = FPaths::ConvertRelativePathToFull(
 	    FPaths::Combine(Results, FGuid::NewGuid().ToString(EGuidFormats::Digits) + TEXT(".json")));

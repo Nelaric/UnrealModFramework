@@ -11,7 +11,13 @@ namespace Mod.Uht;
 /// <summary>Derives a standalone C ABI recipe from the selected real toolchain.</summary>
 internal static class ClientBuildRecipe
 {
-	internal static string Prepare(string hostContext, string game, string owner, string generated)
+	internal static string Prepare(
+		string hostContext,
+		string game,
+		string owner,
+		string generated,
+		string outputDirectory
+	)
 	{
 		JsonObject context = JsonNode.Parse(File.ReadAllText(hostContext))!.AsObject();
 		JsonObject compiler = context["compiler"]!.AsObject();
@@ -50,15 +56,14 @@ internal static class ClientBuildRecipe
 		arguments.Add("/I" + Path.Combine(generated, "SDK", "Public"));
 		arguments.Add("/D" + owner.ToUpperInvariant() + "_API=");
 		compiler["arguments"] = arguments;
-		string library = Path.Combine(
-			Path.GetDirectoryName(context["outputLibrary"]!.GetValue<string>())!,
-			owner + ".lib"
-		);
+		string library = Path.Combine(outputDirectory, owner + ".lib");
 		string path = library + ".context.json";
 		context["ownerModule"] = owner;
 		context["registrationAnchor"] = "UMF_ModClient_" + game;
-		context["workingDirectory"] = Path.GetDirectoryName(library)!;
+		context["workingDirectory"] = outputDirectory;
 		context["outputLibrary"] = library;
+		context["environment"]!["TEMP"] = outputDirectory;
+		context["environment"]!["TMP"] = outputDirectory;
 		context.Remove("owningBinary");
 		context.Remove("linkVerification");
 		JsonArray dependencies = new();

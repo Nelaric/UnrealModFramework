@@ -10,15 +10,17 @@ using Microsoft.Extensions.Logging;
 
 namespace Mod.Uht;
 
-/// <summary>Owns a native MHT process and forwards its diagnostics to UHT.</summary>
+/// <summary>Owns a child process and forwards its diagnostics to UHT.</summary>
 internal static class MhtProcess
 {
-	internal static void Run(
+	internal static int Run(
 		ILogger logger,
 		string executable,
 		IReadOnlyList<string> arguments,
 		string workingDirectory,
-		int timeoutSeconds
+		int timeoutSeconds,
+		string description = "ModRuntime MHT",
+		int allowedExitCode = 0
 	)
 	{
 		using ManagedProcessGroup group = new();
@@ -40,14 +42,15 @@ internal static class MhtProcess
 		}
 		catch (OperationCanceledException)
 		{
-			throw new UhtException($"ModRuntime MHT: native process exceeded {timeoutSeconds} seconds.");
+			throw new UhtException($"{description}: process exceeded {timeoutSeconds} seconds.");
 		}
-		if (process.ExitCode != 0)
+		if (process.ExitCode != 0 && process.ExitCode != allowedExitCode)
 		{
 			throw new UhtException(
-				$"ModRuntime MHT failed with exit code {process.ExitCode}. See the native diagnostics above."
+				$"{description} failed with exit code {process.ExitCode}. See the process diagnostics above."
 			);
 		}
+		return process.ExitCode;
 	}
 
 	private static async Task ForwardOutput(ManagedProcess process, ILogger logger, CancellationToken cancellation)

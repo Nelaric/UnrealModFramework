@@ -5,10 +5,10 @@
     "UnrealModFrameworkDevEditor": {
       "variants": {
         "Win64/Development/x64": {
-          "buildInput": "Intermediate/ModHeaderTool/BuildInputs/Editor.json"
+          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Editor.json"
         },
         "Win64/DebugGame/x64": {
-          "buildInput": "Intermediate/ModHeaderTool/BuildInputs/Editor.DebugGame.json"
+          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Editor.DebugGame.json"
         }
       },
       "libclang": "../.tools/llvm-21.1.8/bin/libclang.dll"
@@ -16,10 +16,10 @@
     "UnrealModFrameworkDev": {
       "variants": {
         "Win64/Development/x64": {
-          "buildInput": "Intermediate/ModHeaderTool/BuildInputs/Game.json"
+          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Game.json"
         },
         "Win64/DebugGame/x64": {
-          "buildInput": "Intermediate/ModHeaderTool/BuildInputs/Game.DebugGame.json"
+          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Game.DebugGame.json"
         }
       },
       "libclang": "../.tools/llvm-21.1.8/bin/libclang.dll"
