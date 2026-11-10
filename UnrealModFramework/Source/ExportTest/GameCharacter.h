@@ -23,8 +23,8 @@ public:
 	float AddHealth(float Amount);
 
 	/** @brief Sets the character's skeletal mesh on the game thread.
-	 * @param NewMesh A loaded mesh with a skeleton. When replacing a mesh,
-	 * use the same skeleton asset as the current mesh.
+	 * @param NewMesh A loaded mesh with a skeleton that is compatible with the
+	 * active Animation Blueprint, if one is configured.
 	 * @return Whether the character accepted the mesh.
 	 */
 	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldWrite))

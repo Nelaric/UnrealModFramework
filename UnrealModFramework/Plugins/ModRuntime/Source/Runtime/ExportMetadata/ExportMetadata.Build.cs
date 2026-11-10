@@ -12,7 +12,7 @@ public class ExportMetadata : ModuleRules
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "GameplayTags" });
+		PublicDependencyModuleNames.Add("Core");
 	}
 
 	/// <summary>Tracks MHT inputs and verifies the host archives in UBT's linked images.</summary>
@@ -36,11 +36,17 @@ public class ExportMetadata : ModuleRules
 			JsonObject.Read(new FileReference(config)).TryGetStringField("mbt", out configured);
 		}
 		string mbt = Path.GetFullPath(
-			configured ?? "Plugins/ModRuntime/Tools/build/Release/bin/Release/ModBuildTool.exe",
+			configured ?? "Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe",
 			root
 		);
 		string contexts = Path.Combine(
-			VariantDirectory(root, target.Name, target.Platform, target.Configuration, target.Architectures),
+			VariantDirectory(
+				Path.Combine(root, "Intermediate", "ModTools", "ModHeaderTool", "HostTargets"),
+				target.Name,
+				target.Platform,
+				target.Configuration,
+				target.Architectures
+			),
 			"contexts.json"
 		);
 		string receipt = TargetReceipt
@@ -56,6 +62,13 @@ public class ExportMetadata : ModuleRules
 	/// <summary>Links an independently compiled generated host archive.</summary>
 	public static void ConfigureHost(ModuleRules owner, ReadOnlyTargetRules target)
 	{
+		if (
+			!owner.PublicDependencyModuleNames.Contains("ModAPI")
+			&& !owner.PrivateDependencyModuleNames.Contains("ModAPI")
+		)
+		{
+			owner.PrivateDependencyModuleNames.Add("ModAPI");
+		}
 		bool bootstrap = HasArgument("-MhtBootstrap");
 		if (
 			bootstrap
@@ -80,30 +93,16 @@ public class ExportMetadata : ModuleRules
 		}
 		string project = target.ProjectFile!.FullName;
 		string projectRoot = Path.GetDirectoryName(project)!;
-		string pluginRoot = Path.GetFullPath(
-			Path.Combine(owner.GetModuleDirectory("ExportMetadata"), "..", "..", "..")
-		);
+		string tools = Path.Combine(projectRoot, "Intermediate", "ModTools");
+		string ownerTools = OwnerToolsDirectory(projectRoot, owner.ModuleDirectory);
 		bool shared = target.BuildEnvironment == TargetBuildEnvironment.Shared;
 		string appName = shared && target.Type != TargetType.Program ? "Unreal" + target.Type : target.Name;
-		string generated = Path.Combine(
-			shared ? pluginRoot : projectRoot,
-			"Intermediate",
-			"Build",
-			target.Platform.ToString(),
-			appName,
-			"Inc",
-			"ExportMetadata",
-			"MHT",
-			target.Name,
-			target.Configuration.ToString(),
-			target.Architecture.ToString()
-		);
-		string variant = VariantDirectory(
-			projectRoot,
-			target.Name,
-			target.Platform,
-			target.Configuration,
-			target.Architectures
+		string generated = VariantDirectory(Path.Combine(tools, "ModHeaderTool", "Generated"), target);
+		string ownerGenerated = VariantDirectory(Path.Combine(ownerTools, "ModHeaderTool", "Generated"), target);
+		string variant = VariantDirectory(Path.Combine(tools, "ModHeaderTool", "HostTargets"), target);
+		string hostLink = Path.Combine(
+			VariantDirectory(Path.Combine(ownerTools, "ModSourceTool"), target),
+			owner.Name + ".modlink.h"
 		);
 		bool monolithic = target.LinkType == TargetLinkType.Monolithic;
 		// UE 5.6's standard Win64 x64 project binaries omit the architecture suffix.
@@ -136,7 +135,9 @@ public class ExportMetadata : ModuleRules
 				ownerModule = owner.Name,
 				sourceDirectory = owner.ModuleDirectory,
 				generatedDirectory = generated,
-				outputLibrary = LibraryPath(target, owner.Name),
+				ownerGeneratedDirectory = ownerGenerated,
+				hostLinkHeader = hostLink,
+				outputLibrary = LibraryPath(ownerTools, target, owner.Name),
 				owningBinary = new
 				{
 					id = binaryName,
@@ -160,13 +161,17 @@ public class ExportMetadata : ModuleRules
 			File.WriteAllText(descriptor, document);
 		}
 		owner.ExternalDependencies.Add(descriptor);
+		if (!HasArgument("-Mode=GenerateClangDatabase"))
+		{
+			owner.ForceIncludeFiles.Add(hostLink);
+		}
 		string config = Path.Combine(projectRoot, "Config", "ModHeaderTool.json");
 		if (File.Exists(config))
 		{
 			owner.ExternalDependencies.Add(config);
 		}
 		// UBT resolves include directories before running UHT on a clean build.
-		string hostHeaders = Path.Combine(generated, "Host", owner.Name);
+		string hostHeaders = Path.Combine(ownerGenerated, "Host", owner.Name);
 		string sdkHeaders = Path.Combine(generated, "SDK", "Public");
 		Directory.CreateDirectory(hostHeaders);
 		Directory.CreateDirectory(sdkHeaders);
@@ -188,41 +193,45 @@ public class ExportMetadata : ModuleRules
 			return;
 		}
 		RequireAutomaticArchitecture(target.Architectures);
-		string library = LibraryPath(target, owner);
+		string tools = OwnerToolsDirectory(
+			target.ProjectFile!.Directory.FullName,
+			libraryModule.GetModuleDirectory(owner)
+		);
+		string library = LibraryPath(tools, target, owner);
 		libraryModule.PublicPreBuildLibraries.Add(library);
 		libraryModule.ExternalDependencies.Add(library);
 		libraryModule.ExternalDependencies.Add(library + ".mbt.json");
 	}
 
-	private static string LibraryPath(ReadOnlyTargetRules target, string owner) =>
-		Path.Combine(
-			target.ProjectFile!.Directory.FullName,
-			"Intermediate",
-			"MBT",
-			target.Name,
-			target.Platform.ToString(),
-			target.Configuration.ToString(),
-			target.Architecture.ToString(),
-			owner + ".lib"
-		);
+	private static string OwnerToolsDirectory(string projectRoot, string moduleDirectory)
+	{
+		for (
+			DirectoryInfo directory = new(moduleDirectory);
+			directory != null && !directory.FullName.Equals(projectRoot, StringComparison.OrdinalIgnoreCase);
+			directory = directory.Parent
+		)
+		{
+			if (directory.EnumerateFiles("*.uplugin").Any())
+			{
+				return Path.Combine(directory.FullName, "Intermediate", "ModTools");
+			}
+		}
+		return Path.Combine(projectRoot, "Intermediate", "ModTools");
+	}
+
+	private static string LibraryPath(string tools, ReadOnlyTargetRules target, string owner) =>
+		Path.Combine(VariantDirectory(Path.Combine(tools, "ModBuildTool"), target), owner + ".lib");
+
+	private static string VariantDirectory(string directory, ReadOnlyTargetRules target) =>
+		VariantDirectory(directory, target.Name, target.Platform, target.Configuration, target.Architectures);
 
 	private static string VariantDirectory(
-		string root,
+		string directory,
 		string target,
 		UnrealTargetPlatform platform,
 		UnrealTargetConfiguration configuration,
 		UnrealArchitectures architectures
-	) =>
-		Path.Combine(
-			root,
-			"Intermediate",
-			"ModHeaderTool",
-			"HostTargets",
-			target,
-			platform.ToString(),
-			configuration.ToString(),
-			architectures.ToString()
-		);
+	) => Path.Combine(directory, target, platform.ToString(), configuration.ToString(), architectures.ToString());
 
 	private static bool IsAutomaticHostPlatform(UnrealTargetPlatform platform) =>
 		platform == UnrealTargetPlatform.Win64 && OperatingSystem.IsWindows();

@@ -18,11 +18,12 @@ namespace Mod.Uht;
 [UnrealHeaderTool]
 internal static class ModRuntimeExporter
 {
+	// UHT requires the exporter module to have reflected headers in both targets.
 	[UhtExporter(
 		Name = "ModRuntime",
 		Description = "Generate Mod APIs and build independent host archives",
 		Options = UhtExporterOptions.Default,
-		ModuleName = "ExportMetadata"
+		ModuleName = "ModLoader"
 	)]
 	private static void Export(IUhtExportFactory factory)
 	{
@@ -30,17 +31,19 @@ internal static class ModRuntimeExporter
 		{
 			return;
 		}
-		if (
-			factory.Session.NoOutput
-			|| factory.Session.ReferenceMode != UhtReferenceMode.None
-			|| Environment
-				.GetCommandLineArgs()
-				.Any(arg =>
-					arg.Equals("-MhtBootstrap", StringComparison.OrdinalIgnoreCase)
-					|| arg.Equals("-Mode=GenerateClangDatabase", StringComparison.OrdinalIgnoreCase)
-				)
-		)
+		bool preparing = Environment
+			.GetCommandLineArgs()
+			.Any(arg =>
+				arg.Equals("-MhtBootstrap", StringComparison.OrdinalIgnoreCase)
+				|| arg.Equals("-Mode=GenerateClangDatabase", StringComparison.OrdinalIgnoreCase)
+			);
+		if (factory.Session.NoOutput || factory.Session.ReferenceMode != UhtReferenceMode.None || preparing)
 		{
+			if (preparing && Path.GetDirectoryName(factory.Session.Manifest?.ExternalDependenciesFile) is string deps)
+			{
+				// UBT must run UHT again after a preparation run that skipped MHT.
+				factory.AddExternalDependency(Path.Combine(deps, ".mht-deferred"));
+			}
 			factory.Session.Logger.LogInformation(
 				"ModRuntime MHT: skipped for bootstrap, compile-database preparation, or UHT reference/no-output mode."
 			);
@@ -60,6 +63,8 @@ internal static class ModRuntimeExporter
 	{
 		string projectRoot = Path.GetDirectoryName(project)!;
 		string pluginRoot = FindPluginRoot(factory.PluginModule!.BaseDirectory);
+		string tools = Path.Combine(projectRoot, "Intermediate", "ModTools");
+		string mht = Path.Combine(tools, "ModHeaderTool");
 		string configPath = Path.Combine(projectRoot, "Config", "ModHeaderTool.json");
 		using JsonDocument settings = File.Exists(configPath)
 			? ReadJson(configPath)
@@ -76,21 +81,25 @@ internal static class ModRuntimeExporter
 			throw new UhtException("ModRuntime MHT: mode must be scan or generate.");
 		}
 		AddDependency(factory, configPath);
-		DirectoryInfo? configurationDirectory = null;
-		if (mode == "generate")
+		UHTManifest manifest = factory.Session.Manifest!;
+		string targetName = manifest.TargetName;
+		// UE 5.6 places the UHT deps at Build/<platform>/<target>/<configuration>/<target>.deps.
+		DirectoryInfo configurationDirectory = new(Path.GetDirectoryName(manifest.ExternalDependenciesFile)!);
+		string platform = configurationDirectory.Parent!.Parent!.Name;
+		string configuration = configurationDirectory.Name;
+		if (mode == "generate" && (platform != "Win64" || !OperatingSystem.IsWindows()))
 		{
-			// UE 5.6 places the UHT deps at Build/<platform>/<target>/<configuration>/<target>.deps.
-			string deps = factory.Session.Manifest!.ExternalDependenciesFile;
-			configurationDirectory = new DirectoryInfo(Path.GetDirectoryName(deps)!);
-			string targetPlatform = configurationDirectory.Parent!.Parent!.Name;
-			if (targetPlatform != "Win64" || !OperatingSystem.IsWindows())
-			{
-				factory.Session.Logger.LogInformation(
-					"ModRuntime MHT: skipping automatic native generation for {Platform}.",
-					targetPlatform
-				);
-				return;
-			}
+			factory.Session.Logger.LogInformation(
+				"ModRuntime MHT: skipping automatic native generation for {Platform}.",
+				platform
+			);
+			return;
+		}
+		if (mode == "generate" && factory.Session.FailIfGeneratedCodeChanges)
+		{
+			throw new UhtException(
+				"ModRuntime MHT: native generation is not supported with -FailIfGeneratedCodeChanges."
+			);
 		}
 		int timeout = config.TryGetProperty("timeoutSeconds", out JsonElement seconds) ? seconds.GetInt32() : 600;
 		if (timeout < 1 || timeout > 86400)
@@ -98,14 +107,29 @@ internal static class ModRuntimeExporter
 			throw new UhtException("ModRuntime MHT: timeoutSeconds must be between 1 and 86400.");
 		}
 		string executable = FindExecutable(pluginRoot, projectRoot, config);
-		string options = Resolve(
-			projectRoot,
-			OptionalText(config, "options") ?? "Saved/ModHeaderTool/MetadataOptions.json"
-		);
+		string defaultOptions = Path.Combine(mht, "MetadataOptions.json");
+		string options = OptionalText(config, "options") is string configuredOptions
+			? Resolve(projectRoot, configuredOptions)
+			: defaultOptions;
+		if (
+			SamePath(options, defaultOptions)
+			&& !factory.Session.FailIfGeneratedCodeChanges
+			&& (mode == "generate" || File.Exists(options))
+		)
+		{
+			MetadataSnapshot.EnsureCurrent(
+				factory.Session.Logger,
+				factory.Session.EngineDirectory!,
+				project,
+				executable,
+				options,
+				timeout
+			);
+		}
 		AddDependency(factory, project);
 		AddDependency(factory, executable);
 		AddDependency(factory, options);
-		foreach (UHTManifest.Module module in factory.Session.Manifest!.Modules)
+		foreach (UHTManifest.Module module in manifest.Modules)
 		{
 			foreach (
 				string header in module
@@ -117,33 +141,10 @@ internal static class ModRuntimeExporter
 				AddDependency(factory, header);
 			}
 		}
-		// UE 5.6 uses Inc/<Module>/UHT. MHT owns the sibling directory.
-		string output = Path.Combine(
-			Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(factory.PluginModule.OutputDirectory))!,
-			"MHT"
-		);
-		if (
-			!IsWithin(Path.Combine(pluginRoot, "Intermediate"), output)
-			&& !IsWithin(Path.Combine(projectRoot, "Intermediate"), output)
-		)
-		{
-			throw new UhtException(
-				"ModRuntime MHT: output must remain in the plugin or project Intermediate directory."
-			);
-		}
 		List<string> arguments = new() { mode };
 		if (mode == "generate")
 		{
-			if (factory.Session.FailIfGeneratedCodeChanges)
-			{
-				throw new UhtException(
-					"ModRuntime MHT: native generation is not supported with -FailIfGeneratedCodeChanges."
-				);
-			}
-			string targetName = factory.Session.Manifest.TargetName;
 			// Its manifest has no architecture; ConfigureHost restricts this adapter to the actual x64 target.
-			string configuration = configurationDirectory!.Name;
-			const string platform = "Win64";
 			const string architecture = "x64";
 			string variantKey = $"{platform}/{configuration}/{architecture}";
 			JsonElement target =
@@ -174,20 +175,12 @@ internal static class ModRuntimeExporter
 			)
 			{
 				throw new UhtException(
-					$"ModRuntime MHT: build input does not match {targetName}/{variantKey}: {buildInput}"
+					$"ModRuntime MHT: build input does not match {targetName}/{variantKey}: \"{buildInput}\""
 				);
 			}
-			output = Path.Combine(output, targetName, configuration, architecture);
-			string variantDirectory = Path.Combine(
-				projectRoot,
-				"Intermediate",
-				"ModHeaderTool",
-				"HostTargets",
-				targetName,
-				platform,
-				configuration,
-				architecture
-			);
+			string targetVariant = Path.Combine(targetName, platform, configuration, architecture);
+			string output = Path.Combine(mht, "Generated", targetVariant);
+			string variantDirectory = Path.Combine(mht, "HostTargets", targetVariant);
 			Directory.CreateDirectory(variantDirectory);
 			using FileStream pipeline = new(
 				Path.Combine(variantDirectory, ".pipeline.lock"),
@@ -201,6 +194,7 @@ internal static class ModRuntimeExporter
 				factory,
 				projectRoot,
 				pluginRoot,
+				Path.Combine(tools, "ModBuildTool", targetVariant),
 				output,
 				variantDirectory,
 				buildInput,
@@ -211,11 +205,7 @@ internal static class ModRuntimeExporter
 			arguments.AddRange(new[] { "--host-contexts", hostBuild.ContextSet });
 			string lifecycleSource = Path.Combine(pluginRoot, "Source", "Runtime", "ModLoader", "Public");
 			string lifecycleHeader = Path.Combine(lifecycleSource, "ModInstance.h");
-			if (
-				factory.Session.Manifest.Modules.Any(module =>
-					module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))
-				)
-			)
+			if (manifest.Modules.Any(module => module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))))
 			{
 				arguments.AddRange(new[] { "--lifecycle-source", lifecycleSource });
 			}
@@ -250,7 +240,7 @@ internal static class ModRuntimeExporter
 				output
 			);
 			MhtProcess.Run(factory.Session.Logger, executable, arguments, projectRoot, timeout);
-			RegisterGeneratedDependencies(factory, output, context);
+			RegisterGeneratedDependencies(factory, output, context, hostBuild.PluginGeneratedDirectories);
 			hostBuild.Build(
 				factory,
 				Path.Combine(output, RequiredText(context, "gameId") + ".generated-artifacts.json"),
@@ -260,6 +250,7 @@ internal static class ModRuntimeExporter
 		}
 		else
 		{
+			string output = Path.Combine(mht, "Scan", targetName, platform, configuration);
 			Directory.CreateDirectory(output);
 			string temporary = Path.Combine(output, ".scan-" + Guid.NewGuid().ToString("N") + ".json");
 			try
@@ -269,15 +260,20 @@ internal static class ModRuntimeExporter
 				{
 					arguments.AddRange(new[] { "--options", options });
 				}
-				factory.Session.Logger.LogInformation(
-					"ModRuntime MHT: scan for {Target}",
-					factory.Session.Manifest.TargetName
-				);
+				factory.Session.Logger.LogInformation("ModRuntime MHT: scan for {Target}", targetName);
 				MhtProcess.Run(factory.Session.Logger, executable, arguments, projectRoot, timeout);
 				using JsonDocument report = ReadJson(temporary);
 				if (!report.RootElement.GetProperty("ParametersValidated").GetBoolean())
 				{
 					throw new UhtException("ModRuntime MHT: scan did not validate export parameters.");
+				}
+				if (report.RootElement.GetProperty("MetadataOptions").GetString() is string scannedOptions)
+				{
+					using JsonDocument catalog = ReadJson(scannedOptions);
+					foreach (JsonProperty input in catalog.RootElement.GetProperty("Inputs").EnumerateObject())
+					{
+						AddDependency(factory, input.Name);
+					}
 				}
 				factory.CommitOutput(Path.Combine(output, "Scan.json"), new StringBuilder(File.ReadAllText(temporary)));
 			}
@@ -288,7 +284,12 @@ internal static class ModRuntimeExporter
 		}
 	}
 
-	private static void RegisterGeneratedDependencies(IUhtExportFactory factory, string output, JsonElement context)
+	private static void RegisterGeneratedDependencies(
+		IUhtExportFactory factory,
+		string output,
+		JsonElement context,
+		IReadOnlyDictionary<string, string> pluginGeneratedDirectories
+	)
 	{
 		string manifestPath = Resolve(output, RequiredText(context, "gameId") + ".generated-artifacts.json");
 		using JsonDocument manifest = ReadJson(manifestPath);
@@ -312,6 +313,7 @@ internal static class ModRuntimeExporter
 		}
 		AddDependency(factory, manifestPath);
 		FileItem.ResetCachedInfo(manifestPath);
+		List<(string Path, byte[] Bytes)> pluginFiles = new();
 		foreach (JsonElement file in batch.GetProperty("generatedFiles").EnumerateArray())
 		{
 			string path = Resolve(output, RequiredText(file, "path"));
@@ -325,11 +327,26 @@ internal static class ModRuntimeExporter
 			{
 				throw new UhtException("ModRuntime MHT: generated file escapes the output directory.");
 			}
-			string hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+			byte[] contents = File.ReadAllBytes(path);
+			string hash = Convert.ToHexString(SHA256.HashData(contents)).ToLowerInvariant();
 			if (hash != RequiredText(file, "contentHash"))
 			{
-				throw new UhtException($"ModRuntime MHT: generated file hash mismatch: {path}");
+				throw new UhtException($"ModRuntime MHT: generated file hash mismatch: \"{path}\"");
 			}
+			AddDependency(factory, path);
+			FileItem.ResetCachedInfo(path);
+			if (
+				file.GetProperty("ownerModule").GetString() is string owner
+				&& pluginGeneratedDirectories.TryGetValue(owner, out string? directory)
+			)
+			{
+				pluginFiles.Add((Path.Combine(directory, relative), contents));
+			}
+		}
+		// Keep the shared manifest rooted at the project for MBT and SDK consumers.
+		foreach ((string path, byte[] contents) in pluginFiles)
+		{
+			PublishPluginFile(path, contents);
 			AddDependency(factory, path);
 			FileItem.ResetCachedInfo(path);
 		}
@@ -341,6 +358,25 @@ internal static class ModRuntimeExporter
 			"ModRuntime MHT: checked complete generation {Generation}",
 			RequiredText(batch, "generationId")
 		);
+	}
+
+	private static void PublishPluginFile(string path, byte[] contents)
+	{
+		if (File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(contents))
+		{
+			return;
+		}
+		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+		string temporary = Path.Combine(Path.GetDirectoryName(path)!, ".mht-" + Guid.NewGuid().ToString("N"));
+		try
+		{
+			File.WriteAllBytes(temporary, contents);
+			File.Move(temporary, path, overwrite: true);
+		}
+		finally
+		{
+			File.Delete(temporary);
+		}
 	}
 
 	private static string FindPluginRoot(string moduleDirectory)
@@ -362,7 +398,9 @@ internal static class ModRuntimeExporter
 		if (configured != null)
 		{
 			string path = Resolve(projectRoot, configured);
-			return File.Exists(path) ? path : throw new UhtException($"ModRuntime MHT: executable not found: {path}");
+			return File.Exists(path)
+				? path
+				: throw new UhtException($"ModRuntime MHT: executable not found: \"{path}\"");
 		}
 		string platform =
 			OperatingSystem.IsWindows() ? "Win64"
@@ -374,7 +412,7 @@ internal static class ModRuntimeExporter
 			{
 				Path.Combine(pluginRoot, "Binaries", "ThirdParty", "ModHeaderTool", platform, "MHT" + suffix),
 				Path.Combine(pluginRoot, "Binaries", "ThirdParty", "ModHeaderTool", platform, "ModHeaderTool" + suffix),
-				Path.Combine(pluginRoot, "Tools", "build", "Release", "bin", "Release", "ModHeaderTool" + suffix),
+				LocalExecutable(pluginRoot, "ModHeaderTool"),
 			}
 		)
 		{
@@ -392,13 +430,8 @@ internal static class ModRuntimeExporter
 
 	private static string Resolve(string root, string path) => Path.GetFullPath(path, root);
 
-	private static bool IsWithin(string root, string path)
-	{
-		string relative = Path.GetRelativePath(root, path);
-		return !Path.IsPathRooted(relative)
-			&& relative != ".."
-			&& !relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal);
-	}
+	internal static string LocalExecutable(string pluginRoot, string tool) =>
+		Path.Combine(pluginRoot, "Tools", "build", tool, OperatingSystem.IsWindows() ? tool + ".exe" : tool);
 
 	private static bool SamePath(string left, string right) =>
 		string.Equals(

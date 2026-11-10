@@ -21,8 +21,4 @@ public:
 	 */
 	MOD_EXPORT_API(Scope = Player, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldRead))
 	AGameCharacter* GetLocalCharacter() const;
-
-public:
-	void Deinitialize() override;
-	void PlayerControllerChanged(APlayerController* NewPlayerController) override;
 };

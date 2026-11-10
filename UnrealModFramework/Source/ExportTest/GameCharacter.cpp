@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "GameCharacter.h"
 
+#include "Animation/AnimClassInterface.h"
+#include "Animation/Skeleton.h"
 #include "Components/SkeletalMeshComponent.h"
 
 float AGameCharacter::AddHealth(float Amount)
@@ -26,10 +28,20 @@ bool AGameCharacter::SetMesh(USkeletalMesh* NewMesh)
 		return false;
 	}
 
-	const USkeletalMesh* CurrentMesh = MeshComponent->GetSkeletalMeshAsset();
-	if (CurrentMesh && CurrentMesh->GetSkeleton() != NewSkeleton)
+	if (MeshComponent->GetAnimationMode() == EAnimationMode::AnimationBlueprint)
 	{
-		return false;
+		const IAnimClassInterface* AnimClassInterface =
+		    IAnimClassInterface::GetFromClass(MeshComponent->GetAnimClass());
+		if (AnimClassInterface)
+		{
+			const USkeleton* TargetSkeleton = AnimClassInterface->GetTargetSkeleton();
+			// Animation Blueprint templates use the new mesh's skeleton.
+			const USkeleton* AnimSkeleton = TargetSkeleton ? TargetSkeleton : NewSkeleton;
+			if (!AnimSkeleton->IsCompatibleMesh(NewMesh, false))
+			{
+				return false;
+			}
+		}
 	}
 
 	MeshComponent->SetSkeletalMeshAsset(NewMesh);

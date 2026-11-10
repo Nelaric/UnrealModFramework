@@ -17,8 +17,11 @@ namespace Mod.Uht;
 internal sealed class MbtHostBuild
 {
 	internal string ContextSet { get; private set; } = "";
+	internal Dictionary<string, string> PluginGeneratedDirectories { get; } = new();
 	private string Tool = "";
+	private string SourceTool = "";
 	private readonly List<string> Contexts = new();
+	private readonly Dictionary<string, string> LinkHeaders = new();
 	private readonly List<string> Libraries = new();
 	private readonly List<string> Inputs = new();
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -27,6 +30,7 @@ internal sealed class MbtHostBuild
 		IUhtExportFactory factory,
 		string projectRoot,
 		string pluginRoot,
+		string clientLibraryDirectory,
 		string generated,
 		string variant,
 		string buildInput,
@@ -39,18 +43,22 @@ internal sealed class MbtHostBuild
 		result.Tool =
 			configured != null
 				? Path.GetFullPath(configured, projectRoot)
-				: Path.Combine(
-					pluginRoot,
-					"Tools",
-					"build",
-					"Release",
-					"bin",
-					"Release",
-					OperatingSystem.IsWindows() ? "ModBuildTool.exe" : "ModBuildTool"
-				);
+				: ModRuntimeExporter.LocalExecutable(pluginRoot, "ModBuildTool");
 		if (!File.Exists(result.Tool))
 		{
 			throw new UhtException("ModRuntime MBT: build ModBuildTool or configure UMF_MBT_EXECUTABLE/mbt.");
+		}
+		string? sourceTool =
+			Environment.GetEnvironmentVariable("UMF_MOD_SOURCE_TOOL_EXECUTABLE") ?? TextOrNull(config, "sourceTool");
+		result.SourceTool =
+			sourceTool != null
+				? Path.GetFullPath(sourceTool, projectRoot)
+				: ModRuntimeExporter.LocalExecutable(pluginRoot, "ModSourceTool");
+		if (!File.Exists(result.SourceTool))
+		{
+			throw new UhtException(
+				"ModRuntime: build ModSourceTool or configure UMF_MOD_SOURCE_TOOL_EXECUTABLE/sourceTool."
+			);
 		}
 		string databasePath = Path.GetFullPath(input.GetProperty("compilationDatabase").GetString()!, projectRoot);
 		byte[] databaseBytes = File.ReadAllBytes(databasePath);
@@ -91,6 +99,12 @@ internal sealed class MbtHostBuild
 			{
 				throw new UhtException("ModRuntime MBT: target name mismatch.");
 			}
+			string ownerGenerated = descriptor.GetProperty("ownerGeneratedDirectory").GetString()!;
+			if (!SamePath(ownerGenerated, generated))
+			{
+				result.PluginGeneratedDirectories.Add(owner, ownerGenerated);
+			}
+			result.LinkHeaders.Add(owner, descriptor.GetProperty("hostLinkHeader").GetString()!);
 			HashSet<string> dependencies = new(StringComparer.OrdinalIgnoreCase)
 			{
 				descriptorPath,
@@ -224,7 +238,13 @@ internal sealed class MbtHostBuild
 		{
 			throw new UhtException("ModRuntime MBT: the reserved client owner conflicts with a host module.");
 		}
-		string clientContext = ClientBuildRecipe.Prepare(result.Contexts[0], game, clientOwner, generated);
+		string clientContext = ClientBuildRecipe.Prepare(
+			result.Contexts[0],
+			game,
+			clientOwner,
+			generated,
+			clientLibraryDirectory
+		);
 		result.Contexts.Add(clientContext);
 		using (JsonDocument client = JsonDocument.Parse(File.ReadAllText(clientContext)))
 		{
@@ -246,6 +266,7 @@ internal sealed class MbtHostBuild
 					sourceCompilationDatabaseHash = Digest(databaseBytes),
 					analysisCompilationDatabase = analysisDatabase,
 					analysisCompilationDatabaseHash = Digest(File.ReadAllBytes(analysisDatabase)),
+					sourceTool = result.SourceTool,
 					contexts = contextPaths,
 				},
 				JsonOptions
@@ -268,6 +289,20 @@ internal sealed class MbtHostBuild
 			);
 			factory.AddExternalDependency(context);
 		}
+		string variant = Path.GetDirectoryName(ContextSet)!;
+		foreach ((string owner, string header) in LinkHeaders)
+		{
+			MhtProcess.Run(
+				factory.Session.Logger,
+				SourceTool,
+				new[] { "generate-host-link", owner, header },
+				projectRoot,
+				timeout
+			);
+			FileItem.ResetCachedInfo(header);
+			factory.AddExternalDependency(header);
+		}
+		factory.AddExternalDependency(SourceTool);
 		foreach (string library in Libraries)
 		{
 			// UHT and UBT share these cached items in UE 5.6's internal UHT mode.
@@ -294,7 +329,7 @@ internal sealed class MbtHostBuild
 			}
 		}
 		factory.AddExternalDependency(ContextSet);
-		string stamp = Path.Combine(Path.GetDirectoryName(ContextSet)!, ".mht-watch.stamp");
+		string stamp = Path.Combine(variant, ".mht-watch.stamp");
 		if (!File.Exists(stamp))
 		{
 			Write(stamp, "UMF watched inputs\n");
