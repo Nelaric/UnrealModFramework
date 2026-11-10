@@ -39,7 +39,7 @@ does not copy a header that requires the game's C++ types or ModAPI module.
    version, structure size, hash, and all required callbacks before binding them.
 3. Game code approves a caller, scope, and permissions. The host-only
    `Mod::API::FNativeAccess::Open` issues a nonzero context and scope token.
-   `UGameModAPIHost::OpenLocalPlayer` now includes these in its returned `Native`.
+   `UModAPIHostSubsystem::OpenLocalPlayer` binds the generated LocalPlayer provider and returns these tokens in `Native`.
 4. Deliver those tokens to the consumer. A getter receives context/scope and
    returns an object token; a method receives context/object and its inputs.
    Every host call rechecks thread, caller lifetime, type, scope, and permissions.
@@ -82,9 +82,9 @@ shared. A rename chain contributes each previous name. An explicit
 `CompatibleNames = ()` selects an empty compatibility list.
 
 MHT diagnoses invalid names, collisions, and invalid applicable redirects at
-the declaration or INI entry. Re-run `ModExportOptions` to refresh the
-configuration snapshot after editing redirects. Build the host and SDK from
-the same generated contract.
+the declaration or INI entry. UBT builds refresh the default configuration
+snapshot automatically. For standalone MHT invocations, run `ModExportOptions`
+after editing redirects. Build the host and SDK from the same generated contract.
 
 ## FullView and object inputs
 

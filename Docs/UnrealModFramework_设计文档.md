@@ -46,7 +46,7 @@
 
 | 组件 | 职责 | 交付方式 |
 | --- | --- | --- |
-| `ExportMetadata` | 导出标识、容器与配置选项；其余运行时服务按具体功能扩展 | 游戏工程中的源码插件 |
+| `ExportMetadata` | 导出元数据与配置选项。其余运行时服务按具体功能扩展 | 游戏工程中的源码插件 |
 | `ExportCodeGenerator` | 当前提供导出标记和配置选项 Commandlet；后续承载 Editor 声明导出及生成集成 | 随 ModRuntime 源码插件编译，仅 Editor Target 加载 |
 | `BlueprintIntegration` | “蓝图Mod导出”面板、蓝图内的独立 API/Event/Hook 声明、接入节点与编译校验 | 随 ModRuntime 源码插件编译，仅 Editor Target 加载 |
 | `ModHeaderTool`（MHT） | 导出宏、真实类型与成员签名、契约校验、完整类型闭包、投影、调用/转换/ABI/验证代码及生成清单 | 独立 C++ 工具；通过 C# UHT Exporter 适配器接入，完整 C++ 分析可使用 Clang |
@@ -138,7 +138,6 @@ Runtime 的公共模块按职责拆分为 `ModAPI`、`ModManager`、`ModPackageL
 
 ```cpp
 MOD_EXPORT_API(
-    ExportId = "game.inventory.add_item",
     ExportVersion = "1.0",
     Scope = World,
     Thread = GameThread,
@@ -155,7 +154,7 @@ MOD_EXPORT_API 关联后面的具体函数，MOD_EXPORT_EVENT 关联 delegate/Ev
 | 机制 | 声明提供的信息 | 游戏必须显式完成的接入 |
 | --- | --- | --- |
 | API | ID、具体 AST 成员、投影与调用策略 | 注册服务对象提供者或静态入口；指定 World/玩家作用域、线程与权限 |
-| Hook | ID、业务 Core、阶段与允许修改字段 | 在真实业务中调用生成的 Hook helper；定义提交、取消与错误边界 |
+| Hook | ID、原版业务、开放阶段、允许操作与可写字段 | 在真实业务中调用生成的 Hook helper，定义提交、取消与错误边界 |
 | Event | ID、实际事件源、载荷与回调策略 | 提供事件源实例，在业务发生时通过具体连接发布并管理生命周期 |
 
 #### 蓝图Mod导出
@@ -166,9 +165,9 @@ MOD_EXPORT_API 关联后面的具体函数，MOD_EXPORT_EVENT 关联 delegate/Ev
 
 | 分组 | 独立声明及编辑内容 | 显式业务接入 |
 | --- | --- | --- |
-| API | 导出 ID、签名、权限、作用域、实例提供者和 API 实现图 | 编译生成可调用入口；非静态入口须提供有效实例及生命周期规则 |
-| Event | 导出 ID、载荷类型、发布作用域与线程规则 | 在业务图中放置对应的 Publish Event 节点，向 Event Bus 发布 |
-| Hook | 导出 ID、类型化 Context、可用阶段、原版逻辑与失败规则 | 在业务图中放置对应的 Hook Point 节点并连接原版逻辑 |
+| API | 签名、权限、作用域、实例提供者和 API 实现图 | 编译生成可调用入口，非静态入口须提供有效实例及生命周期规则 |
+| Event | 载荷类型、发布作用域与线程规则 | 在业务图中放置对应的 Publish Event 节点，向 Event Bus 发布 |
+| Hook | 类型化 Context、`AllowedStages`、`AllowedOperations`、原版逻辑与失败规则 | 在业务图中放置对应的 Hook Point 节点并连接原版逻辑 |
 
 各声明以独立 GUID 保存在当前蓝图的 `UBlueprintExtension` 中；API 实现图由该扩展持有，编译时生成 UE 可执行函数，编辑器的图搜索与差异比较能访问扩展图。面板负责创建、选择、重命名、删除和跳转；删除时检查引用并支持撤销。Event 与 Hook 的接入节点引用声明 GUID，蓝图编译与 Export Generator 均检查重复 ID、不支持的参数、失效引用和缺失的业务接入。Editor-only 声明不作为 Shipping 时的查询来源，生成器输出运行时描述符及绑定。[`UBlueprintExtension` API](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UBlueprintExtension)
 
@@ -210,9 +209,17 @@ SDK 交付单位为同批 Bundle：公开头、适配源码或等价编译输入
 
 ### 4.6 Hook 与 Event 的确定性语义
 
-Hook Point 声明 `Observe`、`Modify` 或 `Intercept` 能力及类型化 Context。`Override` 作为内容/服务解析机制实现，不混入同一回调链。注册阶段按优先级、依赖拓扑顺序和模组 ID 建立稳定快照；无监听者时直接执行原版逻辑。`Observe` 只读；`Modify` 按优先级、拓扑顺序、模组 ID 升序执行，后执行者可覆盖较早的结果；`Intercept` 用相反顺序，回调返回继续、阻止或替换，首个阻止/替换结果终止拦截链。若 Hook 允许组合这些能力，顺序固定为前置修改 → 拦截/原版 → 后置观察，禁止从观察回调写回结果。
+API 提供可主动调用的能力。Hook 是游戏在真实业务操作中设置的扩展点，Event 由宿主显式发布已发生的事实。成功路径依次经过 `Pre`、`On`、`Post`，宿主可以在 Hook 完成后按业务规则发布 Event。
 
-Hook 契约还需指定默认值、失败时的回退、重入规则、调用线程、同步/异步限制和网络权威。首版默认 Game Thread、同步；同一 Hook 递归调用时跳过该层监听者并执行原版逻辑，避免无限递归，具体扩展点可显式收紧。跨线程或异步 Hook 必须单独声明并验证对象生命周期。Event 是只读通知，不承担返回值；Event Bus 在注册阶段缓存订阅者，广播前检查模组与源对象仍有效，Game Thread 为默认回调线程。原生 DLL 崩溃不能靠框架回调层隔离。
+| 阶段 | 时机与职责 | 可声明的操作 |
+| --- | --- | --- |
+| `Pre` | 核心执行前，读取输入并检查条件 | `ModifyInputs` 修改声明允许的输入，`Cancel` 取消执行 |
+| `On` | 执行核心业务，默认调用宿主原版逻辑 | `Wrap` 包装执行，`Replace` 接管执行 |
+| `Post` | 核心业务成功后，读取结果并执行后续处理 | `ModifyResult` 修改声明允许的结果 |
+
+每个 Hook 独立设置 `AllowedStages` 和 `AllowedOperations`，默认只开放 `Post` 且操作列表为空。每项操作都要求对应阶段开放。开启 `On` 后仍须分别显式授权 `Wrap` 或 `Replace` 才允许 Mod 介入核心执行。取消跳过 `On` 和 `Post`，失败由宿主返回并可单独发布事实通知。注册阶段建立稳定快照，阶段权限、顺序和错误规则见[游戏端详细设计第18节](UnrealModFramework_游戏端详细设计.md#18-hook-语义与执行计划)。
+
+Hook 契约还需指定失败策略、重入规则、调用线程和网络权威。首版默认 Game Thread、同步，同键重入默认拒绝。跨线程或异步 Hook 必须单独声明并验证对象生命周期。Event 监听者接收只读载荷，宿主决定业务结果。Event Bus 在注册阶段缓存订阅者，广播前检查模组与源对象仍有效，Game Thread 为默认回调线程。原生 DLL 崩溃不能靠框架回调层隔离。
 
 ### 4.7 World Patch 与跨 Mod 服务
 
