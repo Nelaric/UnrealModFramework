@@ -78,13 +78,13 @@ MSVC 编译器配方使用 `dependencyFormat: "msvc-json"`，并显式添加 `/s
 
 ## 完整生成清单
 
-新生产者使用 [generated-artifacts.schema.json](Protocol/generated-artifacts.schema.json)，格式为 `UMF.GeneratedArtifacts`，版本 `2`，状态 `Complete`，且 `unresolvedTypeCount` 为零。MBT 继续兼容[旧版 v1](Protocol/generated-artifacts-v1.schema.json) 的构建读取；最终链接核对要求 v2。`Bootstrap` 或扫描报告均拒绝构建。
+新生产者使用 [generated-artifacts.schema.json](Protocol/generated-artifacts.schema.json)，格式为 `UMF.GeneratedArtifacts`，版本 `3`，状态 `Complete`，且 `unresolvedTypeCount` 为零。MBT 仍能读取使用旧哈希字段名的 [v1](Protocol/generated-artifacts-v1.schema.json) 和 v2 清单。最终链接核对要求 v2 或 v3。`Bootstrap` 或扫描报告均拒绝构建。
 
-v2 的 `hostBuildContexts` 为每个编译所属模块绑定上下文哈希。用 `hash-context` 计算已解析 JSON 的紧凑排序摘要。v1 的单上下文回退字段是 `buildContextHash`。MBT 重验 v2 的每项 `inputFiles` 内容哈希，并重新枚举 `watchedDirectories`。输入过期时，`GeneratedInputsStale` 指出需要重新运行 MHT 的路径。
+v2 和 v3 的 `hostBuildContexts` 为每个编译所属模块绑定上下文哈希。用 `hash-context` 计算已解析 JSON 的紧凑排序摘要。v1 的单上下文回退字段是 `buildContextHash`。MBT 重验 v2 和 v3 的每项 `inputFiles` 内容哈希，并重新枚举 `watchedDirectories`。输入过期时，`GeneratedInputsStale` 指出需要重新运行 MHT 的路径。
 
 `environmentMode: Explicit` 将声明的 `environment` 作为编译子进程环境。默认的 `Inherit` 模式用这些值覆盖继承环境。计划和构建回执均提供有效的 `environmentHash`。
 
-`generationId`、`inputHash`、`contractHash`、`projectionHash` 和 `nativeAbiHash` 均为小写 SHA-256。契约、投影和 ABI 摘要由生成器提供；MBT 不重新解释 C++ 类型或证明这些语义摘要正确。
+`generationId`、`inputHash`、`contractHash`、`projectionHash` 和 `nativeABIHash` 均为小写 SHA-256。契约、投影和 ABI 摘要由生成器提供；MBT 不重新解释 C++ 类型或证明这些语义摘要正确。
 
 `generatedFiles` 列出相对生成清单目录的路径、`contentHash` 与 `ownerModule`。共享契约文件的所属模块可以为 `null`。路径须唯一，不含 `..`，解析符号链接后也不得离开生成根。文件内容须逐项匹配摘要。
 
@@ -92,7 +92,7 @@ v2 的 `hostBuildContexts` 为每个编译所属模块绑定上下文哈希。�
 
 ## 缓存、发布与库检查
 
-v2 的每个生成文件都必须有 `role`：`HostBinding`、`HostRegistration`、`CompileVerification`、`HostHeader`、`SdkHeader`、`Contract`、`SdkResource` 或私有 `Diagnostic`。`plan`、`build-host` 和 `finalize-host` 的 `publicArtifacts` 仅列出当前模块及共享的 `SdkHeader`、`Contract`、`SdkResource`，包含绝对 `sourcePath`、规范化 `relativePath`、内容哈希、角色和所属模块。SDK 头仅接受 `.h` / `.hpp`，契约接受 `.json`；宿主编译单元不能同时作为公共产物发布。v1 未指定的角色和未知角色不进入公共清单。
+v2 和 v3 的每个生成文件都必须有 `role`：`HostBinding`、`HostRegistration`、`CompileVerification`、`HostHeader`、`SdkHeader`、`Contract`、`SdkResource` 或私有 `Diagnostic`。`plan`、`build-host` 和 `finalize-host` 的 `publicArtifacts` 仅列出当前模块及共享的 `SdkHeader`、`Contract`、`SdkResource`，包含绝对 `sourcePath`、规范化 `relativePath`、内容哈希、角色和所属模块。SDK 头仅接受 `.h` / `.hpp`，契约接受 `.json`；宿主编译单元不能同时作为公共产物发布。v1 未指定的角色和未知角色不进入公共清单。
 
 `requiredSymbols` 为 `{ "ownerModule": "...", "symbol": "..." }` 记录数组，可附 `exportId`、`signatureHash` 和 `projectionHash`。符号使用未装饰 C 标识符，重复模块/符号记录及同一所属模块内的重复 ExportId 拒绝；Host 和 Client 可为相同逻辑 ExportId 各自记录入口。MBT 合入上下文中的稳定注册锚点，对当前模块的整个必需集合执行一次归档检查；Mac 检查时加平台 C 符号前缀。零导出批次可使用空数组，但注册锚点仍必需。v1 可省略该数组，此时保留原有的单锚点检查。
 
@@ -106,9 +106,9 @@ MBT 检查普通归档容器、对象架构及全部必需符号的索引，缺�
 
 ## 获取角色与增加生命的清单片段
 
-MHT 输出 v2 清单，列出宿主桥、C ABI 入口、校验和 UE 视图实现四个宿主单元，并为 `<game>ModClient` 列出独立客户端单元。上下文锚点分别为 `UMF_ModHost_<owner>` 和 `UMF_ModClient_<game>`。[MHT ABI 协议](../ModHeaderTool/README.zh-CN.md) 给出实际公共头、Host/Client 符号记录及 MST 契约。
+MHT 输出 v3 清单，列出宿主桥、C ABI 入口、校验和 UE 视图实现四个宿主单元，并为 `<game>ModClient` 列出独立客户端单元。上下文锚点分别为 `UMF_ModHost_<owner>` 和 `UMF_ModClient_<game>`。[MHT ABI 协议](../ModHeaderTool/README.zh-CN.md) 给出实际公共头、Host/Client 符号记录及 MST 契约。
 
-这两个 API 不写死在 MBT 中。下列简化 v2 片段展示 `ExportTest` 的记录方式；实际 MHT 符号名从生成描述中读取，MBT 自动加入上下文的注册锚点：
+这两个 API 不写死在 MBT 中。下列简化 v3 片段展示 `ExportTest` 的记录方式；实际 MHT 符号名从生成描述中读取，MBT 自动加入上下文的注册锚点：
 
 ```json
 {

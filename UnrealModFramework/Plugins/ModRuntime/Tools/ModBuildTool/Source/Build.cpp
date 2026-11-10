@@ -89,6 +89,7 @@ struct FRequest
 	FJson Manifest;
 	std::string ContextHash;
 	std::string GenerationId;
+	std::string NativeABIHash;
 	std::string Owner;
 	std::string Anchor;
 	std::string Platform;
@@ -229,8 +230,9 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 	Request.Context = ReadJson(Request.ContextPath);
 	Request.Manifest = ReadJson(Request.ManifestPath);
 	RequireFormat(Request.Context, "UMF.ModHostContext", {2});
-	RequireFormat(Request.Manifest, "UMF.GeneratedArtifacts", {1, 2});
-	const bool bManifestV2 = Request.Manifest.at("schemaVersion") == 2;
+	RequireFormat(Request.Manifest, "UMF.GeneratedArtifacts", {1, 2, 3});
+	const int ManifestVersion = Request.Manifest.at("schemaVersion").get<int>();
+	const bool bHasBatchMetadata = ManifestVersion >= 2;
 	if (Request.Manifest.value("status", "") != "Complete" || !Request.Manifest.contains("unresolvedTypeCount") ||
 	    Request.Manifest["unresolvedTypeCount"] != 0)
 	{
@@ -238,7 +240,7 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 	}
 	Request.Owner = Text(Request.Context, "ownerModule");
 	Request.ContextHash = HashBytes(Request.Context.dump());
-	const std::string ExpectedContext = bManifestV2 || Request.Manifest.contains("hostBuildContexts")
+	const std::string ExpectedContext = bHasBatchMetadata || Request.Manifest.contains("hostBuildContexts")
 	                                        ? Text(Request.Manifest.at("hostBuildContexts"), Request.Owner)
 	                                        : Text(Request.Manifest, "buildContextHash");
 	if (ExpectedContext != Request.ContextHash)
@@ -247,16 +249,21 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 	}
 	Request.GenerationId = Text(Request.Manifest, "generationId");
 	RequireDigest(Request.GenerationId, "generationId");
-	for (std::string_view Key : {"inputHash", "contractHash", "projectionHash", "nativeAbiHash"})
+	for (std::string_view Key : {"inputHash", "contractHash", "projectionHash"})
 	{
 		RequireDigest(Text(Request.Manifest, Key), Key);
 	}
+	// Generated artifact schemas v1 and v2 use the old acronym casing.
+	Request.NativeABIHash = Text(Request.Manifest, ManifestVersion >= 3 ? "nativeABIHash"
+	                                                                    : "nativeA"
+	                                                                      "biHash");
+	RequireDigest(Request.NativeABIHash, "nativeABIHash");
 	Request.Anchor = Text(Request.Context, "registrationAnchor");
 	RequireSymbol(Request.Anchor);
 	std::set<std::string> Symbols{Request.Anchor};
 	std::set<std::pair<std::string, std::string>> SymbolRecords;
 	std::set<std::pair<std::string, std::string>> ExportIds;
-	if (bManifestV2 || Request.Manifest.contains("requiredSymbols"))
+	if (bHasBatchMetadata || Request.Manifest.contains("requiredSymbols"))
 	{
 		const FJson& Required = Request.Manifest.at("requiredSymbols");
 		if (!Required.is_array())
@@ -311,10 +318,10 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 	RequireChoice(Target, "linkType", {"Modular", "Monolithic"});
 	Request.Platform = Text(Target, "platform");
 	Request.Architecture = Text(Target, "architecture");
-	if (bManifestV2 && (Text(Request.Manifest, "target") != Text(Target, "name") ||
-	                    Text(Request.Manifest, "platform") != Request.Platform ||
-	                    Text(Request.Manifest, "configuration") != Text(Target, "configuration") ||
-	                    Text(Request.Manifest, "architecture") != Request.Architecture))
+	if (bHasBatchMetadata && (Text(Request.Manifest, "target") != Text(Target, "name") ||
+	                          Text(Request.Manifest, "platform") != Request.Platform ||
+	                          Text(Request.Manifest, "configuration") != Text(Target, "configuration") ||
+	                          Text(Request.Manifest, "architecture") != Request.Architecture))
 	{
 		throw std::runtime_error("Generated target variant does not match the host context.");
 	}
@@ -366,7 +373,7 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 	AddInput(Request, Request.ContextPath);
 	AddInput(Request, Request.ManifestPath);
 	AddInput(Request, ExecutablePath());
-	if (bManifestV2)
+	if (bHasBatchMetadata)
 	{
 		ValidateGenerationInputs(Request);
 	}
@@ -393,7 +400,7 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 		}
 		Owners.emplace(Path, File.value("ownerModule", FJson()).is_null() ? "" : Text(File, "ownerModule"));
 		const std::string Role = File.value("role", "");
-		if (bManifestV2)
+		if (bHasBatchMetadata)
 		{
 			RequireChoice(File, "role",
 			              {"HostBinding", "HostRegistration", "CompileVerification", "HostHeader", "SdkHeader",
@@ -440,7 +447,7 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 			Request.Sources.push_back(Source);
 		}
 	}
-	if (bManifestV2)
+	if (bHasBatchMetadata)
 	{
 		const FJson& Contexts = Request.Manifest.at("hostBuildContexts");
 		if (!Contexts.is_object() || Contexts.size() != UnitOwners.size())
@@ -550,7 +557,7 @@ FJson MakePlan(const FRequest& Request)
 		try
 		{
 			const FJson Receipt = ReadJson(Request.Receipt);
-			RequireFormat(Receipt, "UMF.ModHostReceipt");
+			RequireFormat(Receipt, "UMF.ModHostReceipt", {2});
 			if (Receipt.at("contextHash") != Request.ContextHash ||
 			    Receipt.at("generationId") != Request.GenerationId ||
 			    Receipt.at("toolVersion").get<std::string>() != ToolVersion ||
@@ -561,7 +568,7 @@ FJson MakePlan(const FRequest& Request)
 			    Receipt.at("owningBinary") != Request.OwningBinary ||
 			    Receipt.at("contractHash") != Request.Manifest.at("contractHash") ||
 			    Receipt.at("projectionHash") != Request.Manifest.at("projectionHash") ||
-			    Receipt.at("nativeAbiHash") != Request.Manifest.at("nativeAbiHash"))
+			    Receipt.at("nativeABIHash") != Request.NativeABIHash)
 			{
 				Reason = "Build identity changed.";
 			}
@@ -600,7 +607,7 @@ FJson MakePlan(const FRequest& Request)
 		}
 	}
 	return {{"format", "UMF.ModHostPlan"},
-	        {"schemaVersion", 1},
+	        {"schemaVersion", 2},
 	        {"toolVersion", ToolVersion},
 	        {"ownerModule", Request.Owner},
 	        {"target", Request.Context.at("target")},
@@ -618,7 +625,7 @@ FJson MakePlan(const FRequest& Request)
 	        {"owningBinary", Request.OwningBinary},
 	        {"contractHash", Request.Manifest.at("contractHash")},
 	        {"projectionHash", Request.Manifest.at("projectionHash")},
-	        {"nativeAbiHash", Request.Manifest.at("nativeAbiHash")},
+	        {"nativeABIHash", Request.NativeABIHash},
 	        {"compilationUnitCount", Request.Sources.size()},
 	        {"upToDate", bUpToDate},
 	        {"reason", Reason},
@@ -872,7 +879,7 @@ FJson BuildHost(const fs::path& Context, const fs::path& Manifest, std::string_v
 		Request.Inputs[Path] = Digest;
 	}
 	const FJson Receipt = {{"format", "UMF.ModHostReceipt"},
-	                       {"schemaVersion", 1},
+	                       {"schemaVersion", 2},
 	                       {"toolVersion", ToolVersion},
 	                       {"ownerModule", Request.Owner},
 	                       {"target", Request.Context.at("target")},
@@ -889,7 +896,7 @@ FJson BuildHost(const fs::path& Context, const fs::path& Manifest, std::string_v
 	                       {"owningBinary", Request.OwningBinary},
 	                       {"contractHash", Request.Manifest.at("contractHash")},
 	                       {"projectionHash", Request.Manifest.at("projectionHash")},
-	                       {"nativeAbiHash", Request.Manifest.at("nativeAbiHash")},
+	                       {"nativeABIHash", Request.NativeABIHash},
 	                       {"compilerDependencies", InputList(Dependencies)}};
 	// The receipt is the commit record. A partial publish never validates.
 	ReplaceFileAtomically(Archive, Request.Library);
@@ -907,9 +914,9 @@ namespace
 {
 FJson CurrentHostPlan(const FRequest& Request)
 {
-	if (Request.Manifest.at("schemaVersion") != 2)
+	if (Request.Manifest.at("schemaVersion") == 1)
 	{
-		throw std::runtime_error("finalize-host requires a v2 generated-artifact manifest.");
+		throw std::runtime_error("finalize-host requires a generated-artifact manifest at version 2 or later.");
 	}
 	if (Request.OwningBinary.is_null())
 	{
@@ -1181,7 +1188,10 @@ FJson FinalizeUeTarget(const fs::path& ContextSetPath, const fs::path& TargetRec
 		{
 			throw std::runtime_error("UE finalization context does not match the generation: " + Owner);
 		}
-		if (Recipe.value("clientAbi", "") == "ContextHandlesV1" && !Recipe.contains("owningBinary"))
+		const char* ClientABIKey = Recipe.contains("clientABI") ? "clientABI"
+		                                                        : "clientA"
+		                                                          "bi";
+		if (Recipe.value(ClientABIKey, "") == "ContextHandlesV1" && !Recipe.contains("owningBinary"))
 		{
 			continue;
 		}

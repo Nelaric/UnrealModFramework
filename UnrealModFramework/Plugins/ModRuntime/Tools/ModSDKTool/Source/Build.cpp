@@ -257,7 +257,7 @@ FJson InspectSdk(const fs::path& Directory)
 	using namespace Mod::BuildTool;
 	const fs::path Root = fs::canonical(Directory);
 	const FJson Manifest = ReadJson(Root / "Manifest.json");
-	RequireFormat(Manifest, "UMF.ModSdkBundle");
+	RequireFormat(Manifest, "UMF.ModSdkBundle", {1, 2});
 	const FJson& Files = Manifest.at("files");
 	if (!Files.is_array() || Files.empty() || Files.size() > 100000)
 	{
@@ -281,7 +281,7 @@ FJson InspectSdk(const fs::path& Directory)
 		throw std::runtime_error("Bundle inventory does not exactly match the published files.");
 	}
 	const FJson Contract = ReadJson(Root / "Contract" / "SdkContract.json");
-	RequireFormat(Contract, "UMF.SdkContract");
+	RequireFormat(Contract, "UMF.SdkContract", {1, 2});
 	if (Contract.contains("modLifecycle"))
 	{
 		const FJson& Lifecycle = Contract.at("modLifecycle");
@@ -308,14 +308,16 @@ FJson InspectSdk(const fs::path& Directory)
 		const fs::path PluginCopy =
 		    ResolveGeneratedPath(Root, "Plugins/" + Text(Manifest, "pluginName") + "/" + Relative);
 		const FJson Connection = ReadJson(Descriptor);
-		RequireFormat(Connection, "UMF.ClientAbi");
+		RequireClientABIFormat(Connection);
 		if (HashFile(Descriptor) != HashFile(PluginCopy) || Connection.at("gameId") != Manifest.at("gameId"))
 		{
 			throw std::runtime_error("The bundle and SDK plugin need the same native connection descriptor.");
 		}
-		for (const char* Key : {"contractHash", "projectionHash", "nativeAbiHash"})
+		for (const char* Key : {"contractHash", "projectionHash", "nativeABIHash"})
 		{
-			if (Connection.at(Key) != Contract.at(Key) || Contract.at(Key) != Manifest.at(Key))
+			const FJson& ContractValue = Contract.at(ContractIdentityKey(Contract, Key));
+			if (Connection.at(ContractIdentityKey(Connection, Key)) != ContractValue ||
+			    Manifest.at(ContractIdentityKey(Manifest, Key)) != ContractValue)
 			{
 				throw std::runtime_error(std::string("Published connection identity mismatch: ") + Key);
 			}
@@ -339,7 +341,7 @@ FJson BuildSdk(FSdkRequest& Request)
 	if (fs::exists(Request.Output))
 	{
 		const FJson Existing = ReadJson(Request.Output / "Manifest.json");
-		RequireFormat(Existing, "UMF.ModSdkBundle");
+		RequireFormat(Existing, "UMF.ModSdkBundle", {1, 2});
 		if (Existing.at("gameId") != Request.Document.at("gameId") ||
 		    Existing.at("sdkVersion") != Request.Document.at("sdkVersion") ||
 		    Existing.at("pluginName") != Request.Document.at("pluginName"))
@@ -465,19 +467,20 @@ FJson BuildSdk(FSdkRequest& Request)
 	const FJson Capabilities = {{"nativeLibrariesBuilt", true},     {"authorEditorBuilt", true},
 	                            {"typedBlueprintCallsBuilt", true}, {"hostFinalLinkVerified", false},
 	                            {"gameSdkRuntimeBuilt", false},     {"runtimeBindingVerified", false}};
-	const FJson Manifest = {{"format", "UMF.ModSdkBundle"},
-	                        {"schemaVersion", 1},
-	                        {"toolVersion", "0.1.0"},
-	                        {"gameId", Request.Document.at("gameId")},
-	                        {"sdkVersion", Request.Document.at("sdkVersion")},
-	                        {"pluginName", Plugin},
-	                        {"inputFingerprint", Request.Fingerprint},
-	                        {"contractHash", Request.Contract.at("contractHash")},
-	                        {"projectionHash", Request.Contract.at("projectionHash")},
-	                        {"nativeAbiHash", Request.Contract.at("nativeAbiHash")},
-	                        {"editor", Request.Document.at("editor")},
-	                        {"capabilities", Capabilities},
-	                        {"files", Inventory(Bundle)}};
+	const FJson Manifest = {
+	    {"format", "UMF.ModSdkBundle"},
+	    {"schemaVersion", 2},
+	    {"toolVersion", "0.1.0"},
+	    {"gameId", Request.Document.at("gameId")},
+	    {"sdkVersion", Request.Document.at("sdkVersion")},
+	    {"pluginName", Plugin},
+	    {"inputFingerprint", Request.Fingerprint},
+	    {"contractHash", Request.Contract.at("contractHash")},
+	    {"projectionHash", Request.Contract.at("projectionHash")},
+	    {"nativeABIHash", Request.Contract.at(ContractIdentityKey(Request.Contract, "nativeABIHash"))},
+	    {"editor", Request.Document.at("editor")},
+	    {"capabilities", Capabilities},
+	    {"files", Inventory(Bundle)}};
 	WriteFileAtomically(Bundle / "Manifest.json", Manifest.dump(2) + "\n");
 	CheckInputs(Request);
 	const std::string ExpectedFingerprint = Request.Fingerprint;

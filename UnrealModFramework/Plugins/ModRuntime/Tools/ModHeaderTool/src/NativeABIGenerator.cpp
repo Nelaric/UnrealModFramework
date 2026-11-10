@@ -1,5 +1,5 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-#include "NativeAbiGenerator.h"
+#include "NativeABIGenerator.h"
 
 #include "Hash.h"
 
@@ -123,7 +123,7 @@ const std::vector<std::string> Errors = {
     "ScopeMismatch", "PermissionDenied", "ReadOnly",       "InvalidArgument"};
 } // namespace
 
-FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::string>& Files,
+FJson WriteNativeABI(const FGenerationModel& Model, std::map<std::string, std::string>& Files,
                      const std::string& ContractHash, const std::string& ProjectionHash, const FJson& Lifecycle)
 {
 	const std::string Game = Model.Input.GameId;
@@ -184,7 +184,7 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 		StatusCodes[Errors[I]] = I;
 	}
 	StatusCodes["NotConnected"] = 65536;
-	StatusCodes["AbiMismatch"] = 65537;
+	StatusCodes["ABIMismatch"] = 65537;
 	StatusCodes["InternalError"] = 65538;
 	for (const auto& Module : Model.Input.Modules)
 	{
@@ -195,10 +195,10 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 		                       {"disconnectSymbol", Prefix + "_" + Module.Name + "_Disconnect"},
 		                       {"releaseObjectSymbol", Prefix + "_" + Module.Name + "_ReleaseObject"}});
 	}
-	FJson Descriptor{{"format", "UMF.ClientAbi"},
-	                 {"schemaVersion", 1},
+	FJson Descriptor{{"format", "UMF.ClientABI"},
+	                 {"schemaVersion", 2},
 	                 {"status", "Complete"},
-	                 {"adapterAbi", "ContextHandlesV1"},
+	                 {"adapterABI", "ContextHandlesV1"},
 	                 {"abiVersion", 1},
 	                 {"gameId", Game},
 	                 {"callingConvention", "cdecl"},
@@ -221,14 +221,14 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 	                                 {"revocation", "CallerScopeOrRegistryRevocation"},
 	                                 {"releaseRule", "ReleaseInvalidatesAllCopiesOfTheSameToken"},
 	                                 {"unloadRule", "DisconnectAndQuiesceBeforeHostModuleUnload"}};
-	const std::string AbiHash = HashBytes(Descriptor.dump());
-	Descriptor["nativeAbiHash"] = AbiHash;
+	const std::string ABIHash = HashBytes(Descriptor.dump());
+	Descriptor["nativeABIHash"] = ABIHash;
 	Descriptor["contractHash"] = ContractHash;
 	Descriptor["projectionHash"] = ProjectionHash;
 
 	std::ostringstream Header, Client;
 	Header << Source(Game + ".modabi.h") << "#pragma once\n\n#include <stdint.h>\n\n"
-	       << "#define " << Macro << "_ABI_VERSION 1u\n#define " << Macro << "_ABI_HASH " << Literal(AbiHash) << "\n\n"
+	       << "#define " << Macro << "_ABI_VERSION 1u\n#define " << Macro << "_ABI_HASH " << Literal(ABIHash) << "\n\n"
 	       << "#if defined(_MSC_VER)\n#define " << Macro << "_CALL __cdecl\n#else\n#define " << Macro
 	       << "_CALL\n#endif\n"
 	       << "#if defined(" << Macro << "_HOST_BUILD) && defined(_WIN32)\n#define " << Macro
@@ -268,8 +268,8 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 				       << "_Fn)(" << Parameters(API, true) << ");\n";
 			}
 		}
-		Header << "typedef struct " << Table << "\n{\n    uint32_t StructSize;\n    uint32_t AbiVersion;\n"
-		       << "    char NativeAbiHash[65];\n    " << ReleaseType << " ReleaseObject;\n";
+		Header << "typedef struct " << Table << "\n{\n    uint32_t StructSize;\n    uint32_t ABIVersion;\n"
+		       << "    char NativeABIHash[65];\n    " << ReleaseType << " ReleaseObject;\n";
 		for (std::size_t I = 0; I < Model.APIs.size(); ++I)
 		{
 			if (Model.APIs[I].Module == Owner)
@@ -280,7 +280,7 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 		Header << "} " << Table << ";\n\n"
 		       << "/** @brief Queries a matching host table before connecting the client. */\n"
 		       << Macro << "_HOST_API uint32_t " << Macro << "_CALL " << Connection.at("querySymbol").get<std::string>()
-		       << "(uint32_t Version, uint32_t Size, const char* AbiHash, " << Table << "* OutAPI);\n"
+		       << "(uint32_t Version, uint32_t Size, const char* ABIHash, " << Table << "* OutAPI);\n"
 		       << "/** @brief Binds checked callbacks; disconnect and quiesce before unload. */\n"
 		       << Macro << "_CLIENT_API uint32_t " << Macro << "_CALL "
 		       << Connection.at("connectSymbol").get<std::string>() << "(const " << Table << "* Host);\n"
@@ -329,7 +329,7 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 		}
 		Host << "    default: return " << Prefix << "_InternalError;\n    }\n}\n"
 		     << "extern \"C\" " << Upper(Owner) << "_API uint32_t UMF_ModHost_" << Owner
-		     << "_RetainAbi(void) { return 1; }\n"
+		     << "_RetainABI(void) { return 1; }\n"
 		     << "static uint32_t " << Macro << "_CALL NativeRelease(uint64_t Context, uint64_t Object)\n"
 		     << "{ return NativeStatus(Mod::API::FNativeAccess::Release(Context, Object).GetError()); }\n\n";
 		Client << "namespace\n{\nstd::atomic<" << ReleaseType << "> " << Owner << "_Release{nullptr};\n";
@@ -414,16 +414,16 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 		Client << "}\n";
 		Host << "extern \"C\" " << Macro << "_HOST_API uint32_t " << Macro << "_CALL "
 		     << Connection.at("querySymbol").get<std::string>()
-		     << "(uint32_t Version, uint32_t Size, const char* AbiHash, " << Table << "* OutAPI)\n{\n"
+		     << "(uint32_t Version, uint32_t Size, const char* ABIHash, " << Table << "* OutAPI)\n{\n"
 		     << "    if (!OutAPI || Size != sizeof(" << Table << ")) { return " << Prefix << "_InvalidArgument; }\n"
-		     << "    *OutAPI = {};\n    if (Version != 1 || !AbiHash || std::strcmp(AbiHash, " << Literal(AbiHash)
-		     << ") != 0) { return " << Prefix << "_AbiMismatch; }\n"
-		     << "    OutAPI->StructSize = sizeof(" << Table << ");\n    OutAPI->AbiVersion = 1;\n"
-		     << "    std::memcpy(OutAPI->NativeAbiHash, " << Literal(AbiHash)
+		     << "    *OutAPI = {};\n    if (Version != 1 || !ABIHash || std::strcmp(ABIHash, " << Literal(ABIHash)
+		     << ") != 0) { return " << Prefix << "_ABIMismatch; }\n"
+		     << "    OutAPI->StructSize = sizeof(" << Table << ");\n    OutAPI->ABIVersion = 1;\n"
+		     << "    std::memcpy(OutAPI->NativeABIHash, " << Literal(ABIHash)
 		     << ", 65);\n    OutAPI->ReleaseObject = &NativeRelease;\n";
 		Client << "extern \"C\" uint32_t " << Macro << "_CALL " << Connection.at("connectSymbol").get<std::string>()
 		       << "(const " << Table << "* Host)\n{\n    if (!Host || Host->StructSize != sizeof(" << Table
-		       << ") || Host->AbiVersion != 1 || std::memcmp(Host->NativeAbiHash, " << Literal(AbiHash)
+		       << ") || Host->ABIVersion != 1 || std::memcmp(Host->NativeABIHash, " << Literal(ABIHash)
 		       << ", 65) != 0 || !Host->ReleaseObject";
 		for (std::size_t I = 0; I < Model.APIs.size(); ++I)
 		{
@@ -435,7 +435,7 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 			}
 		}
 		Host << "    return 0;\n}\n";
-		Client << ") { return " << Prefix << "_AbiMismatch; }\n";
+		Client << ") { return " << Prefix << "_ABIMismatch; }\n";
 		for (const auto& API : Model.APIs)
 		{
 			if (API.Module == Owner)
@@ -656,8 +656,8 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 		SdkAPIs.push_back(std::move(Entry));
 	}
 	FJson Sdk{{"format", "UMF.SdkContract"},
-	          {"schemaVersion", 1},
-	          {"adapterAbi", "ContextHandlesV1"},
+	          {"schemaVersion", 2},
+	          {"adapterABI", "ContextHandlesV1"},
 	          {"status", Unsupported.empty() && !ViewTypes.empty() && ((bGetter && bMethod) || bTypedMethod)
 	                         ? "Complete"
 	                         : "Unsupported"},
@@ -665,7 +665,7 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 	          {"gameId", Game},
 	          {"contractHash", ContractHash},
 	          {"projectionHash", ProjectionHash},
-	          {"nativeAbiHash", AbiHash},
+	          {"nativeABIHash", ABIHash},
 	          {"types", SdkTypes},
 	          {"apis", SdkAPIs},
 	          {"unsupportedAPIs", Unsupported},
@@ -675,7 +675,7 @@ FJson WriteNativeAbi(const FGenerationModel& Model, std::map<std::string, std::s
 		Sdk["modLifecycle"] = Lifecycle;
 	}
 	Files["Contract/" + Game + ".sdkcontract.json"] = Sdk.dump(2) + "\n";
-	return {{"nativeAbiHash", AbiHash},
+	return {{"nativeABIHash", ABIHash},
 	        {"requiredSymbols", Required},
 	        {"clientOwnerModule", ClientOwner},
 	        {"descriptor", "Contract/" + Game + ".clientabi.json"},

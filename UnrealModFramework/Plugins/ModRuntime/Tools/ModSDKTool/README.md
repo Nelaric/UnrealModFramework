@@ -47,7 +47,8 @@ binary before publishing the plugin with the native tools. [CircleCI invocation]
 ## Input contracts
 
 [sdk-contract.schema.json](Protocol/sdk-contract.schema.json) defines
-`UMF.SdkContract` v1. The contract must be `Complete` with zero unresolved types.
+`UMF.SdkContract` v2. MST also reads v1 contracts with the original ABI field names.
+The contract must be `Complete` with zero unresolved types.
 Its contract, projection, and native ABI SHA-256 identities must agree with all
 library batches. The JSON file itself must be a hash-checked `Contract` artifact
 in a generated manifest. Public includes must be MBT-reported `SdkHeader`
@@ -74,7 +75,7 @@ native UE declaration. Getters use Player scope. Methods support Player or World
 `thread: GameThread` and `failureRule: ReturnError`, with per-API permissions.
 
 Each API also supplies `id`, stable public `name`, `displayName`, `signatureHash`,
-`projectionHash`, and `native: {header, symbol}`. Client profiles need v2 required
+`projectionHash`, and `native: {header, symbol}`. Client profiles need the required
 symbol records matching the endpoints. Header paths remain relative to the
 generated batch root. Unsupported shapes fail instead of generating placeholders.
 
@@ -102,7 +103,7 @@ session owns the instances and delivers lifecycle events.
 | `contract` | Completed public producer contract |
 | `outputDirectory` | Immutable bundle destination |
 | `developmentPlugin` | Independent plugin containing `DevelopmentEditor` |
-| `tools.mbt` | MBT with v2 artifacts and binary inspection support |
+| `tools.mbt` | MBT with support for the input manifest version and binary inspection |
 | `tools.dotnet`, `tools.automationTool` | Actual UE-compatible host and assembly |
 | `editor` | Host platform, architecture, Development, real engine `.modules`, matching `buildId` |
 | `libraries` | Host and Client entries with `context` and `generatedManifest` |
@@ -151,7 +152,7 @@ Public module/type/function/parameter names form
 reflection identity and must remain stable across compatible releases.
 
 MHT now emits a matching `.sdkcontract.json`, pure C `.modabi.h`, independent
-client endpoints, and a v2 manifest. See the [MHT connection protocol](../ModHeaderTool/README.md).
+client endpoints, and a v3 manifest. See the [MHT connection protocol](../ModHeaderTool/README.md).
 Use its Host and `<game>ModClient` contexts as separate library jobs. The native
 connection descriptor names host queries and client Connect/Disconnect symbols;
 MST requires it to be a hash-checked public Contract artifact, matches its identities

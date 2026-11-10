@@ -28,7 +28,7 @@ ModSDKTool inspect --bundle <发布目录>
 
 ## 生产者契约
 
-[sdk-contract.schema.json](Protocol/sdk-contract.schema.json) 定义 `UMF.SdkContract` v1。它必须为 `Complete`、未解析类型数为零，契约、投影和原生 ABI 的 SHA-256 与库批次一致。契约文件本身须为经过哈希校验的 `Contract` 产物，公开头须为 MBT 返回的 `SdkHeader`。宿主实现、注册、验证和私有头不进入作者 SDK。
+[sdk-contract.schema.json](Protocol/sdk-contract.schema.json) 定义 `UMF.SdkContract` v2。MST 仍可读取使用旧 ABI 字段名的 v1 契约。契约必须为 `Complete`、未解析类型数为零，契约、投影和原生 ABI 的 SHA-256 与库批次一致。契约文件本身须为经过哈希校验的 `Contract` 产物，公开头须为 MBT 返回的 `SdkHeader`。宿主实现、注册、验证和私有头不进入作者 SDK。
 
 首版 ABI 为 `ContextHandlesV1`，函数名取自 `api.native.symbol`：
 
@@ -39,7 +39,7 @@ uint32_t FloatMethod(uint64_t ModContext, uint64_t Object, float Amount, float* 
 
 状态零表示成功，非零表示宿主错误。上下文、作用域和对象均为非零进程内令牌。公开类型 `ObjectReference` 包含稳定 `id` 和 `cppName`。`ObjectGetter` 提供 `provider: LocalPlayerSubsystem`、`resultTypeId` 和 `nullResult: Error`。`FloatMethod` 提供 `targetTypeId`、`parameterName` 和稳定 `parameterId`。`TypedMethod` 描述参数和结果，目标可为玩家上下文或对象视图。`ObjectInput` 指定 UE 类、头文件和模块。对象结果指定投影视图 TypeId。`blueprint` 字段决定是否生成蓝图节点。
 
-获取接口使用 Player Scope，实例方法支持 Player 或 World；均要求 `thread: GameThread` 和 `failureRule: ReturnError`；权限保留为逐 API 列表。每项还提供 `id`、稳定公开 `name`、`displayName`、`signatureHash`、`projectionHash` 和 `native: {header, symbol}`。Client v2 清单的必需符号记录须匹配实际入口。头路径相对生成根保留，不支持的形状直接报错。
+获取接口使用 Player Scope，实例方法支持 Player 或 World；均要求 `thread: GameThread` 和 `failureRule: ReturnError`；权限保留为逐 API 列表。每项还提供 `id`、稳定公开 `name`、`displayName`、`signatureHash`、`projectionHash` 和 `native: {header, symbol}`。客户端清单的必需符号记录须匹配实际入口。头路径相对生成根保留，不支持的形状直接报错。
 
 生成的 Runtime SDK 包含不透明 `USTRUCT` 引用与 `MinimalAPI` 蓝图函数库。标准 UE 节点通过 `ExpandEnumAsExecs` 展示成功/失败分支，无需额外空 Editor 模块。函数指针 `static_assert` 在 UE 编译时核对 ABI。令牌不开放蓝图编辑，宿主用 `FromNative` 提供上下文。适配层错误为负数，原生状态以非负蓝图 `int64` 错误码保留。
 
@@ -54,7 +54,7 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 | `contract` | 完整公开契约 |
 | `outputDirectory` | 不可变发布目录 |
 | `developmentPlugin` | 含 `DevelopmentEditor` 的独立开发插件 |
-| `tools.mbt` | 支持 v2 产物与二进制检查的 MBT |
+| `tools.mbt` | 支持输入清单版本和二进制检查的 MBT |
 | `tools.dotnet`、`tools.automationTool` | UE 可用的实际 .NET 程序与 UAT 程序集 |
 | `editor` | 当前宿主平台、架构、Development、实际引擎 `.modules` 和匹配 `buildId` |
 | `libraries` | Host 与 Client 项，各含 `context` 和 `generatedManifest` |
@@ -85,4 +85,4 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 
 `Built` 表示原生库与作者 Editor 插件实际构建并检查，不代表最终游戏链接、Game Target 的 SDK Runtime 或运行时 API 绑定已验证；结果明确将这些能力记为 false。Cook 后调用要求游戏中有匹配的 SDK Runtime。蓝图导出、可信宿主链接回执和玩家上下文交付仍是上游依赖。公开模块、类型和函数/参数名形成反射身份，兼容发布须保持稳定。
 
-MHT 已生成匹配的 `.sdkcontract.json`、纯 C `.modabi.h`、独立客户端入口和 v2 清单，见 [MHT 连接协议](../ModHeaderTool/README.zh-CN.md)。分别使用 Host 和 `<game>ModClient` 上下文作为库任务；连接描述明确列出宿主查询及客户端 Connect/Disconnect 符号。MST 要求描述文件是经过哈希检查的公共 Contract 产物，核对身份与 API 签名后按声明路径复制到 Bundle 和 SDK 插件；`inspect` 检查两份文件及契约身份。装载器仍需执行连接并交付宿主批准的 token。超出现有 MST 适配形状的 API 图会使 SDK 契约标记 `Unsupported`；内部 UE 视图的 `.modcontract.json` 仍是另一契约，不能作为 MST 的 SDK 契约。
+MHT 已生成匹配的 `.sdkcontract.json`、纯 C `.modabi.h`、独立客户端入口和 v3 清单，见 [MHT 连接协议](../ModHeaderTool/README.zh-CN.md)。分别使用 Host 和 `<game>ModClient` 上下文作为库任务；连接描述明确列出宿主查询及客户端 Connect/Disconnect 符号。MST 要求描述文件是经过哈希检查的公共 Contract 产物，核对身份与 API 签名后按声明路径复制到 Bundle 和 SDK 插件；`inspect` 检查两份文件及契约身份。装载器仍需执行连接并交付宿主批准的 token。超出现有 MST 适配形状的 API 图会使 SDK 契约标记 `Unsupported`；内部 UE 视图的 `.modcontract.json` 仍是另一契约，不能作为 MST 的 SDK 契约。

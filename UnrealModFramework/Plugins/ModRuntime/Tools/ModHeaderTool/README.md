@@ -17,9 +17,9 @@ Paths are relative to the fixed MHT output root:
 | `SDK/Public/<game>.modabi.h` | C declarations, fixed-width types, statuses, ABI version/hash constants, and typed host tables |
 | `Host/<owner>/<owner>.modabi.cpp` | Host C endpoints, exact member calls, checks, and exported table query |
 | `Client/<game>ModClient/<game>ModClient.modclient.cpp` | Independent client endpoints, checked Connect, Disconnect, and ReleaseObject |
-| `Contract/<game>.clientabi.json` | Versioned connection descriptor: owner modules, table/query/connection symbols, slots, signatures, hashes, and lifecycle rules |
-| `Contract/<game>.sdkcontract.json` | Resolved `UMF.SdkContract` for MST's supported adapter graph |
-| `<game>.generated-artifacts.json` | v2 inventory with explicit host/client compilation units and required symbol bindings |
+| `Contract/<game>.clientabi.json` | `UMF.ClientABI` v2 connection descriptor with owner modules, table/query/connection symbols, slots, signatures, hashes, and lifecycle rules |
+| `Contract/<game>.sdkcontract.json` | Resolved `UMF.SdkContract` v2 for MST's supported adapter graph |
+| `<game>.generated-artifacts.json` | v3 inventory with explicit host/client compilation units and required symbol bindings |
 
 The descriptor follows [client-abi.schema.json](Protocol/client-abi.schema.json).
 The client library owner is `<game>ModClient`; it has its own MBT producer
@@ -61,7 +61,7 @@ integer/scalar arguments, and a `uint32_t` status result. Boolean arguments are
 on failure and committed on success. Status 0 succeeds; 65536 means unconnected,
 65537 means ABI mismatch, and 65538 means an unexpected native exception.
 
-`nativeAbiHash` is SHA-256 of the descriptor before adding `nativeAbiHash`,
+`nativeABIHash` is SHA-256 of the descriptor before adding `nativeABIHash`,
 `contractHash`, and `projectionHash`, using sorted nlohmann JSON keys and compact
 `dump()`. It covers API shapes, connection names, status codes, and lifetime rules.
 The public header embeds the same version/hash for compiled consumers.
@@ -120,7 +120,7 @@ The UHT adapter supplies both actual contexts through `--host-contexts` and runs
 MBT for both libraries. Standalone `generate` requires a matching context set for every host module
 and the standalone client before it can publish a Complete manifest.
 
-MST consumes `.sdkcontract.json`, the Host and Client contexts, and the same v2
+MST consumes `.sdkcontract.json`, the Host and Client contexts, and the same v3
 generated manifest. It keeps the existing object getter and float method
 adapters and also emits typed methods with scalar and public UE object inputs.
 The SDK contract records `Unsupported` when it cannot represent the whole API set.

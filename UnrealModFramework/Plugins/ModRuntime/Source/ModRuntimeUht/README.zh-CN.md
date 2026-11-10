@@ -62,7 +62,7 @@ generate 按实际 Target、平台、配置和架构选择 build input，校验�
 
 规则在 `Intermediate/ModHeaderTool/HostTargets/<Target>/<Platform>/<Configuration>/<Architecture>` 写入稳定目标描述。`MbtHostBuild` 从真实 UBT 编译数据库中读取 MSVC 动作并展开响应文件，按哈希固定展开后的配方和原始数据库，保留模块生产者宏和 ABI 设置，仅替换源码、对象、依赖输出，并追加生成头目录。当前自动适配要求 Win64 x64 MSVC、关闭 PCH、Unity 和 LTO；缺失配置直接失败，不猜测工具链。
 
-MHT 的公共头只包含声明和签名数据，全部实现在显式 `.cpp` 编译单元中。MBT 独立编译这些单元，发布 `Intermediate/MBT/<Target>/<Platform>/<Configuration>/<Architecture>/<owner>.lib` 和 `.mbt.json` 回执。另有独立 `<game>ModClient` 生产者上下文，移除 UE/游戏包含与强制定义，保留真实工具链参数，由 MBT 独立编译客户端 ABI 库。v2 清单为单宿主示例列出全部五个 Host/Client 单元，并将两类入口绑定到 ExportId；MST 只收到纯 C ABI 公共头，见 [MHT 连接协议](../../Tools/ModHeaderTool/README.zh-CN.md)。`hostBuildContexts` 锁定每个真实生产者上下文；输入指纹不变时 MBT 复用库。
+MHT 的公共头只包含声明和签名数据，全部实现在显式 `.cpp` 编译单元中。MBT 独立编译这些单元，发布 `Intermediate/MBT/<Target>/<Platform>/<Configuration>/<Architecture>/<owner>.lib` 和 `.mbt.json` 回执。另有独立 `<game>ModClient` 生产者上下文，移除 UE/游戏包含与强制定义，保留真实工具链参数，由 MBT 独立编译客户端 ABI 库。v3 清单为单宿主示例列出全部五个 Host/Client 单元，并将两类入口绑定到 ExportId；MST 只收到纯 C ABI 公共头，见 [MHT 连接协议](../../Tools/ModHeaderTool/README.zh-CN.md)。`hostBuildContexts` 锁定每个真实生产者上下文；输入指纹不变时 MBT 复用库。
 
 私有 External 模块使用 UE 5.6 的 `PublicPreBuildLibraries` 登记首次 UHT 前尚不存在的库，不创建空占位库。UHT 内 MBT 必须成功，UBT 才会继续最终链接；该库不会通过所属 DLL 的私有依赖传播。游戏源码仅调用声明的 `UMF_ModHost_<owner>` 入口，不包含生成 `.cpp` 或 `.inl`。SDK 视图方法、构造和 TypeId 辅助函数也全部由 MBT 编译。
 

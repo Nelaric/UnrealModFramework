@@ -40,8 +40,8 @@ Usage:
                              --architecture <x64|arm64> --kind <Executable|DynamicLibrary>
   ModBuildTool --help | --version
 
-Requires UMF.ModHostContext v2 and UMF.GeneratedArtifacts v1 or v2.
-Generated v2 declares per-owner required symbols and public artifact roles.
+Requires UMF.ModHostContext v2 and UMF.GeneratedArtifacts v1, v2, or v3.
+Generated v2 and v3 declare per-owner required symbols and public artifact roles.
 The generated batch must be Complete, hash-checked, and match the exact context.
 MHT scan reports are not generation manifests. A zero-export module still needs
 a generated compilation unit defining its registration anchor.
@@ -51,7 +51,7 @@ the owning UE module. MBT never discovers an approximate host compiler setup.
 Supported native archive formats: Win64 COFF, Linux ELF, macOS Mach-O;
 architectures: x64 and arm64. LTO, PCH, unity, and C++ modules are not supported.
 Library creation does not prove successful final game linkage or runtime binding.
-finalize-host requires a v2 manifest, owningBinary, and a trusted successful link
+finalize-host requires a v2 or v3 manifest, owningBinary, and a trusted successful link
 record. It verifies identities and actual image bytes, not runtime behavior.
 
 JSON results use stdout or --output; compiler diagnostics use stderr.

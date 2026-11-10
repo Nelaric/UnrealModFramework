@@ -71,7 +71,7 @@ internal static class ClientBuildRecipe
 			}
 		}
 		context["dependencies"] = dependencies;
-		context["clientAbi"] = "ContextHandlesV1";
+		context["clientABI"] = "ContextHandlesV1";
 		Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 		string document = context.ToJsonString(
 			new JsonSerializerOptions(JsonSerializerOptions.Default) { WriteIndented = true }

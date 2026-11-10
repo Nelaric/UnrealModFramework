@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "UMF verified host build and link association v1",
+  "title": "UMF verified host build and link association v2",
   "type": "object",
-  "required": ["format", "schemaVersion", "status", "ownerModule", "target", "contextHash", "generationId", "inputFingerprint", "contractHash", "projectionHash", "nativeAbiHash", "library", "libraryHash", "binary", "hostBuildReceipt", "linkReceipt", "requiredSymbols", "publicArtifacts"],
+  "required": ["format", "schemaVersion", "status", "ownerModule", "target", "contextHash", "generationId", "inputFingerprint", "contractHash", "projectionHash", "nativeABIHash", "library", "libraryHash", "binary", "hostBuildReceipt", "linkReceipt", "requiredSymbols", "publicArtifacts"],
   "properties": {
     "format": { "const": "UMF.ModHostLinkedArtifacts" },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "status": { "const": "Linked" },
     "ownerModule": { "type": "string", "minLength": 1 },
     "target": { "$ref": "host-context.schema.json#/properties/target" },
@@ -14,7 +14,7 @@
     "inputFingerprint": { "$ref": "#/$defs/hash" },
     "contractHash": { "$ref": "#/$defs/hash" },
     "projectionHash": { "$ref": "#/$defs/hash" },
-    "nativeAbiHash": { "$ref": "#/$defs/hash" },
+    "nativeABIHash": { "$ref": "#/$defs/hash" },
     "library": { "type": "string", "minLength": 1 },
     "libraryHash": { "$ref": "#/$defs/hash" },
     "binary": { "$ref": "host-link-receipt.schema.json#/properties/binary" },

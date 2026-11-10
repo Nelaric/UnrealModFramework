@@ -1,7 +1,7 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "GenerationModel.h"
 #include "GenerationOutput.h"
-#include "NativeAbiGenerator.h"
+#include "NativeABIGenerator.h"
 
 #include "Hash.h"
 #include "ModHeaderTool/Generation.h"
@@ -367,7 +367,7 @@ void WriteHost(const FGenerationModel& Model, FFiles& Files)
 		    Prologue(Module.Name + ".modexports.h") + "#include \"ModAPIRegistry.h\"\n#include \"" +
 		    Model.Input.GameId + ".modviews.h\"\n\nextern \"C\" UMF_" + ExportMacro + " void UMF_ModHost_" +
 		    Module.Name + "(Mod::API::FRegistry& Registry, TModResult<TArray<Mod::API::FRegistration>>& Result);\n" +
-		    "extern \"C\" " + ExportMacro + " uint32 UMF_ModHost_" + Module.Name + "_RetainAbi(void);\n";
+		    "extern \"C\" " + ExportMacro + " uint32 UMF_ModHost_" + Module.Name + "_RetainABI(void);\n";
 
 		std::ostringstream Host, Verify;
 		Host << Prologue(Module.Name + ".modhost.cpp") << "#include \"" << Module.Name << ".modexports.h\"\n"
@@ -522,7 +522,7 @@ void WriteHost(const FGenerationModel& Model, FFiles& Files)
 		     << ";\n}\n#endif\n";
 		Host << "\nextern \"C\" " << ExportMacro << " void UMF_ModHost_" << Module.Name
 		     << "(Mod::API::FRegistry& Registry, TModResult<TArray<Mod::API::FRegistration>>& Result)\n{\n"
-		     << "    if (UMF_ModHost_" << Module.Name << "_RetainAbi() != 1)\n    {\n"
+		     << "    if (UMF_ModHost_" << Module.Name << "_RetainABI() != 1)\n    {\n"
 		     << "        Result = "
 		        "TModResult<TArray<Mod::API::FRegistration>>::Failure(Mod::API::EError::SignatureMismatch);\n"
 		     << "        return;\n    }\n    Result = " << Namespace << "::Register(Registry);\n}\n";
@@ -621,7 +621,7 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 	FFiles Files;
 	WriteSdk(Model, Files);
 	WriteHost(Model, Files);
-	const FJson NativeAbi = WriteNativeAbi(Model, Files, ContractHash, ProjectionHash, Lifecycle);
+	const FJson NativeABI = WriteNativeABI(Model, Files, ContractHash, ProjectionHash, Lifecycle);
 	for (auto& [Path, Text] : Files)
 	{
 		if (Path.ends_with(".h") || Path.ends_with(".cpp"))
@@ -732,7 +732,7 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 		}
 		ConfigWatches.push_back({{"root", PathToUtf8(Module.Root)}, {"kind", "Source"}, {"files", Names}});
 	}
-	const FJson Manifest{{"schemaVersion", 2},
+	const FJson Manifest{{"schemaVersion", 3},
 	                     {"generatorVersion", GeneratorVersion},
 	                     {"format", "UMF.GeneratedArtifacts"},
 	                     {"outputLayout", "Flat"},
@@ -748,10 +748,10 @@ void Emit(FGenerationModel Model, const fs::path& OutputDirectory)
 	                     {"buildContextHash", ContextHash},
 	                     {"contractHash", ContractHash},
 	                     {"projectionHash", ProjectionHash},
-	                     {"nativeAbiHash", NativeAbi.at("nativeAbiHash")},
-	                     {"independentNativeAbi", true},
-	                     {"clientAbi", NativeAbi},
-	                     {"requiredSymbols", NativeAbi.at("requiredSymbols")},
+	                     {"nativeABIHash", NativeABI.at("nativeABIHash")},
+	                     {"independentNativeABI", true},
+	                     {"clientABI", NativeABI},
+	                     {"requiredSymbols", NativeABI.at("requiredSymbols")},
 	                     {"unresolvedTypeCount", 0},
 	                     {"generatedFiles", Generated},
 	                     {"compilationUnits", CompilationUnits},
