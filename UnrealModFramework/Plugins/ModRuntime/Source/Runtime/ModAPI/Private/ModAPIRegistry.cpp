@@ -230,6 +230,52 @@ void FRegistration::Reset()
 	}
 }
 
+FGeneratedHostRegistration* FGeneratedHostRegistration::First = nullptr;
+
+FGeneratedHostRegistration::FGeneratedHostRegistration(FRegister InRegister) : Next(First), Register(InRegister)
+{
+	First = this;
+}
+
+FGeneratedHostRegistration::~FGeneratedHostRegistration()
+{
+	auto** Link = &First;
+	while (*Link != this)
+	{
+		Link = &(*Link)->Next;
+	}
+	*Link = Next;
+	for (const auto& Type : ActiveTypes)
+	{
+		if (const auto State = Type.Pin(); State && State->bActive)
+		{
+			check(IsInGameThread());
+			State->bActive = false;
+		}
+	}
+}
+
+TModResult<TArray<FRegistration>> FGeneratedHostRegistration::RegisterAll(FRegistry& Registry)
+{
+	TArray<FRegistration> Registrations;
+	for (auto* Host = First; Host; Host = Host->Next)
+	{
+		auto Result = TModResult<TArray<FRegistration>>::Failure(EError::NotRegistered);
+		Host->Register(Registry, Result);
+		if (!Result.IsSuccess())
+		{
+			return Result;
+		}
+		Host->ActiveTypes.RemoveAll([](const auto& Type) { return !Type.IsValid(); });
+		for (const FRegistration& Registration : Result.GetValue())
+		{
+			Host->ActiveTypes.Add(Registration.State);
+		}
+		Registrations.Append(MoveTemp(Result.GetValue()));
+	}
+	return TModResult<TArray<FRegistration>>::Success(MoveTemp(Registrations));
+}
+
 FRegistry::FRegistry() : State(MakeShared<FRegistryState>())
 {
 	check(IsInGameThread());
@@ -437,6 +483,22 @@ TModResult<FRegistration> FRegistry::RegisterProvider(FName TypeId, const FScope
 	FRegistration Registration;
 	Registration.State = Provider;
 	return TModResult<FRegistration>::Success(MoveTemp(Registration));
+}
+
+TModResult<FRegistration> FRegistry::RegisterLocalPlayerProvider(FName TypeId, const FScope& Scope)
+{
+	const auto* Type = State->Types.Find(TypeId);
+	if (!Type || !(*Type)->bActive || !(*Type)->Descriptor.bLocalPlayerSubsystem)
+	{
+		return TModResult<FRegistration>::Failure(EError::NotRegistered);
+	}
+	if (!OwnsScope(State, Scope.State) || Scope.State->Kind != EScope::Player)
+	{
+		return TModResult<FRegistration>::Failure(EError::BindingExpired);
+	}
+	auto* Service = Scope.State->Player->GetSubsystemBase((*Type)->Descriptor.Class);
+	return IsValid(Service) ? RegisterProvider(TypeId, Scope, Service)
+	                        : TModResult<FRegistration>::Failure(EError::NotRegistered);
 }
 
 TModResult<FObjectBinding> FRegistry::BindProvider(FName TypeId, const TCHAR* Signature, const FCaller& Caller)
