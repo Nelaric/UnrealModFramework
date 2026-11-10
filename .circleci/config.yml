@@ -3,9 +3,13 @@ version: 2.1
 
 commands:
   pull_unreal_image:
+    parameters:
+      with_mst:
+        type: boolean
+        default: false
     steps:
       - run:
-          name: Pull Unreal Engine 5.6.1 Linux image
+          name: Prepare Unreal Engine 5.6.1 Linux image
           no_output_timeout: 30m
           command: |
             set -euo pipefail
@@ -13,6 +17,14 @@ commands:
             : "${GHCR_TOKEN:?Set GHCR_TOKEN in CircleCI project settings}"
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
             docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1
+            if << parameters.with_mst >>; then
+              printf '%s\n' \
+                'FROM ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1' \
+                'USER root' \
+                'RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*' \
+                'USER ue4' |
+                docker build --tag umf-ue-mst:5.6.1 -
+            fi
             docker logout ghcr.io
   stage_project:
     steps:
@@ -60,24 +72,25 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - pull_unreal_image
+      - pull_unreal_image:
+          with_mst: true
       - stage_project
       - compile_target:
           target: UnrealModFrameworkDevEditor
       - run:
-          name: Package ModDevelopmentSDKEditor for Linux
+          name: Compile the authoring editor with MST for Linux
           no_output_timeout: 30m
           command: |
             set -euo pipefail
             : "${UE_PROJECT_DIR:?Project staging directory is missing}"
-            docker run --rm --network none \
+            mkdir "$UE_PROJECT_DIR/.circleci"
+            cp -a LICENSE NOTICE.md "$UE_PROJECT_DIR/"
+            cp -a .circleci/build-editor-plugin.sh "$UE_PROJECT_DIR/.circleci/"
+            docker run --rm --init --network none \
               --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
-              ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
-              /home/ue4/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh \
-              BuildPlugin \
-              -Plugin=/workspace/UnrealModFramework/SourcePlugins/ModDevelopmentSDKEditor/ModDevelopmentSDKEditor.uplugin \
-              -Package=/workspace/Dist/ModDevelopmentSDKEditor \
-              -TargetPlatforms=Linux
+              --workdir /workspace \
+              umf-ue-mst:5.6.1 \
+              bash .circleci/build-editor-plugin.sh
 
 workflows:
   linux_build:
