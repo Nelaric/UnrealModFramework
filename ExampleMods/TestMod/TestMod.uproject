@@ -16,6 +16,17 @@
 	],
 	"Plugins": [
 		{
+			"Name": "ControlRig",
+			"Enabled": true
+		},
+		{
+			"Name": "IKRig",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
 			"Name": "UMFDevSDK",
 			"Enabled": true
 		},
