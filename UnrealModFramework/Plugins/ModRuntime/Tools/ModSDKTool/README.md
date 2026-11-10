@@ -38,6 +38,12 @@ changed inputs require a new versioned output directory. Publication verifies an
 owned sibling staging directory, then renames it into the absent destination.
 Failures do not replace existing SDKs.
 
+Use `ModSDKTool build-editor` to package the independent authoring plugin from
+its descriptor and an installed Editor. Pass a new directory with `--package`,
+the Editor's .NET host, AutomationTool assembly, module manifest and
+architecture, and the MBT executable. MST verifies the Editor BuildId and
+binary before publishing the plugin with the native tools.
+
 ## Input contracts
 
 [sdk-contract.schema.json](Protocol/sdk-contract.schema.json) defines

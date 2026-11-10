@@ -81,6 +81,28 @@ FSdkRequest ReadSdkRequest(const fs::path& File);
 FJson PlanSdk(FSdkRequest& Request);
 /// Generates adapters, builds native libraries and UE plugins, and publishes.
 FJson BuildSdk(FSdkRequest& Request);
+
+/// Native tools and author Editor identity for an Unreal plugin build.
+struct FEditorBuild
+{
+	/// Actual engine-provided .NET host.
+	fs::path Dotnet;
+	/// Actual UE AutomationTool assembly.
+	fs::path AutomationTool;
+	/// Native MBT executable used to verify the built binary.
+	fs::path Mbt;
+	/// Unreal host platform for the Editor target.
+	std::string Platform;
+	/// Native architecture of the Editor binary.
+	std::string Architecture;
+	/// Build identity read from the author Editor module manifest.
+	std::string BuildId;
+	/// Maximum runtime for each native tool invocation.
+	unsigned TimeoutSeconds = 1800;
+};
+
+/// Builds and publishes the independent authoring plugin.
+void BuildEditorPlugin(const FEditorBuild& Editor, const fs::path& Plugin, const fs::path& Package);
 /// Verifies an existing bundle's complete declared file inventory.
 FJson InspectSdk(const fs::path& Directory);
 /// Rejects a result path that aliases inputs, libraries, or bundle content.

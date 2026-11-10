@@ -24,6 +24,8 @@ ModSDKTool inspect --bundle <发布目录>
 
 已发布目录不可变。相同输入核对全部文件后返回 `UpToDate`；输入变化须选择新的版本化输出目录。发布先在同级独占目录中准备并验证，再重命名到原先不存在的目标。失败不会替换已有 SDK。
 
+使用 `ModSDKTool build-editor` 构建独立制作插件。传入插件描述文件、尚不存在的 `--package` 目录、已安装 Editor 的 .NET 宿主、AutomationTool 程序集、模块清单、架构以及 MBT 可执行文件。MST 校验 Editor BuildId 和二进制后，将插件与原生工具一并发布。
+
 ## 生产者契约
 
 [sdk-contract.schema.json](Protocol/sdk-contract.schema.json) 定义 `UMF.SdkContract` v1。它必须为 `Complete`、未解析类型数为零，契约、投影和原生 ABI 的 SHA-256 与库批次一致。契约文件本身须为经过哈希校验的 `Contract` 产物，公开头须为 MBT 返回的 `SdkHeader`。宿主实现、注册、验证和私有头不进入作者 SDK。
