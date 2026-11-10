@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "UMF SDK build request v1",
   "type": "object",
-  "required": ["format", "schemaVersion", "project", "gameId", "sdkVersion", "pluginName", "contract", "outputDirectory", "developmentPlugin", "tools", "editor", "libraries"],
+  "required": ["format", "schemaVersion", "project", "gameId", "sdkVersion", "pluginName", "contract", "developmentPlugin", "tools", "editor", "libraries"],
   "properties": {
     "format": { "const": "UMF.SdkBuildRequest" },
     "schemaVersion": { "const": 1 },

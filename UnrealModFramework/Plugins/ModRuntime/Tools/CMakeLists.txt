@@ -11,6 +11,15 @@ if(DEFINED UMF_EXPECTED_COMPILER_ID AND NOT CMAKE_CXX_COMPILER_ID STREQUAL UMF_E
     )
 endif()
 
-add_subdirectory(ModBuildTool)
-add_subdirectory(ModHeaderTool)
-add_subdirectory(ModSDKTool)
+if(NOT DEFINED UMF_RELEASE_TOOL_OUTPUT_ROOT AND CMAKE_BINARY_DIR STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}/build")
+    set(UMF_RELEASE_TOOL_OUTPUT_ROOT "${CMAKE_BINARY_DIR}")
+endif()
+
+foreach(tool IN ITEMS ModBuildTool ModSourceTool ModHeaderTool ModSDKTool)
+    add_subdirectory(${tool})
+    if(UMF_RELEASE_TOOL_OUTPUT_ROOT)
+        set_target_properties(${tool} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY_RELEASE "${UMF_RELEASE_TOOL_OUTPUT_ROOT}/${tool}"
+        )
+    endif()
+endforeach()

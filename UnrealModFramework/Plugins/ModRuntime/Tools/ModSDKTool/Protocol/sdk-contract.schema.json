@@ -14,6 +14,8 @@
     "projectionHash": { "$ref": "#/$defs/hash" },
     "nativeABIHash": { "$ref": "#/$defs/hash" },
     "connectionDescriptor": { "type": "string", "minLength": 1, "description": "Optional public UMF.ClientABI artifact path relative to the generated root and published bundle/plugin root." },
+    "errorCodeEncodingVersion": { "const": 2 },
+    "errorHeader": { "type": "string", "minLength": 1, "description": "Public header containing the SDK's structured error code macros." },
     "modLifecycle": {
       "type": "object",
       "required": ["schemaVersion", "module", "resource", "resourceHash"],
@@ -49,6 +51,12 @@
           "scope": { "enum": ["Player", "World"] },
           "thread": { "const": "GameThread" },
           "failureRule": { "const": "ReturnError" },
+          "sourceErrorCodes": {
+            "description": "Source analysis metadata for failure paths in the original implementation.",
+            "type": "object",
+            "propertyNames": { "minLength": 1 },
+            "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+          },
           "permissions": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
           "signatureHash": { "$ref": "#/$defs/hash" },
           "projectionHash": { "$ref": "#/$defs/hash" },
@@ -111,6 +119,10 @@
         ]
       }
     }
+  },
+  "dependentRequired": {
+    "errorCodeEncodingVersion": ["errorHeader", "connectionDescriptor"],
+    "errorHeader": ["errorCodeEncodingVersion"]
   },
   "$defs": {
     "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },

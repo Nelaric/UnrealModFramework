@@ -12,7 +12,7 @@ script_dir=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
 toolchain_dir=
 target=all
 jobs=${CMAKE_BUILD_PARALLEL_LEVEL-}
-build_dir="$script_dir/build/Release"
+build_dir=
 generator=${CMAKE_GENERATOR-}
 
 usage() {
@@ -42,7 +42,8 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 
-set -- "-DTOOLCHAIN_DIR=$toolchain_dir" "-DTARGET=$target" "-DBUILD_DIR=$build_dir"
+set -- "-DTOOLCHAIN_DIR=$toolchain_dir" "-DTARGET=$target"
+if [ -n "$build_dir" ]; then set -- "$@" "-DBUILD_DIR=$build_dir"; fi
 if [ -n "$jobs" ]; then set -- "$@" "-DJOBS=$jobs"; fi
 if [ -n "$generator" ]; then set -- "$@" "-DGENERATOR=$generator"; fi
 exec cmake "$@" -P "$script_dir/Build.cmake"

@@ -9,6 +9,7 @@
     "status": { "const": "Complete" },
     "adapterABI": { "const": "ContextHandlesV1" },
     "abiVersion": { "const": 1 },
+    "errorCodeEncodingVersion": { "const": 2 },
     "gameId": { "type": "string", "minLength": 1 },
     "callingConvention": { "const": "cdecl" },
     "tablePacking": { "const": 8 },

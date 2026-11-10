@@ -14,12 +14,14 @@ Wrappers also accept --build-dir directory and --generator name.
 Options (place all -D options before -P):
   TOOLCHAIN_DIR  Optional compiler root or bin directory; takes precedence
                 over environment variables. An invalid directory is an error.
-  TARGET      all (default), ModBuildTool, ModHeaderTool, or ModSDKTool
+  TARGET      all (default), ModBuildTool, ModHeaderTool, ModSDKTool, or ModSourceTool
   JOBS        Positive parallel job count; defaults to the logical CPU count
               or CMAKE_BUILD_PARALLEL_LEVEL when set. NMake builds serially.
   GENERATOR   Ninja, Ninja Multi-Config, NMake Makefiles (Windows), or
               Unix Makefiles (Unix). Defaults to Ninja when available.
-  BUILD_DIR   Build directory; relative paths are based on the Tools directory
+  BUILD_DIR   Defaults to build/.cmake with executables in build/<tool>.
+              An override puts executables in <directory>/bin/Release.
+              Relative overrides are based on the Tools directory.
   CXX         Optional compiler executable when TOOLCHAIN_DIR is not supplied
   HELP        ON to display this help
 
@@ -40,8 +42,8 @@ set(CONFIG Release)
 if(NOT DEFINED TARGET)
     set(TARGET all)
 endif()
-if(NOT "${TARGET}" MATCHES "^(all|ModBuildTool|ModHeaderTool|ModSDKTool)$")
-    message(FATAL_ERROR "Invalid TARGET '${TARGET}'. Use all, ModBuildTool, ModHeaderTool, or ModSDKTool.")
+if(NOT "${TARGET}" MATCHES "^(all|ModBuildTool|ModHeaderTool|ModSDKTool|ModSourceTool)$")
+    message(FATAL_ERROR "Invalid TARGET '${TARGET}'. Use all, ModBuildTool, ModHeaderTool, ModSDKTool, or ModSourceTool.")
 endif()
 if(NOT DEFINED JOBS)
     if(DEFINED ENV{CMAKE_BUILD_PARALLEL_LEVEL} AND NOT "$ENV{CMAKE_BUILD_PARALLEL_LEVEL}" STREQUAL "")
@@ -160,8 +162,10 @@ if(CMAKE_HOST_WIN32)
 else()
     set(ENV{PATH} "${_compiler_bin}:$ENV{PATH}")
 endif()
+set(_release_tool_output_root "")
 if(NOT DEFINED BUILD_DIR)
-    set(BUILD_DIR "build/Release")
+    set(BUILD_DIR "build/.cmake")
+    set(_release_tool_output_root "${CMAKE_CURRENT_LIST_DIR}/build")
 endif()
 get_filename_component(BUILD_DIR "${BUILD_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 if(BUILD_DIR STREQUAL CMAKE_CURRENT_LIST_DIR)
@@ -217,6 +221,7 @@ set(_configure_command "${CMAKE_COMMAND}"
     "-DCMAKE_BUILD_TYPE:STRING=${CONFIG}"
     "-DCMAKE_MAKE_PROGRAM:FILEPATH=${_build_tool}"
     "-DUMF_EXPECTED_COMPILER_ID:STRING=${_compiler_id}"
+    "-DUMF_RELEASE_TOOL_OUTPUT_ROOT:PATH=${_release_tool_output_root}"
 )
 list(APPEND _configure_command "-DCMAKE_CXX_COMPILER:FILEPATH=${_compiler}")
 if(GENERATOR STREQUAL "Ninja Multi-Config")
@@ -251,4 +256,11 @@ execute_process(COMMAND ${_build_command} RESULT_VARIABLE _build_result)
 if(NOT _build_result STREQUAL "0")
     message(FATAL_ERROR "Build failed (${_build_result}).")
 endif()
-message(STATUS "Build succeeded. Executables: ${BUILD_DIR}/bin/${CONFIG}")
+if(NOT _release_tool_output_root)
+    set(_executables "${BUILD_DIR}/bin/${CONFIG}")
+elseif("${TARGET}" STREQUAL "all")
+    set(_executables "${_release_tool_output_root}/<tool>")
+else()
+    set(_executables "${_release_tool_output_root}/${TARGET}")
+endif()
+message(STATUS "Build succeeded. Executables: ${_executables}")
