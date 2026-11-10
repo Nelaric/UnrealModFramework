@@ -6,6 +6,33 @@
 
 namespace Mod::API
 {
+/// Publishes a generated module's registration entry point until unload.
+class MODAPI_API FGeneratedHostRegistration
+{
+public:
+	/// Signature of a generated registration entry point.
+	using FRegister = void (*)(FRegistry&, TModResult<TArray<FRegistration>>&);
+
+	/** @brief Publishes an entry point for future game instances.
+	 * @param InRegister The generated entry point in the owning module.
+	 */
+	explicit FGeneratedHostRegistration(FRegister InRegister);
+	/// Withdraws the entry point and invalidates its live type registrations.
+	~FGeneratedHostRegistration();
+
+private:
+	FGeneratedHostRegistration(const FGeneratedHostRegistration&) = delete;
+	FGeneratedHostRegistration& operator=(const FGeneratedHostRegistration&) = delete;
+
+	friend class ::UModAPIHostSubsystem;
+	static TModResult<TArray<FRegistration>> RegisterAll(FRegistry& Registry);
+
+	static FGeneratedHostRegistration* First;
+	FGeneratedHostRegistration* Next;
+	FRegister Register;
+	TArray<TWeakPtr<FRegistrationState>> ActiveTypes;
+};
+
 /// Host-only operations used by concrete generated calling bridges.
 struct MODAPI_API FHostAccess
 {

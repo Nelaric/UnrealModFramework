@@ -5,6 +5,7 @@
 #include "ModAPIObject.h"
 
 class ULocalPlayer;
+class UModAPIHostSubsystem;
 class UWorld;
 
 namespace Mod::API
@@ -53,6 +54,8 @@ struct FTypeDescriptor
 	bool bAllowWorldless = false;
 	/// Preserves read-only authority when this full view is projected.
 	bool bFullView = false;
+	/// Resolves this player-scoped service from the chosen local player.
+	bool bLocalPlayerSubsystem = false;
 };
 
 /// A revocable registration. The owner must release it before unloading code.
@@ -80,6 +83,7 @@ private:
 	FRegistration& operator=(const FRegistration&) = delete;
 
 	friend class FRegistry;
+	friend class FGeneratedHostRegistration;
 	TSharedPtr<FRegistrationState> State;
 };
 
@@ -160,6 +164,8 @@ private:
 	FRegistry& operator=(const FRegistry&) = delete;
 
 	friend struct FNativeAccess;
+	friend class ::UModAPIHostSubsystem;
+	TModResult<FRegistration> RegisterLocalPlayerProvider(FName TypeId, const FScope& Scope);
 	TSharedPtr<FRegistryState> State;
 };
 /** @brief Binds a generated service view once for a host-issued caller.
