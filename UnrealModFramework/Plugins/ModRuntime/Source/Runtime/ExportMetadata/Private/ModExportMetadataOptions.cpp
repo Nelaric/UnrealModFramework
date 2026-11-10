@@ -13,17 +13,17 @@ const TCHAR* GetConfigKey(const EOptionKind Kind)
 {
 	switch (Kind)
 	{
-	case EOptionKind::ApiId:
+	case EOptionKind::APIId:
 	case EOptionKind::EventId:
 		return nullptr;
-	case EOptionKind::ApiScope:
-		return TEXT("ApiScopes");
-	case EOptionKind::ApiThread:
-		return TEXT("ApiThreads");
-	case EOptionKind::ApiPermission:
-		return TEXT("ApiPermissions");
-	case EOptionKind::ApiFailureRule:
-		return TEXT("ApiFailureRules");
+	case EOptionKind::APIScope:
+		return TEXT("APIScopes");
+	case EOptionKind::APIThread:
+		return TEXT("APIThreads");
+	case EOptionKind::APIPermission:
+		return TEXT("APIPermissions");
+	case EOptionKind::APIFailureRule:
+		return TEXT("APIFailureRules");
 	case EOptionKind::EventSourceScope:
 		return TEXT("EventSourceScopes");
 	case EOptionKind::EventPublishRule:
@@ -36,7 +36,7 @@ const TCHAR* GetConfigKey(const EOptionKind Kind)
 TArray<FString> FOptions::Load(const EOptionKind Kind)
 {
 	TArray<FString> Choices;
-	if (Kind == EOptionKind::ApiId || Kind == EOptionKind::EventId)
+	if (Kind == EOptionKind::APIId || Kind == EOptionKind::EventId)
 	{
 		FGameplayTagContainer Tags;
 		UGameplayTagsManager::Get().RequestAllGameplayTags(Tags, false);

@@ -40,9 +40,9 @@ const FName ExportSelectionOwner(TEXT("ModBlueprintExport"));
 
 FName GetExportId(const UModBlueprintExportEntry* Entry)
 {
-	if (const UModBlueprintApiExport* Api = Cast<UModBlueprintApiExport>(Entry))
+	if (const UModBlueprintAPIExport* API = Cast<UModBlueprintAPIExport>(Entry))
 	{
-		return Api->ExportId;
+		return API->ExportId;
 	}
 	if (const UModBlueprintEventExport* Event = Cast<UModBlueprintEventExport>(Entry))
 	{
@@ -73,9 +73,9 @@ FText GetEntryTooltip(const UModBlueprintExportEntry* Entry)
 	const FName ExportId = GetExportId(Entry);
 	const FText IdText = ExportId.IsNone() ? LOCTEXT("UnassignedId", "尚未选择导出 ID") : FText::FromName(ExportId);
 	FText Tooltip = FText::Format(LOCTEXT("EntryTooltip", "{0}\n{1}"), Entry->GetExportTooltip(), IdText);
-	const UModBlueprintApiExport* Api = Cast<UModBlueprintApiExport>(Entry);
+	const UModBlueprintAPIExport* API = Cast<UModBlueprintAPIExport>(Entry);
 	const UModBlueprintHookExport* Hook = Cast<UModBlueprintHookExport>(Entry);
-	if ((Api && !Entry->OwnsGraph(Api->ImplementationGraph)) || (Hook && !Entry->OwnsGraph(Hook->OriginalGraph)))
+	if ((API && !Entry->OwnsGraph(API->ImplementationGraph)) || (Hook && !Entry->OwnsGraph(Hook->OriginalGraph)))
 	{
 		Tooltip = FText::Format(LOCTEXT("MissingGraphTooltip", "{0}\n实现图缺失或归属已失效，无法打开。"), Tooltip);
 	}
@@ -306,9 +306,9 @@ bool SModBlueprintExportPanel::IsEntryInBlueprint(const UModBlueprintExportEntry
 	{
 		return false;
 	}
-	if (const UModBlueprintApiExport* Api = Cast<UModBlueprintApiExport>(Entry))
+	if (const UModBlueprintAPIExport* API = Cast<UModBlueprintAPIExport>(Entry))
 	{
-		return Exports->APIs.Contains(Api);
+		return Exports->APIs.Contains(API);
 	}
 	if (const UModBlueprintEventExport* Event = Cast<UModBlueprintEventExport>(Entry))
 	{
@@ -380,8 +380,8 @@ void SModBlueprintExportPanel::CreateNamedEntry(const FText& Name, const ETextCo
 	UModBlueprintExportEntry* Entry = nullptr;
 	switch (Kind)
 	{
-	case EExportKind::Api:
-		Entry = Exports->AddApi(Blueprint, Name.ToString(), ErrorMessage);
+	case EExportKind::API:
+		Entry = Exports->AddAPI(Blueprint, Name.ToString(), ErrorMessage);
 		break;
 	case EExportKind::Event:
 		Entry = Exports->AddEvent(Blueprint, Name.ToString(), ErrorMessage);
@@ -422,8 +422,8 @@ UClass* SModBlueprintExportPanel::GetEntryClass(const EExportKind Kind)
 {
 	switch (Kind)
 	{
-	case EExportKind::Api:
-		return UModBlueprintApiExport::StaticClass();
+	case EExportKind::API:
+		return UModBlueprintAPIExport::StaticClass();
 	case EExportKind::Event:
 		return UModBlueprintEventExport::StaticClass();
 	case EExportKind::Hook:
@@ -580,11 +580,11 @@ void SModBlueprintExportPanel::CollectAllActions(FGraphActionListBuilderBase& Ac
 	{
 		return;
 	}
-	for (UModBlueprintApiExport* Entry : Exports->APIs)
+	for (UModBlueprintAPIExport* Entry : Exports->APIs)
 	{
 		if (Entry)
 		{
-			Actions.AddAction(MakeShared<FExportSchemaAction>(Entry, static_cast<int32>(EExportKind::Api)));
+			Actions.AddAction(MakeShared<FExportSchemaAction>(Entry, static_cast<int32>(EExportKind::API)));
 		}
 	}
 	for (UModBlueprintEventExport* Entry : Exports->Events)
@@ -607,7 +607,7 @@ void SModBlueprintExportPanel::CollectStaticSections(TArray<int32>& Sections)
 {
 	if (bShowEmptySections)
 	{
-		Sections.Add(static_cast<int32>(EExportKind::Api));
+		Sections.Add(static_cast<int32>(EExportKind::API));
 		Sections.Add(static_cast<int32>(EExportKind::Event));
 		Sections.Add(static_cast<int32>(EExportKind::Hook));
 	}
@@ -617,8 +617,8 @@ FText SModBlueprintExportPanel::GetSectionTitle(const int32 SectionId) const
 {
 	switch (static_cast<EExportKind>(SectionId))
 	{
-	case EExportKind::Api:
-		return LOCTEXT("ApiHeader", "API");
+	case EExportKind::API:
+		return LOCTEXT("APIHeader", "API");
 	case EExportKind::Event:
 		return LOCTEXT("EventHeader", "Event");
 	case EExportKind::Hook:
@@ -710,7 +710,7 @@ TSharedRef<SWidget> SModBlueprintExportPanel::CreateAddMenu()
 void SModBlueprintExportPanel::BuildAddMenu(FMenuBuilder& Menu)
 {
 	Menu.BeginSection(TEXT("AddExport"), LOCTEXT("AddExportMenu", "添加导出"));
-	for (const EExportKind Kind : {EExportKind::Api, EExportKind::Event, EExportKind::Hook})
+	for (const EExportKind Kind : {EExportKind::API, EExportKind::Event, EExportKind::Hook})
 	{
 		const FText Title = GetSectionTitle(static_cast<int32>(Kind));
 		const FName IconName = Kind == EExportKind::Event  ? FName(TEXT("GraphEditor.Delegate_16x"))
@@ -778,7 +778,7 @@ TSharedPtr<SWidget> SModBlueprintExportPanel::OnContextMenuOpening()
 void SModBlueprintExportPanel::SetAllSectionsExpanded(const bool bExpanded)
 {
 	TMap<int32, bool> Expansion;
-	Expansion.Add(static_cast<int32>(EExportKind::Api), bExpanded);
+	Expansion.Add(static_cast<int32>(EExportKind::API), bExpanded);
 	Expansion.Add(static_cast<int32>(EExportKind::Event), bExpanded);
 	Expansion.Add(static_cast<int32>(EExportKind::Hook), bExpanded);
 	GraphActionMenu->SetSectionExpansion(Expansion);

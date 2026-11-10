@@ -43,7 +43,7 @@ public:
 private:
 	enum class EExportKind : int32
 	{
-		Api = 1,
+		API = 1,
 		Event,
 		Hook,
 	};

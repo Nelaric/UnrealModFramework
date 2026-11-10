@@ -170,25 +170,46 @@ private:
 	void ValidateValue(const Schema::FFieldSpec& Spec, const FMetadataValue& Value)
 	{
 		using Schema::EFieldType;
-		if (Spec.Type == EFieldType::ChoiceList)
+		if (Spec.Type == EFieldType::ChoiceList || Spec.Type == EFieldType::ClassNameList ||
+		    Spec.Type == EFieldType::FunctionNameList)
 		{
 			if (Value.Kind != EMetadataValueKind::List)
 			{
 				Error(Value.Offset, std::string("'") + Spec.Name + "' expects a parenthesized list.");
 				return;
 			}
-			if (std::string_view(Spec.ChoiceKey) == "HookStages" && Value.Items.empty())
+			if (Spec.ChoiceKey && std::string_view(Spec.ChoiceKey) == "HookStages" && Value.Items.empty())
 			{
 				Error(Value.Offset, "'AllowedStages' must contain at least one Hook stage.");
 			}
 			std::set<std::string> Items;
 			for (const FMetadataValue& Item : Value.Items)
 			{
-				if (!Items.insert(Item.Text).second)
+				std::string Name = Item.Text;
+				if (Spec.Type == EFieldType::ClassNameList && Name.starts_with("::"))
+				{
+					Name.erase(0, 2);
+				}
+				if (!Items.insert(Name).second)
 				{
 					Error(Item.Offset, std::string("duplicate '") + Spec.Name + "' entry '" + Item.Text + "'.");
 				}
-				CheckChoice(Spec, Item);
+				if (Spec.Type == EFieldType::ChoiceList)
+				{
+					CheckChoice(Spec, Item);
+				}
+				else if (Spec.Type == EFieldType::FunctionNameList)
+				{
+					if (Item.Kind != EMetadataValueKind::String || !IsCompatibleFunctionName(Item.Text))
+					{
+						Error(Item.Offset,
+						      "'CompatibleNames' expects a quoted function identifier, found '" + Item.Text + "'.");
+					}
+				}
+				else if (Item.Kind != EMetadataValueKind::String || !IsTypeName(Item.Text))
+				{
+					Error(Item.Offset, std::string("'") + Spec.Name + "' expects quoted C++ class names.");
+				}
 			}
 			return;
 		}
@@ -234,6 +255,34 @@ private:
 	std::vector<std::string> Diagnostics;
 };
 } // namespace
+
+bool IsCompatibleFunctionName(std::string_view Name)
+{
+	const auto IsLetter = [](char Character)
+	{ return (Character >= 'a' && Character <= 'z') || (Character >= 'A' && Character <= 'Z'); };
+	if (Name.empty() || (!IsLetter(Name.front()) && Name.front() != '_') ||
+	    !std::all_of(Name.begin(), Name.end(), [&](char Character)
+	                 { return IsLetter(Character) || (Character >= '0' && Character <= '9') || Character == '_'; }))
+	{
+		return false;
+	}
+	constexpr std::string_view Keywords[] = {
+	    "alignas",     "alignof",  "and",       "and_eq",    "asm",       "auto",         "bitand",
+	    "bitor",       "bool",     "break",     "case",      "catch",     "char",         "char8_t",
+	    "char16_t",    "char32_t", "class",     "co_await",  "co_return", "co_yield",     "compl",
+	    "concept",     "const",    "consteval", "constexpr", "constinit", "const_cast",   "continue",
+	    "decltype",    "default",  "delete",    "do",        "double",    "dynamic_cast", "else",
+	    "enum",        "explicit", "export",    "extern",    "false",     "float",        "for",
+	    "friend",      "goto",     "if",        "inline",    "int",       "long",         "mutable",
+	    "namespace",   "new",      "noexcept",  "not",       "not_eq",    "nullptr",      "operator",
+	    "or",          "or_eq",    "private",   "protected", "public",    "register",     "reinterpret_cast",
+	    "requires",    "return",   "short",     "signed",    "sizeof",    "static",       "static_assert",
+	    "static_cast", "struct",   "switch",    "template",  "this",      "thread_local", "throw",
+	    "true",        "try",      "typedef",   "typeid",    "typename",  "union",        "unsigned",
+	    "using",       "virtual",  "void",      "volatile",  "wchar_t",   "while",        "xor",
+	    "xor_eq"};
+	return std::find(std::begin(Keywords), std::end(Keywords), Name) == std::end(Keywords);
+}
 
 std::vector<std::string> ValidateMetadata(FExportMacro& Macro, const FMetadataOptions* Options,
                                           const std::string& Source)

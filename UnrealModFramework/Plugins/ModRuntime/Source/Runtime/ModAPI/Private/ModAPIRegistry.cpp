@@ -1,15 +1,20 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-#include "ModApiRegistry.h"
+#include "ModAPIRegistry.h"
 
-#include "ModApiHost.h"
-#include "ModApiNative.h"
+#include "ModAPIHost.h"
+#include "ModAPINative.h"
 
+#include "Components/ActorComponent.h"
+#include "Containers/StringConv.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/PlayerController.h"
+#include "UObject/UObjectGlobals.h"
 
-namespace Mod::Api
+#include <cstring>
+
+namespace Mod::API
 {
 struct FRegistrationState
 {
@@ -125,7 +130,7 @@ FNativeState* FindNativeContext(uint64 Context)
 	return Entry;
 }
 
-EError CheckObject(UObject* Object, const TSharedPtr<FScopeState>& Scope)
+EError CheckObject(UObject* Object, const TSharedPtr<FScopeState>& Scope, bool bAllowWorldless)
 {
 	if (!IsValid(Object))
 	{
@@ -144,7 +149,9 @@ EError CheckObject(UObject* Object, const TSharedPtr<FScopeState>& Scope)
 			return EError::ScopeMismatch;
 		}
 	}
-	else if (Object->GetWorld() != Scope->World.Get())
+	else if (const UWorld* World = Object->GetWorld();
+	         World != Scope->World.Get() &&
+	         !(bAllowWorldless && !World && !Object->IsA<AActor>() && !Object->IsA<UActorComponent>()))
 	{
 		return EError::ScopeMismatch;
 	}
@@ -177,7 +184,7 @@ EError CheckBinding(const TSharedPtr<FBindingState>& Binding)
 	{
 		return EError::ObjectUnavailable;
 	}
-	return CheckObject(Binding->Object.Get(), Binding->Scope);
+	return CheckObject(Binding->Object.Get(), Binding->Scope, Binding->Type->Descriptor.bAllowWorldless);
 }
 
 TSharedPtr<FBindingState> MakeBinding(const TSharedPtr<FRegistryState>& Registry,
@@ -265,9 +272,9 @@ TModResult<FRegistration> FRegistry::RegisterType(FTypeDescriptor Descriptor)
 		return TModResult<FRegistration>::Failure(EError::InvalidArgument);
 	}
 	TSharedPtr<FTypeState> Type = MakeShared<FTypeState>();
-	for (const FApiDescriptor& Api : Descriptor.Apis)
+	for (const FAPIDescriptor& API : Descriptor.APIs)
 	{
-		const FName Id(Api.ExportId);
+		const FName Id(API.ExportId);
 		if (Id.IsNone() || Type->ExportIds.Contains(Id))
 		{
 			return TModResult<FRegistration>::Failure(EError::InvalidArgument);
@@ -407,7 +414,8 @@ TModResult<FRegistration> FRegistry::RegisterProvider(FName TypeId, const FScope
 	{
 		return TModResult<FRegistration>::Failure(EError::ScopeMismatch);
 	}
-	if (const EError Error = CheckObject(Instance, Scope.State); Error != EError::None)
+	if (const EError Error = CheckObject(Instance, Scope.State, (*Type)->Descriptor.bAllowWorldless);
+	    Error != EError::None)
 	{
 		return TModResult<FRegistration>::Failure(Error);
 	}
@@ -508,6 +516,55 @@ TModResult<UObject*> FHostAccess::Enter(const FObjectBinding& Binding, FName Typ
 	return TModResult<UObject*>::Success(Target->Object.Get());
 }
 
+TModResult<void> FHostAccess::ValidateObjectInput(const FObjectBinding& Binding, const UObject* Object)
+{
+	if (const EError Error = CheckBinding(Binding.State); Error != EError::None)
+	{
+		return TModResult<void>::Failure(Error);
+	}
+	if (!Object)
+	{
+		return TModResult<void>::Success();
+	}
+	if (!IsValid(Object))
+	{
+		return TModResult<void>::Failure(EError::ObjectUnavailable);
+	}
+	if (const UWorld* World = Object->GetWorld(); World && World != Binding.State->Scope->World.Get())
+	{
+		return TModResult<void>::Failure(EError::ScopeMismatch);
+	}
+	return TModResult<void>::Success();
+}
+
+TModResult<UObject*> FHostAccess::ResolveObjectInput(const FObjectBinding& Binding, UClass* Class, const ANSICHAR* Path,
+                                                     uint32 Size)
+{
+	if (const EError Error = CheckBinding(Binding.State); Error != EError::None)
+	{
+		return TModResult<UObject*>::Failure(Error);
+	}
+	if (!Path && Size == 0)
+	{
+		return TModResult<UObject*>::Success(nullptr);
+	}
+	constexpr uint32 MaxObjectPathBytes = 4096;
+	if (!Class || !Path || Size == 0 || Size > MaxObjectPathBytes || std::memchr(Path, 0, Size))
+	{
+		return TModResult<UObject*>::Failure(EError::InvalidArgument);
+	}
+	const FUTF8ToTCHAR Decoded(Path, static_cast<int32>(Size));
+	const FString FullPath(Decoded.Length(), Decoded.Get());
+	UObject* Object = StaticFindObjectSafe(Class, nullptr, *FullPath);
+	if (!IsValid(Object) || !Object->GetPathName().Equals(FullPath, ESearchCase::CaseSensitive))
+	{
+		return TModResult<UObject*>::Failure(EError::ObjectUnavailable);
+	}
+	const auto Result = ValidateObjectInput(Binding, Object);
+	return Result.IsSuccess() ? TModResult<UObject*>::Success(Object)
+	                          : TModResult<UObject*>::Failure(Result.GetError());
+}
+
 TModResult<FObjectBinding> FHostAccess::ProjectObject(const FObjectBinding& Source, UObject* Object, FName TypeId,
                                                       const TCHAR* Signature, bool bReadOnly)
 {
@@ -535,13 +592,14 @@ TModResult<FObjectBinding> FHostAccess::ProjectObject(const FObjectBinding& Sour
 	}
 	const TSharedPtr<FScopeState> WorldScope =
 	    Source.State->Scope->Kind == EScope::Player ? Source.State->Scope->Parent : Source.State->Scope;
-	if (const EError Error = CheckObject(Object, WorldScope); Error != EError::None)
+	if (const EError Error = CheckObject(Object, WorldScope, (*Type)->Descriptor.bAllowWorldless);
+	    Error != EError::None)
 	{
 		return TModResult<FObjectBinding>::Failure(Error);
 	}
 	FObjectBinding Result;
 	Result.State = MakeBinding(Registry, Source.State->Caller, WorldScope, *Type, Object);
-	Result.State->bReadOnly = bReadOnly;
+	Result.State->bReadOnly = bReadOnly || ((*Type)->Descriptor.bFullView && Source.State->bReadOnly);
 	return TModResult<FObjectBinding>::Success(MoveTemp(Result));
 }
 
@@ -680,4 +738,4 @@ TModResult<void> FNativeAccess::Release(uint64 Context, uint64 Object)
 	return Entry && Entry->Objects.Remove(Object) ? TModResult<void>::Success()
 	                                              : TModResult<void>::Failure(EError::BindingExpired);
 }
-} // namespace Mod::Api
+} // namespace Mod::API

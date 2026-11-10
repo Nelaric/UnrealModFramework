@@ -1,13 +1,13 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-/** @file ModApiRegistry.h */
+/** @file ModAPIRegistry.h */
 #pragma once
 
-#include "ModApiObject.h"
+#include "ModAPIObject.h"
 
 class ULocalPlayer;
 class UWorld;
 
-namespace Mod::Api
+namespace Mod::API
 {
 struct FRegistryState;
 struct FScopeState;
@@ -24,7 +24,7 @@ enum class EScope : uint8
 };
 
 /// A generated definition for registration and compatibility checks.
-struct FApiDescriptor
+struct FAPIDescriptor
 {
 	/// Stable export ID.
 	const TCHAR* ExportId;
@@ -48,7 +48,11 @@ struct FTypeDescriptor
 	/// Module-owned table; valid until registration is revoked.
 	const void* Calls = nullptr;
 	/// Definitions owned by this type.
-	TArray<FApiDescriptor> Apis;
+	TArray<FAPIDescriptor> APIs;
+	/// Permits non-actor objects with no world in a world-bound view.
+	bool bAllowWorldless = false;
+	/// Preserves read-only authority when this full view is projected.
+	bool bFullView = false;
 };
 
 /// A revocable registration. The owner must release it before unloading code.
@@ -174,4 +178,4 @@ template <class T> auto BindView(FRegistry& Registry, const FCaller& Caller)
 	}
 	return TModResult<FView>::Success(FViewFactory::Make<T>(MoveTemp(Binding.GetValue())));
 }
-} // namespace Mod::Api
+} // namespace Mod::API

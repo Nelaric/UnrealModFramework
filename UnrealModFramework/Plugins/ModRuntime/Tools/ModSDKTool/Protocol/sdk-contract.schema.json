@@ -31,12 +31,13 @@
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "kind": { "const": "ObjectReference" },
-          "cppName": { "type": "string", "pattern": "^F[A-Za-z0-9_]+$" }
+          "cppName": { "type": "string", "pattern": "^F[A-Za-z0-9_]+$" },
+          "view": { "const": "Full" }
         }
       }
     },
     "apis": {
-      "type": "array", "minItems": 2, "maxItems": 1024,
+      "type": "array", "minItems": 1, "maxItems": 1024,
       "items": {
         "type": "object",
         "required": ["id", "name", "displayName", "shape", "scope", "thread", "failureRule", "permissions", "signatureHash", "projectionHash", "native"],
@@ -44,7 +45,7 @@
           "id": { "type": "string", "minLength": 1 },
           "name": { "$ref": "#/$defs/identifier" },
           "displayName": { "type": "string", "minLength": 1 },
-          "shape": { "enum": ["ObjectGetter", "FloatMethod"] },
+          "shape": { "enum": ["ObjectGetter", "FloatMethod", "TypedMethod"] },
           "scope": { "enum": ["Player", "World"] },
           "thread": { "const": "GameThread" },
           "failureRule": { "const": "ReturnError" },
@@ -57,6 +58,35 @@
           "nullResult": { "const": "Error" },
           "parameterName": { "$ref": "#/$defs/identifier" },
           "parameterId": { "type": "string", "minLength": 1 },
+          "blueprint": { "type": "boolean" },
+          "parameters": {
+            "type": "array", "maxItems": 64,
+            "items": {
+              "oneOf": [
+                { "$ref": "#/$defs/scalar" },
+                {
+                  "type": "object", "required": ["kind", "class", "const", "include", "module"],
+                  "properties": {
+                    "kind": { "const": "ObjectInput" },
+                    "class": { "$ref": "#/$defs/identifier" },
+                    "const": { "type": "boolean" },
+                    "include": { "type": "string", "minLength": 1 },
+                    "module": { "$ref": "#/$defs/identifier" }
+                  }
+                }
+              ]
+            }
+          },
+          "result": {
+            "oneOf": [
+              { "$ref": "#/$defs/scalar" },
+              { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "Void" } } },
+              {
+                "type": "object", "required": ["kind", "typeId"],
+                "properties": { "kind": { "const": "ObjectReference" }, "typeId": { "type": "string", "minLength": 1 } }
+              }
+            ]
+          },
           "native": {
             "type": "object", "required": ["header", "symbol"],
             "properties": {
@@ -67,13 +97,30 @@
         },
         "allOf": [
           { "if": { "properties": { "shape": { "const": "ObjectGetter" } } }, "then": { "required": ["resultTypeId", "provider", "nullResult"], "properties": { "scope": { "const": "Player" } } } },
-          { "if": { "properties": { "shape": { "const": "FloatMethod" } } }, "then": { "required": ["targetTypeId", "parameterName", "parameterId"] } }
+          { "if": { "properties": { "shape": { "const": "FloatMethod" } } }, "then": { "required": ["targetTypeId", "parameterName", "parameterId"] } },
+          {
+            "if": { "properties": { "shape": { "const": "TypedMethod" } } },
+            "then": {
+              "required": ["parameters", "result", "blueprint"],
+              "oneOf": [
+                { "required": ["targetTypeId"] },
+                { "required": ["provider"], "properties": { "scope": { "const": "Player" } } }
+              ]
+            }
+          }
         ]
       }
     }
   },
   "$defs": {
     "hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "identifier": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,79}$" }
+    "identifier": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,79}$" },
+    "scalar": {
+      "type": "object", "required": ["kind", "cppType"],
+      "properties": {
+        "kind": { "const": "Scalar" },
+        "cppType": { "enum": ["bool", "float", "double", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64"] }
+      }
+    }
   }
 }

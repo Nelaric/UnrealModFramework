@@ -496,7 +496,7 @@ UhtTypeAdapter 消费已反射类型的已解析信息；非 UFUNCTION 成员或
 | IR 记录 | 已解析的信息 |
 | --- | --- |
 | FExportTypeIR | 稳定身份、真实 C++ 名称、继承、所属模块、公开投影 |
-| FApiIR | 具体成员、参数/返回、cv/ref/noexcept/调用约定、失败、权限与调用方式 |
+| FAPIIR | 具体成员、参数/返回、cv/ref/noexcept/调用约定、失败、权限与调用方式 |
 | FEventIR | 源类别、载荷、回调、同步/队列、订阅与发布策略 |
 | FHookIR | Core、阶段上下文、可写字段、Next/取消/结果协议 |
 | FTypeUseIR | 类型使用角色、方向、空值、生命周期、所有权与目标后端 |

@@ -147,9 +147,9 @@ void ValidateContract(FSdkRequest& Request)
 		RequireDigest(Text(Lifecycle, "resourceHash"), "modLifecycle.resourceHash");
 	}
 	const FJson& Types = Contract.at("types");
-	const FJson& Apis = Contract.at("apis");
-	if (!Types.is_array() || Types.empty() || Types.size() > 128 || !Apis.is_array() || Apis.empty() ||
-	    Apis.size() > 1024)
+	const FJson& APIs = Contract.at("apis");
+	if (!Types.is_array() || Types.empty() || Types.size() > 128 || !APIs.is_array() || APIs.empty() ||
+	    APIs.size() > 1024)
 	{
 		throw std::runtime_error("SDK types/APIs must be bounded, nonempty arrays.");
 	}
@@ -171,25 +171,26 @@ void ValidateContract(FSdkRequest& Request)
 			throw std::runtime_error("SDK types must be unique public ObjectReference structures.");
 		}
 	}
-	std::set<std::string> ApiIds;
+	std::set<std::string> APIIds;
 	std::set<std::string> Functions;
 	bool bHasGetter = false;
 	bool bHasMethod = false;
-	for (const FJson& Api : Apis)
+	bool bHasTypedMethod = false;
+	for (const FJson& API : APIs)
 	{
-		const std::string Id = Text(Api, "id");
-		const std::string Name = Text(Api, "name");
+		const std::string Id = Text(API, "id");
+		const std::string Name = Text(API, "name");
 		Identifier(Name);
-		if (!ApiIds.insert(Id).second || !Functions.insert(Fold(Name)).second ||
-		    (Api.value("scope", "") != "Player" && Api.value("scope", "") != "World") ||
-		    Api.value("thread", "") != "GameThread" || Api.value("failureRule", "") != "ReturnError")
+		if (!APIIds.insert(Id).second || !Functions.insert(Fold(Name)).second ||
+		    (API.value("scope", "") != "Player" && API.value("scope", "") != "World") ||
+		    API.value("thread", "") != "GameThread" || API.value("failureRule", "") != "ReturnError")
 		{
 			throw std::runtime_error("Unsupported or duplicate SDK API: " + Id);
 		}
-		Text(Api, "displayName");
-		RequireDigest(Text(Api, "signatureHash"), "API signatureHash");
-		RequireDigest(Text(Api, "projectionHash"), "API projectionHash");
-		const FJson& Permissions = Api.at("permissions");
+		Text(API, "displayName");
+		RequireDigest(Text(API, "signatureHash"), "API signatureHash");
+		RequireDigest(Text(API, "projectionHash"), "API projectionHash");
+		const FJson& Permissions = API.at("permissions");
 		if (!Permissions.is_array() || Permissions.size() > 128)
 		{
 			throw std::runtime_error("API permissions must be a bounded array: " + Id);
@@ -203,14 +204,14 @@ void ValidateContract(FSdkRequest& Request)
 				throw std::runtime_error("Empty or duplicate permission: " + Id);
 			}
 		}
-		const FJson& Native = Api.at("native");
+		const FJson& Native = API.at("native");
 		Identifier(Text(Native, "symbol"));
 		PortablePath(Text(Native, "header"));
-		const std::string Shape = Text(Api, "shape");
+		const std::string Shape = Text(API, "shape");
 		if (Shape == "ObjectGetter")
 		{
-			if (!TypeIds.contains(Text(Api, "resultTypeId")) || Api.value("provider", "") != "LocalPlayerSubsystem" ||
-			    Api.value("scope", "") != "Player" || Api.value("nullResult", "") != "Error")
+			if (!TypeIds.contains(Text(API, "resultTypeId")) || API.value("provider", "") != "LocalPlayerSubsystem" ||
+			    API.value("scope", "") != "Player" || API.value("nullResult", "") != "Error")
 			{
 				throw std::runtime_error("ObjectGetter needs a resolved player provider, type, and null policy.");
 			}
@@ -218,41 +219,85 @@ void ValidateContract(FSdkRequest& Request)
 		}
 		else if (Shape == "FloatMethod")
 		{
-			if (!TypeIds.contains(Text(Api, "targetTypeId")))
+			if (!TypeIds.contains(Text(API, "targetTypeId")))
 			{
 				throw std::runtime_error("FloatMethod target is not a public object reference.");
 			}
-			const std::string Parameter = Text(Api, "parameterName");
+			const std::string Parameter = Text(API, "parameterName");
 			Identifier(Parameter);
 			if (Parameter == "Target" || Parameter == "Outcome" || Parameter == "ErrorCode" || Parameter == "Value" ||
 			    Parameter == "NativeValue" || Parameter == "Status")
 			{
 				throw std::runtime_error("Float parameter collides with an SDK adapter parameter.");
 			}
-			Text(Api, "parameterId");
+			Text(API, "parameterId");
 			bHasMethod = true;
+		}
+		else if (Shape == "TypedMethod")
+		{
+			const bool bProvider = API.contains("provider");
+			if (bProvider ? (API.value("provider", "") != "LocalPlayerSubsystem" ||
+			                 API.value("scope", "") != "Player" || API.contains("targetTypeId"))
+			              : !TypeIds.contains(Text(API, "targetTypeId")))
+			{
+				throw std::runtime_error("TypedMethod requires a public target or player provider: " + Id);
+			}
+			static const std::set<std::string_view> Scalars = {"bool",  "float", "double", "int8",   "int16", "int32",
+			                                                   "int64", "uint8", "uint16", "uint32", "uint64"};
+			const FJson& Parameters = API.at("parameters");
+			if (!Parameters.is_array() || Parameters.size() > 64 || !API.at("blueprint").is_boolean())
+			{
+				throw std::runtime_error("Invalid TypedMethod parameters: " + Id);
+			}
+			for (const FJson& Parameter : Parameters)
+			{
+				const std::string Kind = Text(Parameter, "kind");
+				if (Kind == "ObjectInput")
+				{
+					Identifier(Text(Parameter, "class"));
+					Identifier(Text(Parameter, "module"));
+					PortablePath(Text(Parameter, "include"));
+					if (!Parameter.at("const").is_boolean())
+					{
+						throw std::runtime_error("Invalid object parameter qualification: " + Id);
+					}
+				}
+				else if (Kind != "Scalar" || !Scalars.contains(Text(Parameter, "cppType")))
+				{
+					throw std::runtime_error("Unsupported TypedMethod parameter: " + Id);
+				}
+			}
+			const FJson& Result = API.at("result");
+			const std::string Kind = Text(Result, "kind");
+			if (Kind != "Void" &&
+			    (Kind == "ObjectReference" ? !TypeIds.contains(Text(Result, "typeId"))
+			                               : Kind != "Scalar" || !Scalars.contains(Text(Result, "cppType"))))
+			{
+				throw std::runtime_error("Unsupported TypedMethod result: " + Id);
+			}
+			bHasTypedMethod = true;
 		}
 		else
 		{
 			throw std::runtime_error("Unsupported projected API shape: " + Shape);
 		}
 	}
-	if (!bHasGetter || !bHasMethod)
+	if (!bHasTypedMethod && (!bHasGetter || !bHasMethod))
 	{
 		throw std::runtime_error("This SDK adapter requires an object getter and a float instance method.");
 	}
-	for (const FJson& Api : Apis)
+	for (const FJson& API : APIs)
 	{
-		if (Api.at("shape") == "FloatMethod")
+		if (API.at("shape") == "FloatMethod")
 		{
-			const bool bReachable = std::any_of(Apis.begin(), Apis.end(),
+			const bool bReachable = std::any_of(APIs.begin(), APIs.end(),
 			                                    [&](const FJson& Getter) {
 				                                    return Getter.at("shape") == "ObjectGetter" &&
-				                                           Getter.at("resultTypeId") == Api.at("targetTypeId");
+				                                           Getter.at("resultTypeId") == API.at("targetTypeId");
 			                                    });
 			if (!bReachable)
 			{
-				throw std::runtime_error("No getter returns the method's public target type: " + Text(Api, "id"));
+				throw std::runtime_error("No getter returns the method's public target type: " + Text(API, "id"));
 			}
 		}
 	}
@@ -595,16 +640,16 @@ FJson PlanSdk(FSdkRequest& Request)
 				ClientBindings[Profile];
 				for (const FJson& Binding : Job.Plan.value("requiredBindings", FJson::array()))
 				{
-					for (const FJson& Api : Request.Contract.at("apis"))
+					for (const FJson& API : Request.Contract.at("apis"))
 					{
-						if (Binding.value("exportId", "") == Text(Api, "id") &&
-						    Binding.value("symbol", "") == Text(Api.at("native"), "symbol") &&
-						    Binding.value("signatureHash", "") == Text(Api, "signatureHash") &&
-						    Binding.value("projectionHash", "") == Text(Api, "projectionHash"))
+						if (Binding.value("exportId", "") == Text(API, "id") &&
+						    Binding.value("symbol", "") == Text(API.at("native"), "symbol") &&
+						    Binding.value("signatureHash", "") == Text(API, "signatureHash") &&
+						    Binding.value("projectionHash", "") == Text(API, "projectionHash"))
 						{
-							if (!ClientBindings[Profile].insert(Text(Api, "id")).second)
+							if (!ClientBindings[Profile].insert(Text(API, "id")).second)
 							{
-								throw std::runtime_error("Duplicate client endpoint for " + Text(Api, "id") + " in " +
+								throw std::runtime_error("Duplicate client endpoint for " + Text(API, "id") + " in " +
 								                         Profile);
 							}
 						}
@@ -620,15 +665,15 @@ FJson PlanSdk(FSdkRequest& Request)
 				HostBindings[Profile];
 				for (const FJson& Binding : Job.Plan.value("requiredBindings", FJson::array()))
 				{
-					for (const FJson& Api : Request.Contract.at("apis"))
+					for (const FJson& API : Request.Contract.at("apis"))
 					{
-						if (Binding.value("exportId", "") == Text(Api, "id") &&
-						    Binding.value("signatureHash", "") == Text(Api, "signatureHash") &&
-						    Binding.value("projectionHash", "") == Text(Api, "projectionHash"))
+						if (Binding.value("exportId", "") == Text(API, "id") &&
+						    Binding.value("signatureHash", "") == Text(API, "signatureHash") &&
+						    Binding.value("projectionHash", "") == Text(API, "projectionHash"))
 						{
-							if (!HostBindings[Profile].insert(Text(Api, "id")).second)
+							if (!HostBindings[Profile].insert(Text(API, "id")).second)
 							{
-								throw std::runtime_error("Duplicate host binding for " + Text(Api, "id") + " in " +
+								throw std::runtime_error("Duplicate host binding for " + Text(API, "id") + " in " +
 								                         Profile);
 							}
 						}
@@ -675,19 +720,19 @@ FJson PlanSdk(FSdkRequest& Request)
 					throw std::runtime_error(std::string("Native connection descriptor mismatch: ") + Key);
 				}
 			}
-			for (const FJson& Api : Request.Contract.at("apis"))
+			for (const FJson& API : Request.Contract.at("apis"))
 			{
 				if (!std::any_of(Connection.at("apis").begin(), Connection.at("apis").end(),
 				                 [&](const FJson& Entry)
 				                 {
-					                 return Entry.at("id") == Api.at("id") &&
-					                        Entry.at("symbol") == Api.at("native").at("symbol") &&
-					                        Entry.at("signatureHash") == Api.at("signatureHash") &&
-					                        Entry.at("projectionHash") == Api.at("projectionHash");
+					                 return Entry.at("id") == API.at("id") &&
+					                        Entry.at("symbol") == API.at("native").at("symbol") &&
+					                        Entry.at("signatureHash") == API.at("signatureHash") &&
+					                        Entry.at("projectionHash") == API.at("projectionHash");
 				                 }))
 				{
 					throw std::runtime_error("Native connection descriptor is missing a matching API: " +
-					                         Text(Api, "id"));
+					                         Text(API, "id"));
 				}
 			}
 		}
@@ -695,25 +740,25 @@ FJson PlanSdk(FSdkRequest& Request)
 		{
 			Request.Headers.push_back(Header);
 		}
-		for (const FJson& Api : Request.Contract.at("apis"))
+		for (const FJson& API : Request.Contract.at("apis"))
 		{
-			if (!Headers.contains(Fold(Text(Api.at("native"), "header"))))
+			if (!Headers.contains(Fold(Text(API.at("native"), "header"))))
 			{
-				throw std::runtime_error("Missing public header for " + Text(Api, "id"));
+				throw std::runtime_error("Missing public header for " + Text(API, "id"));
 			}
 			for (const auto& [Profile, Bindings] : HostBindings)
 			{
-				if (!Bindings.contains(Text(Api, "id")))
+				if (!Bindings.contains(Text(API, "id")))
 				{
-					throw std::runtime_error("Missing checked host binding for " + Text(Api, "id") + " in profile " +
+					throw std::runtime_error("Missing checked host binding for " + Text(API, "id") + " in profile " +
 					                         Profile);
 				}
 			}
 			for (const auto& [Profile, Bindings] : ClientBindings)
 			{
-				if (!Bindings.contains(Text(Api, "id")))
+				if (!Bindings.contains(Text(API, "id")))
 				{
-					throw std::runtime_error("Missing checked client endpoint for " + Text(Api, "id") + " in profile " +
+					throw std::runtime_error("Missing checked client endpoint for " + Text(API, "id") + " in profile " +
 					                         Profile);
 				}
 			}

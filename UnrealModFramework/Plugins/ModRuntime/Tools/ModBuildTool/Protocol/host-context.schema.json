@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "UMF owning-module host compilation context v1",
+  "title": "UMF owning-module host compilation context v2",
   "type": "object",
   "dependentRequired": { "linkVerification": ["owningBinary"] },
-  "required": ["format", "schemaVersion", "ownerModule", "moduleApiMode", "registrationAnchor", "target", "workingDirectory", "outputLibrary", "compiler", "archiver", "environment", "dependencies", "lto", "pch", "unity"],
+  "required": ["format", "schemaVersion", "ownerModule", "moduleAPIMode", "registrationAnchor", "target", "workingDirectory", "outputLibrary", "compiler", "archiver", "environment", "dependencies", "lto", "pch", "unity"],
   "properties": {
     "format": { "const": "UMF.ModHostContext" },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "ownerModule": { "type": "string", "minLength": 1 },
-    "moduleApiMode": { "const": "Producer" },
+    "moduleAPIMode": { "const": "Producer" },
     "registrationAnchor": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
     "owningBinary": {
       "type": "object",

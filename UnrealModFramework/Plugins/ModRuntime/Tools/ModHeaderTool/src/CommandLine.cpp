@@ -83,8 +83,9 @@ compile verification, a contract and a complete manifest at fixed output paths.
 Implementation .cpp files are compiled independently by MBT, never by UBT.
 --host-contexts pins each owner's actual MBT producer context in the manifest.
 --lifecycle-source exports the host's lifecycle declarations for SDK generation.
-The first backend supports public UObject instance methods on GameThread,
-by-value scalar parameters, scalar/void or World-scoped UObject pointer returns.
+The backend supports public UObject instance methods on GameThread, scalar
+and UObject pointer inputs, and scalar/void or World-scoped UObject pointer returns.
+FullView selects parameter classes for public instance method generation.
 Object returns use the explicitly selected ErrorIfNull projection. Other forms,
 Event and Hook generation are rejected. No Blueprint assets are processed.
 

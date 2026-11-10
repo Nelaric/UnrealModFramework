@@ -228,7 +228,7 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 	Request.Root = Request.ManifestPath.parent_path();
 	Request.Context = ReadJson(Request.ContextPath);
 	Request.Manifest = ReadJson(Request.ManifestPath);
-	RequireFormat(Request.Context, "UMF.ModHostContext");
+	RequireFormat(Request.Context, "UMF.ModHostContext", {2});
 	RequireFormat(Request.Manifest, "UMF.GeneratedArtifacts", {1, 2});
 	const bool bManifestV2 = Request.Manifest.at("schemaVersion") == 2;
 	if (Request.Manifest.value("status", "") != "Complete" || !Request.Manifest.contains("unresolvedTypeCount") ||
@@ -299,7 +299,7 @@ FRequest ReadRequest(const fs::path& ContextPath, const fs::path& ManifestPath)
 		}
 	}
 	Request.RequiredSymbols.assign(Symbols.begin(), Symbols.end());
-	if (Request.Context.value("moduleApiMode", "") != "Producer" || Request.Context.value("lto", true) ||
+	if (Request.Context.value("moduleAPIMode", "") != "Producer" || Request.Context.value("lto", true) ||
 	    Request.Context.value("pch", true) || Request.Context.value("unity", true))
 	{
 		throw std::runtime_error("Host context requires Producer mode and explicit lto/pch/unity=false.");
@@ -787,7 +787,7 @@ struct FOwnedStage
 std::string HashHostContext(const fs::path& Context)
 {
 	const FJson Document = ReadJson(Context);
-	RequireFormat(Document, "UMF.ModHostContext");
+	RequireFormat(Document, "UMF.ModHostContext", {2});
 	return HashBytes(Document.dump());
 }
 

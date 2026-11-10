@@ -38,6 +38,7 @@ public:
 	MHT_CLANG_API(clang_getCursorLocation)
 	MHT_CLANG_API(clang_getExpansionLocation)
 	MHT_CLANG_API(clang_getFileName)
+	MHT_CLANG_API(clang_File_tryGetRealPathName)
 	MHT_CLANG_API(clang_getCursorExtent)
 	MHT_CLANG_API(clang_getRangeStart)
 	MHT_CLANG_API(clang_getRangeEnd)

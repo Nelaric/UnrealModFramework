@@ -39,9 +39,9 @@ ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 -
 
 | 字段 | 合同 |
 | --- | --- |
-| `format` / `schemaVersion` | `UMF.ModHostContext` / `1` |
+| `format` / `schemaVersion` | `UMF.ModHostContext` / `2` |
 | `ownerModule` | 真实声明所属模块；编译单元必须与其一致 |
-| `moduleApiMode` | `Producer`，保留所属模块的生产者宏定义 |
+| `moduleAPIMode` | `Producer`，保留所属模块的生产者宏定义 |
 | `registrationAnchor` | 未装饰的 C 标识符；必须进入静态库的符号索引 |
 | `owningBinary` | 可选的真实所属二进制 `id`、`path`、`kind`；`finalize-host` 必需 |
 | `target` | `name`、`type`、`configuration`、`linkType`、`platform`、`architecture` |

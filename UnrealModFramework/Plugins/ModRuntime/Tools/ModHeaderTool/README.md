@@ -29,7 +29,7 @@ selected toolchain and removes game include paths and forced UE definitions.
 
 The existing `.modviews.h`/`.modcalls.h` headers are internal UE host headers,
 classified as `HostHeader`. Only `.modabi.h` is published as `SdkHeader`, so MST
-does not copy a header that requires the game's C++ types or ModApi module.
+does not copy a header that requires the game's C++ types or ModAPI module.
 
 ## Connection and lifetime
 
@@ -38,10 +38,10 @@ does not copy a header that requires the game's C++ types or ModApi module.
 2. Call the matching client `connectSymbol` with that table. Connect checks the
    version, structure size, hash, and all required callbacks before binding them.
 3. Game code approves a caller, scope, and permissions. The host-only
-   `Mod::Api::FNativeAccess::Open` issues a nonzero context and scope token.
-   `UGameModApiHost::OpenLocalPlayer` now includes these in its returned `Native`.
+   `Mod::API::FNativeAccess::Open` issues a nonzero context and scope token.
+   `UGameModAPIHost::OpenLocalPlayer` now includes these in its returned `Native`.
 4. Deliver those tokens to the consumer. A getter receives context/scope and
-   returns an object token; a method receives context/object and scalar inputs.
+   returns an object token; a method receives context/object and its inputs.
    Every host call rechecks thread, caller lifetime, type, scope, and permissions.
 5. Revoke that caller when its mod stops. Scope and registry teardown also revoke
    tokens. ReleaseObject explicitly invalidates all copies of that token without
@@ -53,8 +53,7 @@ does not copy a header that requires the game's C++ types or ModApi module.
 Connection tables are module-wide; identity, scope, permissions, and object
 tokens remain per caller. No global current player/world is inferred. Tokens
 are never addresses and are not reused during the Runtime module lifetime.
-Cross-context tokens fail lookup. The client performs typed callback calls,
-with no string lookup or generic argument interpreter on the invocation path.
+Cross-context tokens fail lookup. The client dispatches through typed callbacks.
 
 The C boundary uses explicit `cdecl`, 64-bit process-local tokens, fixed-width
 integer/scalar arguments, and a `uint32_t` status result. Boolean arguments are
@@ -66,6 +65,46 @@ on failure and committed on success. Status 0 succeeds; 65536 means unconnected,
 `contractHash`, and `projectionHash`, using sorted nlohmann JSON keys and compact
 `dump()`. It covers API shapes, connection names, status codes, and lifetime rules.
 The public header embeds the same version/hash for compiled consumers.
+
+## API compatibility names
+
+An explicit `MOD_EXPORT_API` generates an ID from the owner's type ID and the
+method name, for example `api/game.character/increasehealth`. Add
+`CompatibleNames = ("AddHealth")` to publish a separate
+`api/game.character/addhealth` entry for the same implementation. The SDK
+publishes both function names with the same signature and policy.
+
+With `CompatibleNames` omitted, MHT uses the `FunctionRedirects` resolved by
+Unreal's Engine and enabled plugin configuration. An exact same-class
+redirect to an exported host `UFUNCTION` contributes its old name. Qualify
+the redirect with the reflected class and module when the function name is
+shared. A rename chain contributes each previous name. An explicit
+`CompatibleNames = ()` selects an empty compatibility list.
+
+MHT diagnoses invalid names, collisions, and invalid applicable redirects at
+the declaration or INI entry. Re-run `ModExportOptions` to refresh the
+configuration snapshot after editing redirects. Build the host and SDK from
+the same generated contract.
+
+## FullView and object inputs
+
+`FullView` is an optional `MOD_EXPORT_API` field containing quoted, qualified
+C++ class names, for example `FullView = ("USkeletalMesh")`. Each name must
+match a UObject pointer parameter in the annotated signature. Generation
+groups requests by class, collects public concrete instance methods from the
+class and its public bases in the target compilation, and keeps explicitly
+exported methods under their existing contracts. Synthesized members require
+a writable binding, the selecting declarations' permissions, and a host grant
+named `FullView.<TypeId>`.
+A missing projection fails generation with the name of each affected member.
+Classes reached through those members use their ordinary projection rules.
+
+UE callers pass typed UObject pointers. ContextHandlesV1 uses `const char*`
+for borrowed UTF-8 object path bytes and `uint32_t` for their length, bounded
+to 4,096 bytes. Null uses `nullptr` and zero length. The host
+resolves an already loaded object, checks its class and world, and borrows it
+for the synchronous call. Object results use host-owned view tokens. Public
+engine classes use headers under the `Engine` path root in the build input.
 
 ## MBT and MST handoff
 
@@ -82,11 +121,9 @@ MBT for both libraries. Standalone `generate` requires a matching context set fo
 and the standalone client before it can publish a Complete manifest.
 
 MST consumes `.sdkcontract.json`, the Host and Client contexts, and the same v2
-generated manifest. Its existing adapter supports a LocalPlayerSubsystem object
-getter connected to float instance methods, including GetLocalCharacter and
-AddHealth. Other currently supported MHT scalar/void/object signatures still
-receive a native ABI, while the limited MST adapter contract is explicitly
-`Unsupported` when it cannot represent the whole API set.
+generated manifest. It keeps the existing object getter and float method
+adapters and also emits typed methods with scalar and public UE object inputs.
+The SDK contract records `Unsupported` when it cannot represent the whole API set.
 
 Automatic toolchain transport is currently Win64 MSVC. Other platforms require
 real platform contexts and validation. This generation does not implement mod

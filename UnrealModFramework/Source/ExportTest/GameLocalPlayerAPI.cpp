@@ -1,13 +1,13 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-#include "GameLocalPlayerApi.h"
+#include "GameLocalPlayerAPI.h"
 
 #include "Engine/LocalPlayer.h"
 #include "GameCharacter.h"
-#include "GameModApiHost.h"
+#include "GameModAPIHost.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/PlayerController.h"
 
-AGameCharacter* UGameLocalPlayerApi::GetLocalCharacter() const
+AGameCharacter* UGameLocalPlayerAPI::GetLocalCharacter() const
 {
 	const ULocalPlayer* Player = GetLocalPlayer();
 	const UWorld* World = Player ? Player->GetWorld() : nullptr;
@@ -15,13 +15,13 @@ AGameCharacter* UGameLocalPlayerApi::GetLocalCharacter() const
 	return Controller ? Cast<AGameCharacter>(Controller->GetPawn()) : nullptr;
 }
 
-void UGameLocalPlayerApi::Deinitialize()
+void UGameLocalPlayerAPI::Deinitialize()
 {
 	if (ULocalPlayer* Player = GetLocalPlayer())
 	{
 		if (UGameInstance* Game = Player->GetGameInstance())
 		{
-			if (UGameModApiHost* Host = Game->GetSubsystem<UGameModApiHost>())
+			if (UGameModAPIHost* Host = Game->GetSubsystem<UGameModAPIHost>())
 			{
 				Host->CloseLocalPlayer(Player);
 			}
@@ -30,13 +30,13 @@ void UGameLocalPlayerApi::Deinitialize()
 	Super::Deinitialize();
 }
 
-void UGameLocalPlayerApi::PlayerControllerChanged(APlayerController* NewPlayerController)
+void UGameLocalPlayerAPI::PlayerControllerChanged(APlayerController* NewPlayerController)
 {
 	if (ULocalPlayer* Player = GetLocalPlayer())
 	{
 		if (UGameInstance* Game = Player->GetGameInstance())
 		{
-			if (UGameModApiHost* Host = Game->GetSubsystem<UGameModApiHost>())
+			if (UGameModAPIHost* Host = Game->GetSubsystem<UGameModAPIHost>())
 			{
 				Host->CloseLocalPlayer(Player);
 			}

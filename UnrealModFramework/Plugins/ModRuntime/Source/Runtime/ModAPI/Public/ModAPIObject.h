@@ -1,10 +1,10 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-/** @file ModApiObject.h */
+/** @file ModAPIObject.h */
 #pragma once
 
-#include "ModApiResult.h"
+#include "ModAPIResult.h"
 
-namespace Mod::Api
+namespace Mod::API
 {
 struct FBindingState;
 struct FHostAccess;
@@ -42,12 +42,12 @@ struct FViewFactory
 	 */
 	template <class T> static auto Make(FObjectBinding Binding);
 };
-} // namespace Mod::Api
+} // namespace Mod::API
 
 /// The primary template has no API; MHT supplies closed specializations.
 template <class T> class FModRuntimeObject;
 
-template <class T> auto Mod::Api::FViewFactory::Make(FObjectBinding Binding)
+template <class T> auto Mod::API::FViewFactory::Make(FObjectBinding Binding)
 {
 	return FModRuntimeObject<T>(MoveTemp(Binding));
 }

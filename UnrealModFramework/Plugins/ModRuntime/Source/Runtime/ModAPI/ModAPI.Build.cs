@@ -1,9 +1,9 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 using UnrealBuildTool;
 
-public class ModApi : ModuleRules
+public class ModAPI : ModuleRules
 {
-	public ModApi(ReadOnlyTargetRules Target)
+	public ModAPI(ReadOnlyTargetRules Target)
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;

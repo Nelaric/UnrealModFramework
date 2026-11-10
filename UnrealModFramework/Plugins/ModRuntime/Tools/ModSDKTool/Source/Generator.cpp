@@ -37,10 +37,10 @@ std::string Literal(const std::string& Value)
 }
 
 void WriteReference(std::ostringstream& Header, const std::string& Name, const std::string& SecondName,
-                    const std::string& ApiMacro)
+                    const std::string& APIMacro)
 {
 	Header << LineDoc << " Opaque values supplied by the host; no game object layout is exposed.\n"
-	       << "USTRUCT(BlueprintType)\nstruct " << ApiMacro << " " << Name << "\n{\n\tGENERATED_BODY()\n\npublic:\n"
+	       << "USTRUCT(BlueprintType)\nstruct " << APIMacro << " " << Name << "\n{\n\tGENERATED_BODY()\n\npublic:\n"
 	       << "\t" << LineDoc << " Creates a reference from host-owned, process-local tokens.\n"
 	       << "\tstatic " << Name << " FromNative(uint64 InContext, uint64 In" << SecondName << ")\n\t{\n"
 	       << "\t\t" << Name << " Result;\n\t\tResult.Context = InContext;\n\t\tResult." << SecondName << " = In"
@@ -52,6 +52,106 @@ void WriteReference(std::ostringstream& Header, const std::string& Name, const s
 	       << "private:\n\tUPROPERTY(Transient)\n\tuint64 Context = 0;\n\n"
 	       << "\tUPROPERTY(Transient)\n\tuint64 " << SecondName << " = 0;\n};\n\n";
 }
+
+std::string NativeScalar(const std::string& Type)
+{
+	if (Type == "float" || Type == "double")
+	{
+		return Type;
+	}
+	return Type == "bool" ? "std::uint8_t" : "std::" + Type + "_t";
+}
+
+void WriteTypedMethod(std::ostringstream& Header, std::ostringstream& Source, const FJson& API,
+                      const std::map<std::string, std::string>& Types, const std::string& Context,
+                      const std::string& Outcome, const std::string& LibraryClass, const std::string& APIMacro,
+                      const std::string& Plugin)
+{
+	const bool bProvider = API.contains("provider");
+	std::string Signature = (bProvider ? Context : Types.at(Text(API, "targetTypeId"))) + " Target";
+	const std::string TargetToken = bProvider ? "GetNativePlayerScope()" : "GetNativeObject()";
+	std::string NativeSignature = "std::uint64_t, std::uint64_t";
+	std::string Arguments = "static_cast<std::uint64_t>(Target.GetNativeContext()), "
+	                        "static_cast<std::uint64_t>(Target." +
+	                        TargetToken + ")";
+	std::ostringstream Prepare;
+	std::size_t Index = 0;
+	for (const auto& Parameter : API.at("parameters"))
+	{
+		const std::string Arg = "Arg" + std::to_string(Index++);
+		if (Parameter.at("kind") == "ObjectInput")
+		{
+			Signature += ", " + std::string(Parameter.at("const").get<bool>() ? "const " : "") +
+			             Text(Parameter, "class") + "* " + Arg;
+			NativeSignature += ", const char*, std::uint32_t";
+			Prepare << "\tif (" << Arg << " && !IsValid(" << Arg << ")) { return; }\n"
+			        << "\tconst FString " << Arg << "Path = " << Arg << " ? " << Arg << "->GetPathName() : FString();\n"
+			        << "\tconst FTCHARToUTF8 " << Arg << "Utf8(*" << Arg << "Path, " << Arg << "Path.Len());\n";
+			Arguments +=
+			    ", " + Arg + " ? " + Arg + "Utf8.Get() : nullptr, static_cast<std::uint32_t>(" + Arg + "Utf8.Length())";
+		}
+		else
+		{
+			const auto Type = Text(Parameter, "cppType");
+			Signature += ", " + Type + " " + Arg;
+			NativeSignature += ", " + NativeScalar(Type);
+			Arguments += ", static_cast<" + NativeScalar(Type) + ">(" + Arg + ")";
+		}
+	}
+	const auto& Result = API.at("result");
+	const auto ResultKind = Text(Result, "kind");
+	const bool bObject = ResultKind == "ObjectReference";
+	const bool bResult = ResultKind != "Void";
+	std::string ResultType;
+	std::string NativeResult;
+	if (bResult)
+	{
+		ResultType = bObject ? Types.at(Text(Result, "typeId")) : Text(Result, "cppType");
+		NativeResult = bObject ? "std::uint64_t" : NativeScalar(ResultType);
+		Signature += ", " + ResultType + "& Value";
+		NativeSignature += ", " + NativeResult + "*";
+		Arguments += ", &NativeValue";
+	}
+	Signature += ", " + Outcome + "& Outcome, int64& ErrorCode";
+	const auto Name = Text(API, "name");
+	const auto Symbol = Text(API.at("native"), "symbol");
+	Header << "\t" << LineDoc << " Invokes the bound API on the game thread.\n";
+	if (API.at("blueprint").get<bool>())
+	{
+		Header << "\tUFUNCTION(BlueprintCallable, Category = \"Mod|" << Plugin
+		       << "\", meta = (DisplayName = " << Literal(Text(API, "displayName"))
+		       << ", ExpandEnumAsExecs = \"Outcome\", Keywords = " << Literal(Text(API, "id")) << "))\n";
+	}
+	Header << "\tstatic " << APIMacro << " void " << Name << "(" << Signature << ");\n\n";
+	Source << "static_assert(std::is_same_v<decltype(&::" << Symbol << "), std::uint32_t (*)(" << NativeSignature
+	       << ")>, \"Generated native client ABI does not match ContextHandlesV1\");\n\n"
+	       << "void " << LibraryClass << "::" << Name << "(" << Signature << ")\n{\n\tOutcome = " << Outcome
+	       << "::Failed;\n\tErrorCode = -1;\n";
+	if (bResult)
+	{
+		Source << "\tValue = {};\n";
+	}
+	Source << "\tif (!IsInGameThread()) { ErrorCode = -3; return; }\n"
+	       << "\tif (Target.GetNativeContext() == 0 || Target." << TargetToken << " == 0) { return; }\n"
+	       << Prepare.str();
+	if (bResult)
+	{
+		Source << "\t" << NativeResult << " NativeValue = {};\n";
+	}
+	Source << "\tErrorCode = static_cast<int64>(::" << Symbol << "(" << Arguments << "));\n"
+	       << "\tif (ErrorCode != 0) { return; }\n";
+	if (bObject)
+	{
+		Source << "\tif (NativeValue == 0) { ErrorCode = -2; return; }\n"
+		       << "\tValue = " << ResultType
+		       << "::FromNative(Target.GetNativeContext(), static_cast<uint64>(NativeValue));\n";
+	}
+	else if (bResult)
+	{
+		Source << "\tValue = static_cast<" << ResultType << ">(NativeValue);\n";
+	}
+	Source << "\tOutcome = " << Outcome << "::Succeeded;\n}\n\n";
+}
 } // namespace
 
 void GenerateSdkPlugin(const FSdkRequest& Request, const fs::path& Directory)
@@ -59,8 +159,8 @@ void GenerateSdkPlugin(const FSdkRequest& Request, const fs::path& Directory)
 	using namespace Mod::BuildTool;
 	const std::string Plugin = Text(Request.Document, "pluginName");
 	const std::string Module = Plugin + "Runtime";
-	std::string ApiMacro = Module + "_API";
-	std::transform(ApiMacro.begin(), ApiMacro.end(), ApiMacro.begin(),
+	std::string APIMacro = Module + "_API";
+	std::transform(APIMacro.begin(), APIMacro.end(), APIMacro.begin(),
 	               [](unsigned char Character) { return static_cast<char>(std::toupper(Character)); });
 	const std::string Context = "F" + Plugin + "PlayerContext";
 	const std::string Outcome = "E" + Plugin + "CallOutcome";
@@ -71,45 +171,78 @@ void GenerateSdkPlugin(const FSdkRequest& Request, const fs::path& Directory)
 		Types[Text(Type, "id")] = Text(Type, "cppName");
 	}
 	std::ostringstream Header;
-	Header << "// Copyright (c) 2026 Nelaric Contributors\n/" << "** @file " << Plugin << "Api.h */\n#pragma once\n\n"
-	       << "#include \"CoreMinimal.h\"\n#include \"Kismet/BlueprintFunctionLibrary.h\"\n"
-	       << "#include \"" << Plugin << "Api.generated.h\"\n\n"
+	Header << "// Copyright (c) 2026 Nelaric Contributors\n/" << "** @file " << Plugin << "API.h */\n#pragma once\n\n"
+	       << "#include \"CoreMinimal.h\"\n#include \"Kismet/BlueprintFunctionLibrary.h\"\n";
+	std::set<std::string> EngineIncludes;
+	std::set<std::string> ExtraModules;
+	for (const auto& API : Request.Contract.at("apis"))
+	{
+		if (API.at("shape") == "TypedMethod")
+		{
+			for (const auto& Parameter : API.at("parameters"))
+			{
+				if (Parameter.at("kind") == "ObjectInput")
+				{
+					EngineIncludes.insert(Text(Parameter, "include"));
+					const auto Dependency = Text(Parameter, "module");
+					if (Dependency != "Engine" && Dependency != "Core" && Dependency != "CoreUObject")
+					{
+						ExtraModules.insert(Dependency);
+					}
+				}
+			}
+		}
+	}
+	for (const auto& Include : EngineIncludes)
+	{
+		Header << "#include " << Literal(Include) << "\n";
+	}
+	Header << "#include \"" << Plugin << "API.generated.h\"\n\n"
 	       << LineDoc << " Reports native invocation success without hiding an error branch.\n"
 	       << "UENUM(BlueprintType)\nenum class " << Outcome << " : uint8\n{\n"
 	       << "\t" << LineDoc << " Call succeeded.\n\tSucceeded,\n\t" << LineDoc << " Call failed.\n\tFailed,\n};\n\n";
-	WriteReference(Header, Context, "PlayerScope", ApiMacro);
+	WriteReference(Header, Context, "PlayerScope", APIMacro);
 	for (const auto& [Id, Name] : Types)
 	{
-		WriteReference(Header, Name, "Object", ApiMacro);
+		WriteReference(Header, Name, "Object", APIMacro);
 	}
 	Header << LineDoc << " Typed game SDK calls; all operations execute on the game thread.\n"
 	       << "UCLASS(MinimalAPI)\nclass " << LibraryClass << " : public UBlueprintFunctionLibrary\n"
 	       << "{\n\tGENERATED_BODY()\n\npublic:\n";
 	std::ostringstream Source;
-	Source << "// Copyright (c) 2026 Nelaric Contributors\n#include \"" << Plugin << "Api.h\"\n\n"
+	Source << "// Copyright (c) 2026 Nelaric Contributors\n#include \"" << Plugin << "API.h\"\n\n"
 	       << "#include <cstdint>\n#include <type_traits>\n";
-	std::set<std::string> Includes;
-	for (const FJson& Api : Request.Contract.at("apis"))
+	if (!EngineIncludes.empty())
 	{
-		Includes.insert(Text(Api.at("native"), "header"));
+		Source << "#include \"Containers/StringConv.h\"\n";
+	}
+	std::set<std::string> Includes;
+	for (const FJson& API : Request.Contract.at("apis"))
+	{
+		Includes.insert(Text(API.at("native"), "header"));
 	}
 	for (const std::string& Include : Includes)
 	{
 		Source << "#include \"" << Include << "\"\n";
 	}
 	Source << "\n";
-	for (const FJson& Api : Request.Contract.at("apis"))
+	for (const FJson& API : Request.Contract.at("apis"))
 	{
-		const std::string Name = Text(Api, "name");
-		const std::string Symbol = Text(Api.at("native"), "symbol");
-		const bool bGetter = Api.at("shape") == "ObjectGetter";
-		const std::string Type = Types.at(Text(Api, bGetter ? "resultTypeId" : "targetTypeId"));
-		const std::string Parameter = bGetter ? "" : Text(Api, "parameterName");
+		if (API.at("shape") == "TypedMethod")
+		{
+			WriteTypedMethod(Header, Source, API, Types, Context, Outcome, LibraryClass, APIMacro, Plugin);
+			continue;
+		}
+		const std::string Name = Text(API, "name");
+		const std::string Symbol = Text(API.at("native"), "symbol");
+		const bool bGetter = API.at("shape") == "ObjectGetter";
+		const std::string Type = Types.at(Text(API, bGetter ? "resultTypeId" : "targetTypeId"));
+		const std::string Parameter = bGetter ? "" : Text(API, "parameterName");
 		Header << "\t" << LineDoc << " Invokes the bound API on the game thread; failure has an error pin.\n"
 		       << "\tUFUNCTION(BlueprintCallable, Category = \"Mod|" << Plugin
-		       << "\", meta = (DisplayName = " << Literal(Text(Api, "displayName"))
-		       << ", ExpandEnumAsExecs = \"Outcome\", Keywords = " << Literal(Text(Api, "id")) << "))\n"
-		       << "\tstatic " << ApiMacro << " void " << Name << "(";
+		       << "\", meta = (DisplayName = " << Literal(Text(API, "displayName"))
+		       << ", ExpandEnumAsExecs = \"Outcome\", Keywords = " << Literal(Text(API, "id")) << "))\n"
+		       << "\tstatic " << APIMacro << " void " << Name << "(";
 		Source << "static_assert(std::is_same_v<decltype(&::" << Symbol << "), std::uint32_t (*)("
 		       << "std::uint64_t, std::uint64_t, " << (bGetter ? "std::uint64_t*" : "float, float*")
 		       << ")>, \"Generated native client ABI does not match ContextHandlesV1\");\n\n"
@@ -149,8 +282,8 @@ void GenerateSdkPlugin(const FSdkRequest& Request, const fs::path& Directory)
 	}
 	Header << "};\n";
 	const fs::path ModuleRoot = Directory / "Source" / Module;
-	WriteSource(ModuleRoot / "Public" / (Plugin + "Api.h"), Header.str());
-	WriteSource(ModuleRoot / "Private" / (Plugin + "Api.cpp"), Source.str());
+	WriteSource(ModuleRoot / "Public" / (Plugin + "API.h"), Header.str());
+	WriteSource(ModuleRoot / "Private" / (Plugin + "API.cpp"), Source.str());
 	WriteSource(ModuleRoot / "Private" / (Module + "Module.cpp"),
 	            "// Copyright (c) 2026 Nelaric Contributors\n#include \"Modules/ModuleManager.h\"\n\n"
 	            "IMPLEMENT_MODULE(FDefaultModuleImpl, " +
@@ -171,7 +304,12 @@ void GenerateSdkPlugin(const FSdkRequest& Request, const fs::path& Directory)
 	      << "public class " << Module << " : ModuleRules\n{\n\tpublic " << Module
 	      << "(ReadOnlyTargetRules Target) : base(Target)\n\t{\n"
 	      << "\t\tPCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;\n"
-	      << "\t\tPublicDependencyModuleNames.AddRange(new[] { \"Core\", \"CoreUObject\", \"Engine\" });\n"
+	      << "\t\tPublicDependencyModuleNames.AddRange(new[] { \"Core\", \"CoreUObject\", \"Engine\"";
+	for (const auto& Dependency : ExtraModules)
+	{
+		Build << ", " << Literal(Dependency);
+	}
+	Build << " });\n"
 	      << "\t\tPrivateIncludePaths.Add(Path.Combine(PluginDirectory, \"Source\", \"ThirdParty\", \"ModClient\", "
 	         "\"Include\"));\n";
 	bool bFirst = true;

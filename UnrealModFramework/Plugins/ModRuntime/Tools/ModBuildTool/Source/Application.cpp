@@ -40,7 +40,7 @@ Usage:
                              --architecture <x64|arm64> --kind <Executable|DynamicLibrary>
   ModBuildTool --help | --version
 
-Requires UMF.ModHostContext v1 and UMF.GeneratedArtifacts v1 or v2.
+Requires UMF.ModHostContext v2 and UMF.GeneratedArtifacts v1 or v2.
 Generated v2 declares per-owner required symbols and public artifact roles.
 The generated batch must be Complete, hash-checked, and match the exact context.
 MHT scan reports are not generation manifests. A zero-export module still needs

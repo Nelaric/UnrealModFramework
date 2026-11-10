@@ -5,9 +5,9 @@ English | [简体中文](README.zh-CN.md)
 # ModSDKTool
 
 MST builds an independently installable authoring SDK from resolved exports.
-Its first adapter connects an object getter to float instance methods, covering
-“get this local player's character, then add health”. API IDs, public types,
-names, and native symbols are read from the producer's contract.
+It connects player context and object views to generated methods with typed
+scalar and public UE object inputs. API IDs, public types, names, and native
+symbols come from the producer's contract.
 
 MHT owns C++ analysis and projection. ExportCodeGenerator owns Blueprint export.
 MST consumes completed results, asks MBT to compile generated libraries, creates
@@ -66,8 +66,11 @@ Status zero means success. Tokens are opaque, process-local, and nonzero.
 `ObjectReference` types have stable `id` and `cppName`. `ObjectGetter` specifies
 `provider: LocalPlayerSubsystem`, `resultTypeId`, and `nullResult: Error`.
 `FloatMethod` specifies `targetTypeId`, `parameterName`, and stable `parameterId`.
-Each method target must be returned by a getter in the public type graph.
-Getters use Player scope; methods support Player or World. APIs declare
+`TypedMethod` describes parameters and the result. A method uses a player
+provider or a view as its target. An `ObjectInput` parameter names the public UE
+class, include, and module. An object result names the projected view TypeId.
+The `blueprint` flag selects whether to generate a node in addition to the
+native UE declaration. Getters use Player scope. Methods support Player or World. APIs declare
 `thread: GameThread` and `failureRule: ReturnError`, with per-API permissions.
 
 Each API also supplies `id`, stable public `name`, `displayName`, `signatureHash`,
