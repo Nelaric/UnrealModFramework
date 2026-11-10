@@ -1,0 +1,66 @@
+{
+  "classifiedReasons": {
+    "CurrentMeshHasNoSkeleton": {
+      "code": 839057410,
+      "macro": "MOD_ERROR_CURRENT_MESH_SKELETON_MISSING",
+      "type": "203"
+    },
+    "InvalidMeshGarbage": {
+      "code": 838926338,
+      "macro": "MOD_ERROR_INVALIDMESH_GARBAGE",
+      "type": "201"
+    },
+    "InvalidMeshNull": {
+      "code": 838926337,
+      "macro": "MOD_ERROR_INVALIDMESH_NULL",
+      "type": "201"
+    },
+    "MeshComponentGarbage": {
+      "code": 855769090,
+      "macro": "MOD_ERROR_MESH_COMPONENT_GARBAGE",
+      "type": "302"
+    },
+    "MeshComponentNull": {
+      "code": 855769091,
+      "macro": "MOD_ERROR_MESH_COMPONENT_NULL",
+      "type": "302"
+    },
+    "MeshComponentUnavailable": {
+      "code": 855769089,
+      "macro": "MOD_ERROR_MESH_COMPONENT_UNAVAILABLE",
+      "type": "302"
+    },
+    "MeshHasNoSkeleton": {
+      "code": 839057409,
+      "macro": "MOD_ERROR_MESH_SKELETON_MISSING",
+      "type": "203"
+    },
+    "SkeletonMismatch": {
+      "code": 839122945,
+      "macro": "MOD_ERROR_SKELETON_MISMATCH",
+      "type": "204"
+    },
+    "WrongThread": {
+      "code": 335609856,
+      "macro": "MOD_ERROR_WRONGTHREAD"
+    }
+  },
+  "format": "UMF.SourceErrorCatalog",
+  "members": {
+    "api/game.character/setmesh": {
+      "failureReturn": false,
+      "function": "AGameCharacter::SetMesh",
+      "module": "ExportTest",
+      "reasons": {},
+      "signature": "bool (USkeletalMesh *)",
+      "source": "../Source/ExportTest/GameCharacter.cpp"
+    }
+  },
+  "nextDetailByType": {
+    "201": 3,
+    "203": 3,
+    "204": 2,
+    "302": 4
+  },
+  "schemaVersion": 2
+}
