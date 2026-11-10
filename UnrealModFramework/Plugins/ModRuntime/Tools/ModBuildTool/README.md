@@ -47,15 +47,15 @@ Both `compiler` and `archiver` specify a tool `path`, an `arguments` array, and 
 
 ## Generated-artifact contract
 
-New producers use [generated-artifacts.schema.json](Protocol/generated-artifacts.schema.json): `UMF.GeneratedArtifacts` version `2`, status `Complete`, and zero `unresolvedTypeCount`. MBT retains [legacy v1](Protocol/generated-artifacts-v1.schema.json) build compatibility; final-link association requires v2. Bootstrap and scan reports are rejected.
+New producers use the `UMF.GeneratedArtifacts` v3 [schema](Protocol/generated-artifacts.schema.json), with status `Complete` and zero `unresolvedTypeCount`. MBT accepts [legacy v1](Protocol/generated-artifacts-v1.schema.json) and v2 manifests with their original hash key. Final-link association requires v2 or v3. Bootstrap and scan reports are rejected.
 
-In v2, `hostBuildContexts` maps every compilation owner to its parsed context hash. Use `hash-context` for the compact sorted JSON digest. The v1 single-context fallback is `buildContextHash`. MBT checks every v2 `inputFiles` hash and re-enumerates `watchedDirectories` before accepting the batch. `GeneratedInputsStale` identifies the path that requires a new MHT run. `generationId`, `inputHash`, `contractHash`, `projectionHash`, and `nativeAbiHash` are lowercase SHA-256 strings.
+In v2 and v3, `hostBuildContexts` maps every compilation owner to its parsed context hash. Use `hash-context` for the compact sorted JSON digest. The v1 single-context fallback is `buildContextHash`. MBT checks every v2 and v3 `inputFiles` hash and re-enumerates `watchedDirectories` before accepting the batch. `GeneratedInputsStale` identifies the path that requires a new MHT run. `generationId`, `inputHash`, `contractHash`, `projectionHash`, and `nativeABIHash` are lowercase SHA-256 strings.
 
 `generatedFiles` lists relative paths, `contentHash`, and `ownerModule` (nullable for shared artifacts). Paths are unique, contain no `..`, and must remain within the manifest directory after resolving symlinks. Every file must match its hash. `compilationUnits` explicitly lists `ownerModule` and `source`; MBT only compiles listed `.cpp`, `.cc`, or `.cxx` files belonging to this owner. Empty export sets still require a generated unit defining the stable registration anchor.
 
 ## Cache and publication
 
-Each v2 generated file requires a role: `HostBinding`, `HostRegistration`, `CompileVerification`, `HostHeader`, `SdkHeader`, `Contract`, `SdkResource`, or private `Diagnostic`. Plans, build results, and linked results expose only this owner's and shared `SdkHeader`/`Contract`/`SdkResource` files through `publicArtifacts`, with absolute `sourcePath`, normalized `relativePath`, hash, role, and owner. SDK headers require `.h`/`.hpp`; contracts require `.json`. Compilation units cannot also be public artifacts. Unspecified or unknown legacy roles remain private.
+Each generated file in v2 and v3 requires a role: `HostBinding`, `HostRegistration`, `CompileVerification`, `HostHeader`, `SdkHeader`, `Contract`, `SdkResource`, or private `Diagnostic`. Plans, build results, and linked results expose only this owner's and shared `SdkHeader`/`Contract`/`SdkResource` files through `publicArtifacts`, with absolute `sourcePath`, normalized `relativePath`, hash, role, and owner. SDK headers require `.h`/`.hpp`; contracts require `.json`. Compilation units cannot also be public artifacts. Unspecified or unknown legacy roles remain private.
 
 `requiredSymbols` is an array of `{ "ownerModule": "...", "symbol": "..." }` records with optional `exportId`, `signatureHash`, and `projectionHash`. Symbols are undecorated C identifiers. Duplicate owner/symbol pairs and duplicate export IDs within one owner fail; a Host and Client owner may describe the same logical ExportId. MBT adds the stable context registration anchor and validates the complete owner-specific set in one archive pass. Mach-O inspection adds the platform C prefix. Empty export sets may use an empty array, but still require the anchor. Legacy v1 may omit the array and retain anchor-only verification.
 
@@ -69,9 +69,9 @@ Archive validation checks native objects, target architecture, and every require
 
 ## Two-API producer example
 
-MHT emits a v2 manifest with four host units (bridge, C ABI endpoints, verification, and UE views) plus one independent client unit owned by `<game>ModClient`. The context anchors are `UMF_ModHost_<owner>` and `UMF_ModClient_<game>`. The [MHT ABI protocol](../ModHeaderTool/README.md) supplies the concrete public header, Host/Client symbol records, and MST contract.
+MHT emits a v3 manifest with four host units (bridge, C ABI endpoints, verification, and UE views) plus one independent client unit owned by `<game>ModClient`. The context anchors are `UMF_ModHost_<owner>` and `UMF_ModClient_<game>`. The [MHT ABI protocol](../ModHeaderTool/README.md) supplies the concrete public header, Host/Client symbol records, and MST contract.
 
-The local-character and add-health APIs are ordinary manifest data, not special MBT behavior. A simplified v2 symbol fragment for `ExportTest` can declare; the actual MHT names are read from its generated descriptor:
+The local-character and add-health APIs are ordinary manifest data, not special MBT behavior. A simplified v3 symbol fragment for `ExportTest` can declare; the actual MHT names are read from its generated descriptor:
 
 ```json
 {

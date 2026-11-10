@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "UMF complete generated artifacts v2",
+  "title": "UMF complete generated artifacts v3",
   "type": "object",
-  "required": ["format", "schemaVersion", "target", "platform", "configuration", "architecture", "generationId", "status", "unresolvedTypeCount", "buildContextHash", "inputHash", "contractHash", "projectionHash", "nativeAbiHash", "generatedFiles", "compilationUnits", "requiredSymbols", "hostBuildContexts", "inputFiles", "watchedDirectories"],
+  "required": ["format", "schemaVersion", "target", "platform", "configuration", "architecture", "generationId", "status", "unresolvedTypeCount", "buildContextHash", "inputHash", "contractHash", "projectionHash", "nativeABIHash", "generatedFiles", "compilationUnits", "requiredSymbols", "hostBuildContexts", "inputFiles", "watchedDirectories"],
   "properties": {
     "format": { "const": "UMF.GeneratedArtifacts" },
-    "schemaVersion": { "const": 2 },
+    "schemaVersion": { "const": 3 },
     "target": { "type": "string", "minLength": 1 },
     "platform": { "enum": ["Win64", "Linux", "Mac"] },
     "configuration": { "enum": ["Debug", "DebugGame", "Development", "Shipping", "Test"] },
@@ -55,7 +55,7 @@
     "inputHash": { "$ref": "#/$defs/hash" },
     "contractHash": { "$ref": "#/$defs/hash" },
     "projectionHash": { "$ref": "#/$defs/hash" },
-    "nativeAbiHash": { "$ref": "#/$defs/hash" },
+    "nativeABIHash": { "$ref": "#/$defs/hash" },
     "generatedFiles": {
       "type": "array",
       "items": {

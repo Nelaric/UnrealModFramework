@@ -6,6 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -74,7 +75,11 @@ FJson ReadJson(const fs::path& Path);
 /// Reads a required nonempty JSON string without control characters.
 std::string Text(const FJson& Document, const char* Key);
 /// Requires a protocol format and supported schema version.
-void RequireFormat(const FJson& Document, std::string_view Format);
+void RequireFormat(const FJson& Document, std::string_view Format, std::initializer_list<int> Versions = {1});
+/// Checks the connection descriptor format and schema version.
+void RequireClientABIFormat(const FJson& Document);
+/// Returns the identity key for the accepted schema version.
+const char* ContractIdentityKey(const FJson& Document, const char* Key);
 /// Loads and validates a build request and its public contract.
 FSdkRequest ReadSdkRequest(const fs::path& File);
 /// Resolves real MBT plans and public headers without compiling libraries.

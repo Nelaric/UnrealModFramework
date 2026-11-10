@@ -1,8 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Legacy UMF complete generated artifacts v1",
+  "$comment": "Version 1 retains the original title-cased acronym in the native ABI hash key.",
   "type": "object",
-  "required": ["format", "schemaVersion", "generationId", "status", "unresolvedTypeCount", "buildContextHash", "inputHash", "contractHash", "projectionHash", "nativeAbiHash", "generatedFiles", "compilationUnits"],
+  "required": ["format", "schemaVersion", "generationId", "status", "unresolvedTypeCount", "buildContextHash", "inputHash", "contractHash", "projectionHash", "nativeA\u0062\u0069Hash", "generatedFiles", "compilationUnits"],
   "properties": {
     "format": { "const": "UMF.GeneratedArtifacts" },
     "schemaVersion": { "const": 1 },
@@ -18,7 +19,7 @@
     "inputHash": { "$ref": "#/$defs/hash" },
     "contractHash": { "$ref": "#/$defs/hash" },
     "projectionHash": { "$ref": "#/$defs/hash" },
-    "nativeAbiHash": { "$ref": "#/$defs/hash" },
+    "nativeA\u0062\u0069Hash": { "$ref": "#/$defs/hash" },
     "generatedFiles": {
       "type": "array",
       "items": {

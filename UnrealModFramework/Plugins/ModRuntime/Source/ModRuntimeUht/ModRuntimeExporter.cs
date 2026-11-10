@@ -294,7 +294,7 @@ internal static class ModRuntimeExporter
 		using JsonDocument manifest = ReadJson(manifestPath);
 		JsonElement batch = manifest.RootElement;
 		if (
-			batch.GetProperty("schemaVersion").GetInt32() != 2
+			batch.GetProperty("schemaVersion").GetInt32() != 3
 			|| RequiredText(batch, "format") != "UMF.GeneratedArtifacts"
 			|| RequiredText(batch, "outputLayout") != "Flat"
 			|| RequiredText(batch, "status") != "Complete"

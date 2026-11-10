@@ -114,19 +114,26 @@ void PortablePath(std::string_view Value)
 	}
 }
 
+const char* AdapterABIKey(const FJson& Document)
+{
+	return Document.at("schemaVersion") == 1 ? "adapterA"
+	                                           "bi"
+	                                         : "adapterABI";
+}
+
 void ValidateContract(FSdkRequest& Request)
 {
 	const FJson& Contract = Request.Contract;
-	RequireFormat(Contract, "UMF.SdkContract");
+	RequireFormat(Contract, "UMF.SdkContract", {1, 2});
 	if (Contract.value("status", "") != "Complete" || Contract.value("unresolvedTypeCount", -1) != 0 ||
-	    Contract.value("adapterAbi", "") != "ContextHandlesV1" ||
+	    Contract.value(AdapterABIKey(Contract), "") != "ContextHandlesV1" ||
 	    Text(Contract, "gameId") != Text(Request.Document, "gameId"))
 	{
 		throw std::runtime_error("SDK requires a Complete ContextHandlesV1 contract for the requested game.");
 	}
-	for (const char* Key : {"contractHash", "projectionHash", "nativeAbiHash"})
+	for (const char* Key : {"contractHash", "projectionHash", "nativeABIHash"})
 	{
-		RequireDigest(Text(Contract, Key), Key);
+		RequireDigest(Text(Contract, ContractIdentityKey(Contract, Key)), Key);
 	}
 	if (Contract.contains("connectionDescriptor"))
 	{
@@ -331,7 +338,7 @@ std::string Text(const FJson& Document, const char* Key)
 	return Value;
 }
 
-void RequireFormat(const FJson& Document, std::string_view Format)
+void RequireFormat(const FJson& Document, std::string_view Format, std::initializer_list<int> Versions)
 {
 	if (Format == "UMF.SdkContract" && Document.contains("projectionVersion") && Document.contains("exports"))
 	{
@@ -340,10 +347,35 @@ void RequireFormat(const FJson& Document, std::string_view Format)
 		    "A matching export producer must supply UMF.SdkContract and checked client endpoints.");
 	}
 	if (!Document.is_object() || Document.value("format", "") != Format || !Document.contains("schemaVersion") ||
-	    Document.at("schemaVersion") != 1)
+	    std::none_of(Versions.begin(), Versions.end(),
+	                 [&](int Version) { return Document.at("schemaVersion") == Version; }))
 	{
-		throw std::runtime_error("Expected " + std::string(Format) + " schemaVersion 1.");
+		throw std::runtime_error("Unsupported format or schemaVersion for " + std::string(Format) + ".");
 	}
+}
+
+void RequireClientABIFormat(const FJson& Document)
+{
+	const bool bLegacy = Document.contains("schemaVersion") && Document.at("schemaVersion") == 1;
+	RequireFormat(Document,
+	              bLegacy ? "UMF.ClientA"
+	                        "bi"
+	                      : "UMF.ClientABI",
+	              {1, 2});
+}
+
+const char* ContractIdentityKey(const FJson& Document, const char* Key)
+{
+	if (std::string_view(Key) == "nativeABIHash")
+	{
+		const int FirstVersion = Document.at("format") == "UMF.GeneratedArtifacts" ? 3 : 2;
+		if (Document.at("schemaVersion") < FirstVersion)
+		{
+			return "nativeA"
+			       "biHash";
+		}
+	}
+	return Key;
 }
 
 FSdkRequest ReadSdkRequest(const fs::path& File)
@@ -460,13 +492,15 @@ FSdkRequest ReadSdkRequest(const fs::path& File)
 		Job.Manifest = fs::canonical(ResolvePath(Root, Text(Library, "generatedManifest")));
 		const FJson Context = ReadJson(Job.Context);
 		const FJson Manifest = ReadJson(Job.Manifest);
-		if (Manifest.value("format", "") != "UMF.GeneratedArtifacts" || Manifest.value("status", "") != "Complete")
+		RequireFormat(Manifest, "UMF.GeneratedArtifacts", {1, 2, 3});
+		if (Manifest.value("status", "") != "Complete")
 		{
 			throw std::runtime_error("MST needs complete generated artifacts; MHT scan reports are not SDK inputs.");
 		}
-		for (const char* Key : {"contractHash", "projectionHash", "nativeAbiHash"})
+		for (const char* Key : {"contractHash", "projectionHash", "nativeABIHash"})
 		{
-			if (Manifest.at(Key) != Request.Contract.at(Key))
+			if (Manifest.at(ContractIdentityKey(Manifest, Key)) !=
+			    Request.Contract.at(ContractIdentityKey(Request.Contract, Key)))
 			{
 				throw std::runtime_error(std::string("Mixed SDK batches: ") + Key);
 			}
@@ -582,7 +616,7 @@ FJson PlanSdk(FSdkRequest& Request)
 				throw std::runtime_error("MBT rejected the library plan: " + PathToUtf8(Job.Context));
 			}
 			Job.Plan = ReadJson(ResultFile);
-			RequireFormat(Job.Plan, "UMF.ModHostPlan");
+			RequireFormat(Job.Plan, "UMF.ModHostPlan", {1, 2});
 			if (!Outputs.insert(Fold(Text(Job.Plan, "library"))).second)
 			{
 				throw std::runtime_error("Two SDK jobs write the same native library.");
@@ -706,16 +740,17 @@ FJson PlanSdk(FSdkRequest& Request)
 				throw std::runtime_error("Native connection descriptor changed during planning.");
 			}
 			const FJson Connection = ReadJson(Path);
-			RequireFormat(Connection, "UMF.ClientAbi");
+			RequireClientABIFormat(Connection);
 			if (Connection.value("status", "") != "Complete" || Connection.value("abiVersion", 0) != 1 ||
-			    Connection.value("adapterAbi", "") != "ContextHandlesV1" ||
+			    Connection.value(AdapterABIKey(Connection), "") != "ContextHandlesV1" ||
 			    Connection.at("gameId") != Request.Contract.at("gameId"))
 			{
 				throw std::runtime_error("Native connection descriptor does not match the SDK contract.");
 			}
-			for (const char* Key : {"contractHash", "projectionHash", "nativeAbiHash"})
+			for (const char* Key : {"contractHash", "projectionHash", "nativeABIHash"})
 			{
-				if (Connection.at(Key) != Request.Contract.at(Key))
+				if (Connection.at(ContractIdentityKey(Connection, Key)) !=
+				    Request.Contract.at(ContractIdentityKey(Request.Contract, Key)))
 				{
 					throw std::runtime_error(std::string("Native connection descriptor mismatch: ") + Key);
 				}

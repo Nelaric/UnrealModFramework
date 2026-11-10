@@ -15,9 +15,9 @@ MHT 在 UE 视图后端之外生成纯 C 的 `ContextHandlesV1` 边界。全部�
 | `SDK/Public/<game>.modabi.h` | 纯 C 声明、定宽类型、状态码、ABI 版本/哈希常量和类型化宿主函数表 |
 | `Host/<owner>/<owner>.modabi.cpp` | 宿主 C 入口、精确成员调用、检查和导出的函数表查询入口 |
 | `Client/<game>ModClient/<game>ModClient.modclient.cpp` | 独立客户端入口、兼容性校验、Connect、Disconnect 和 ReleaseObject |
-| `Contract/<game>.clientabi.json` | 连接描述：所属模块、函数表、查询/连接符号、表槽、签名、哈希与生命周期规则 |
-| `Contract/<game>.sdkcontract.json` | 供 MST 已支持适配图消费的 `UMF.SdkContract` |
-| `<game>.generated-artifacts.json` | v2 完整清单，明确列出 Host/Client 编译单元及必需符号绑定 |
+| `Contract/<game>.clientabi.json` | `UMF.ClientABI` v2 连接描述，包含所属模块、函数表、查询/连接符号、表槽、签名、哈希与生命周期规则 |
+| `Contract/<game>.sdkcontract.json` | 供 MST 已支持适配图消费的 `UMF.SdkContract` v2 |
+| `<game>.generated-artifacts.json` | v3 完整清单，明确列出 Host/Client 编译单元及必需符号绑定 |
 
 连接描述遵循 [client-abi.schema.json](Protocol/client-abi.schema.json)。客户端库所属模块为 `<game>ModClient`，拥有独立 MBT 生产者上下文、库路径、注册锚点和回执；不链接游戏私有代码或 UE。Win64 适配层从真实选中工具链的配方派生客户端参数，移除游戏包含目录和强制 UE 定义。
 
@@ -36,7 +36,7 @@ MHT 在 UE 视图后端之外生成纯 C 的 `ContextHandlesV1` 边界。全部�
 
 ABI 使用显式 `cdecl`、64 位进程内 token、定宽整数/标量和 `uint32_t` 状态码；bool 使用限定为 0/1 的 `uint8_t`。输出内存由调用者提供，失败时输出为零，成功时提交结果。0 表示成功，65536 表示未连接，65537 表示 ABI 不匹配，65538 表示意外原生异常。
 
-`nativeAbiHash` 为连接描述加入 `nativeAbiHash`、`contractHash`、`projectionHash` 前的规范 SHA-256，使用 nlohmann JSON 排序键与紧凑 `dump()`。摘要覆盖 API 形状、连接符号、状态码与生命周期规则；公共头包含同一版本和哈希常量。
+`nativeABIHash` 为连接描述加入 `nativeABIHash`、`contractHash`、`projectionHash` 前的规范 SHA-256，使用 nlohmann JSON 排序键与紧凑 `dump()`。摘要覆盖 API 形状、连接符号、状态码与生命周期规则；公共头包含同一版本和哈希常量。
 
 ## API 兼容名
 
@@ -58,6 +58,6 @@ UE SDK 的调用者传入真实 UObject 指针。ContextHandlesV1 对每个此�
 
 UHT 适配器通过 `--host-contexts` 同时提供两类真实上下文，并分别调用 MBT。独立调用 `generate` 同样需要匹配的宿主和客户端生产者上下文，才能发布 Complete 清单。
 
-MST 消费 `.sdkcontract.json`、Host/Client 上下文及同一份 v2 清单。它保留原有对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。SDK 契约无法表示完整 API 集时标记为 `Unsupported`。
+MST 消费 `.sdkcontract.json`、Host/Client 上下文及同一份 v3 清单。它保留原有对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。SDK 契约无法表示完整 API 集时标记为 `Unsupported`。
 
 自动工具链适配当前支持 Win64 MSVC；其他平台仍需真实平台上下文和验证。本次生成不实现模组装载、向运行中模组交付 token、可信最终链接回执或自动连接模块；后续消费者使用上述显式产物接入。

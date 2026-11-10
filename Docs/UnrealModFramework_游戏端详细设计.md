@@ -197,7 +197,7 @@ SourceSignatureHash 记录原始游戏成员的所属类型、完整签名与限
 
 ProjectionHash 记录原始类型与公开类型的映射、递归字段投影、可空/只读规则、容器复制或借用方式、输出提交规则、错误表示及转换规则版本。PolicyHash 覆盖作用域、线程、权限、Authority、取消、错误和顺序规则。改变错误表示等同时影响签名的规则时，相关摘要均更新。文档、分类和显示名不进入调用签名。默认参数变化单独报告，因为已编译调用方可能保留旧默认值。
 
-ExportHash 表示公共定义集合；CookProfileHash 表示资源构建兼容性；NativeAbiHash 表示服务表和边界布局；ResolvedModSetHash 表示精确模组集合、权限和决议配置。哈希命中仍保留可读字段用于差异诊断，冲突不能靠“同一个哈希”覆盖不同定义。
+ExportHash 表示公共定义集合；CookProfileHash 表示资源构建兼容性；NativeABIHash 表示服务表和边界布局；ResolvedModSetHash 表示精确模组集合、权限和决议配置。哈希命中仍保留可读字段用于差异诊断，冲突不能靠“同一个哈希”覆盖不同定义。
 
 ### 核心记录
 
@@ -633,7 +633,7 @@ RunUAT.bat BuildPlugin -Plugin="<plugin.uplugin>" -Package="<package-directory>"
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "format": "UMF.GeneratedArtifacts",
   "generatorVersion": "0.4.0-context-handles",
   "gameId": "MyGame",
@@ -647,8 +647,8 @@ RunUAT.bat BuildPlugin -Plugin="<plugin.uplugin>" -Package="<package-directory>"
   },
   "contractHash": "<contract-hash>",
   "projectionHash": "<projection-hash>",
-  "nativeAbiHash": "<abi-hash>",
-  "independentNativeAbi": true,
+  "nativeABIHash": "<abi-hash>",
+  "independentNativeABI": true,
   "unresolvedTypeCount": 0,
   "generatedFiles": [
     { "path": "SDK/Public/MyGame.modviews.h", "contentHash": "<view-hash>", "ownerModule": null, "role": "HostHeader" },
@@ -699,7 +699,7 @@ ModHeaderTool/
 ├── Frontend/       MacroParser、UhtTypeAdapter、CppTypeAnalyzer
 ├── Contract/       ContractSchema、ContractIR、ContractValidator
 ├── TypeSystem/     TypeResolver、TypeProjection、ConversionPlanner
-├── Generator/      ViewGenerator、HostBindingGenerator、AbiGenerator、
+├── Generator/      ViewGenerator、HostBindingGenerator、ABIGenerator、
 │                   ValidationGenerator、ArtifactManifestWriter
 └── Diagnostics/    声明位置、类型依赖路径与生成诊断
 
@@ -943,7 +943,7 @@ Native 模组必须登记它创建的回调、定时器和任务。BeginShutdown
 
 ### 同构 UE 模块能力
 
-NativeUEModule 与 NativeCAbi 独立。前者要求精确工具链、运行库、引擎/游戏构建身份、公共契约布局、模块导出与 Target/Configuration 均通过验证。UE API 导出宏在 monolithic 构建中可为空，不能由类带 API 宏推导任意 Shipping 可装入依赖该类的 DLL。[^R08]
+NativeUEModule 与 NativeCABI 独立。前者要求精确工具链、运行库、引擎/游戏构建身份、公共契约布局、模块导出与 Target/Configuration 均通过验证。UE API 导出宏在 monolithic 构建中可为空，不能由类带 API 宏推导任意 Shipping 可装入依赖该类的 DLL。[^R08]
 
 不得修改 .modules 或强制匹配 BuildId 来绕过不兼容检查。BuildId 保护针对同批构建产物；官方不建议强制固定以绕过保护。本框架自己的 C ABI 兼容协商也不赋予 UE 模块兼容性。[^R09]
 
@@ -1218,13 +1218,13 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 | 能力组 | 最小粒度 | 证据要求 |
 | --- | --- | --- |
 | 声明与构建 | 原始宏/UHT 共存、UHT Exporter、完整类型前端、Prepare/Finalize、Host/Editor SDK 组合 | 首次/增量构建、生成头时序、目标活动分支、完整函数体编译、清单/目标凭证关联及 Bundle 独立消费证据 |
-| 调用 | NativeDirect、BlueprintCall、BlueprintOverride、CAbiBridge | 展开/调用栈证据及正确性、性能数据 |
+| 调用 | NativeDirect、BlueprintCall、BlueprintOverride、CABIBridge | 展开/调用栈证据及正确性、性能数据 |
 | 数据 | 每个公开 TypeId、投影规则摘要与参数形态 | 源/Mod 签名、只读/可空、容器所有权、转换连接、边界和布局证据 |
 | 生命周期 | Global、World、Player、MultiPIE、Travel | 隔离、关闭、迟到回调和销毁用例 |
 | 扩展 | BeforeAfterHook、AroundHook、OrderedEvent、ImmediateUnsubscribe | 精确定义和顺序/取消/重入用例 |
 | 内容 | LogicalContent、WorldPatch、StreamingAnchor | 冲突、幂等、部分失败与回收用例 |
 | 资源 | Pak、IoStore、Registry、CookedBlueprint、MaterialShaderLibrary | 独立 Cook 到 Shipping 的完整链路 |
-| 原生与渲染 | NativeCAbi、NativeUEModule、EarlyShaderTypeModule | ABI、构建、符号与加载阶段验证 |
+| 原生与渲染 | NativeCABI、NativeUEModule、EarlyShaderTypeModule | ABI、构建、符号与加载阶段验证 |
 | 联机与存档 | ServerProfile、NetworkHandshake、SaveMigration | 不兼容拒绝和数据保留验证 |
 
 每项使用 Supported、Experimental、Unsupported、NotVerified 四种状态，附限制、证据编号、失败原因和测试日期。Supported 只表示列出的组合；同 UE 小版本、同平台但不同 Target 或 Cook 配置仍需匹配报告。Experimental 必须由宿主显式允许，NotVerified 不可自动提升。

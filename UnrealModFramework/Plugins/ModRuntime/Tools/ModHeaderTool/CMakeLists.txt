@@ -7,8 +7,8 @@ project(ModHeaderTool LANGUAGES CXX)
 add_library(ModHeaderToolCore STATIC
     src/Application.cpp
     src/APIGenerator.cpp
-    src/NativeAbiGenerator.cpp
-    src/NativeAbiGenerator.h
+    src/NativeABIGenerator.cpp
+    src/NativeABIGenerator.h
     src/ClangLibrary.cpp
     src/ClangLibrary.h
     src/DeclarationAnalyzer.cpp

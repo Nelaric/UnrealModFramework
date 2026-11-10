@@ -124,7 +124,7 @@ and no LTO. It does not guess missing compiler settings.
 MHT emits declarations in public headers and all implementations in explicit
 `.cpp` compilation units. MBT independently compiles those units and publishes
 `Intermediate/MBT/<Target>/<Platform>/<Configuration>/<Architecture>/<owner>.lib`
-and its `.mbt.json` receipt. A separate `<game>ModClient` producer context removes UE/game includes and forced definitions while retaining the real selected toolchain flags. MBT independently compiles the client ABI library as well. The v2 manifest lists all five host/client units for the one-owner sample and binds both endpoint sets to ExportIds. Only the pure C ABI header is public to MST; see the [MHT connection protocol](../../Tools/ModHeaderTool/README.md). The generated manifest's `hostBuildContexts` map pins
+and its `.mbt.json` receipt. A separate `<game>ModClient` producer context removes UE/game includes and forced definitions while retaining the real selected toolchain flags. MBT independently compiles the client ABI library as well. The v3 manifest lists all five host/client units for the one-owner sample and binds both endpoint sets to ExportIds. Only the pure C ABI header is public to MST; see the [MHT connection protocol](../../Tools/ModHeaderTool/README.md). The generated manifest's `hostBuildContexts` map pins
 each actual producer context. An unchanged MBT fingerprint reuses the library.
 
 The private External module uses UE 5.6 `PublicPreBuildLibraries` to declare a

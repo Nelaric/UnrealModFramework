@@ -32,7 +32,7 @@ Usage:
   ModSDKTool inspect --bundle <directory> [--output <inspection.json>]
   ModSDKTool --help | --version
 
-Accepts UMF.SdkBuildRequest and UMF.SdkContract schemaVersion 1.
+Accepts UMF.SdkBuildRequest v1 and UMF.SdkContract v1 or v2.
 Contracts must already contain complete, resolved projections. MHT scan reports
 are rejected. Blueprint export belongs to ExportCodeGenerator.
 
