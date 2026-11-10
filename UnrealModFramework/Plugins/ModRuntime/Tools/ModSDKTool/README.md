@@ -101,7 +101,7 @@ session owns the instances and delivers lifecycle events.
 | `project`, `gameId`, `sdkVersion` | Real project and versioned game identity |
 | `pluginName` | Stable SDK plugin/reflection identity |
 | `contract` | Completed public producer contract |
-| `outputDirectory` | Immutable bundle destination |
+| `outputDirectory` | Optional bundle destination, defaulting to `<project>/Intermediate/ModTools/ModSDKTool/<pluginName>/<sdkVersion>` |
 | `developmentPlugin` | Independent plugin containing `DevelopmentEditor` |
 | `tools.mbt` | MBT with support for the input manifest version and binary inspection |
 | `tools.dotnet`, `tools.automationTool` | Actual UE-compatible host and assembly |
@@ -122,10 +122,11 @@ inventory. Generated Build.cs rejects missing client profiles.
 ## Editor entry and output
 
 Enable `ModDevelopmentSDKEditor`. Under **Tools → Mod SDK**, choose **Plan Mod
-SDK...** or **Build Mod SDK...**, then select a request JSON. If a packaged MST is
-absent, locate the built executable once; the path is stored in project editor
-settings. Output is streamed without blocking the editor. Results are saved to
-`Saved/ModSDKTool`. **Cancel Mod SDK task** terminates the process tree.
+SDK...** or **Build Mod SDK...**, then select a request JSON. The editor can
+use the packaged MST or a local executable under the ModRuntime plugin's
+`Tools/build/ModSDKTool`. You can also select an executable and save its path in the editor settings.
+Output is streamed without blocking the editor. Result JSON is saved under
+`Intermediate/ModTools/ModSDKTool/Results`. **Cancel Mod SDK task** terminates the process tree.
 
 The development plugin remains independent of game Runtime modules. Bundles
 carry MST, MBT, and their license notices in its

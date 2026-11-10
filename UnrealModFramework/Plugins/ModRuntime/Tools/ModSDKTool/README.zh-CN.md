@@ -52,7 +52,7 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 | `project`、`gameId`、`sdkVersion` | 实际工程与版本化游戏身份 |
 | `pluginName` | 稳定插件和反射模块身份 |
 | `contract` | 完整公开契约 |
-| `outputDirectory` | 不可变发布目录 |
+| `outputDirectory` | 可选发布目录，默认位于 `<工程>/Intermediate/ModTools/ModSDKTool/<pluginName>/<sdkVersion>` |
 | `developmentPlugin` | 含 `DevelopmentEditor` 的独立开发插件 |
 | `tools.mbt` | 支持输入清单版本和二进制检查的 MBT |
 | `tools.dotnet`、`tools.automationTool` | UE 可用的实际 .NET 程序与 UAT 程序集 |
@@ -67,7 +67,7 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 
 ## 编辑器入口与交付
 
-启用 `ModDevelopmentSDKEditor`，在 **Tools → Mod SDK** 选择 **Plan Mod SDK...** 或 **Build Mod SDK...**，再选请求 JSON。没有打包工具时，首次选择编译好的 MST，路径存入项目编辑器设置。日志异步进入 Output Log，结果存到 `Saved/ModSDKTool`。**Cancel Mod SDK task** 终止进程树。
+启用 `ModDevelopmentSDKEditor`，在 **Tools → Mod SDK** 选择 **Plan Mod SDK...** 或 **Build Mod SDK...**，再选请求 JSON。编辑器可使用随插件打包的 MST 或ModRuntime 插件 `Tools/build/ModSDKTool` 中的本地构建，也可手动选择并保存可执行文件路径。日志异步进入 Output Log，结果 JSON 写入 `Intermediate/ModTools/ModSDKTool/Results`。**Cancel Mod SDK task** 终止进程树。
 
 通用开发插件不依赖游戏 Runtime 模块。发布包在其 `Binaries/ThirdParty/ModSDKTool/<平台>` 中携带 MST、MBT 与许可证说明。
 

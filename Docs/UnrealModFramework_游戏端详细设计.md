@@ -66,7 +66,7 @@ C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBu
 
 独立 DevelopmentEditor 消费 SDK 与能力报告。其制作、打包和发布界面不在本方案内；游戏端必须提供可机器读取的输入格式、验证规则、错误码和最小联调样例。
 
-首版交付范围包含：固定模组集合、Global/World/Player 服务、公开 API、同步 Before/After Hook、类型化 Event、逻辑内容扩展和受控世界 Patch。Around Hook、可动态撤销入口、IoStore、原生 UE 扩展模块、模组材质 Shader 等采用独立能力开关，不因主体插件可运行而自动视为支持。运行时新增全局 Shader 类型、任意 DLL 热重载、任意反射类型替换和自动拦截未接入业务不属于首版默认能力。
+首版交付范围包含固定模组集合、Global/World/Player 服务、公开 API、同步 `Pre` 和 `Post` Hook、类型化 Event、逻辑内容扩展和受控世界 Patch。`On` 的包装与替换、可动态撤销入口、IoStore、原生 UE 扩展模块、模组材质 Shader 等采用独立能力开关，不因主体插件可运行而自动视为支持。运行时新增全局 Shader 类型、任意 DLL 热重载、任意反射类型替换和自动拦截未接入业务不属于首版默认能力。
 
 ## 2 固定架构决策
 
@@ -102,7 +102,7 @@ C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBu
 
 | 模块 | 建议位置 | Target 与职责 |
 | --- | --- | --- |
-| ExportMetadata | Source/Runtime/ExportMetadata | Runtime；导出标识、容器与配置选项 |
+| ExportMetadata | Source/Runtime/ExportMetadata | Runtime 模块，提供导出元数据与配置选项 |
 | ExportCodeGenerator | Source/Editor/ExportCodeGenerator | Editor；当前提供标记及配置选项导出，后续提供 Editor 声明 IR 和生成检查 |
 | BlueprintIntegration | Source/Editor/BlueprintIntegration | Editor；面板、图、K2 节点和编译扩展 |
 | ModHeaderTool（MHT） | Plugins/ModRuntime/Tools/ModHeaderTool | 独立 C++ 工具；通过 C# UHT Exporter 适配器接入，拥有类型、投影和生成语义 |
@@ -115,7 +115,7 @@ C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBu
 
 Runtime 和 Editor 是目录分类，模块身份来自各模块描述与 Build.cs。非标准目录布局须通过 UBT 发现和打包验证；必要时调整目录，不新增名为 Runtime 或 Editor 的空模块。
 
-运行时层按具体职责建立模块，当前的 ExportMetadata 模块承载导出标识、容器与配置选项。Catalog、Binding、Lifecycle、Native、Resources、Hooks、Events、Content、WorldPatch、Diagnostics 等后续能力按实际功能、依赖与加载阶段组织，不再集中到名为 Runtime 的模块。Shader 的早期准备可以独立为经验证的早期桥接模块，不要求所有宿主服务提前初始化。
+运行时层按具体职责建立模块，当前的 ExportMetadata 模块承载导出元数据与配置选项。Catalog、Binding、Lifecycle、Native、Resources、Hooks、Events、Content、WorldPatch、Diagnostics 等后续能力按实际功能、依赖与加载阶段组织，不再集中到名为 Runtime 的模块。Shader 的早期准备可以独立为经验证的早期桥接模块，不要求所有宿主服务提前初始化。
 
 GameModSDK 承担公共契约模块这一逻辑角色。项目可以保留既有公共模块名；已发布的 /Script 身份不得因文档命名统一而重命名，也不额外生成重复反射定义。SDK Bundle 必须明确唯一的实际模块名与类型身份。
 
@@ -191,7 +191,7 @@ Cook Profile、Host Capability Report、SDK 和游戏可执行文件必须带同
 
 ### 标识与签名
 
-GameId、ModId、ExportId、TypeId、MemberId、ProviderId、ExtensionPointId 均为发布后稳定的显式标识。显示名称、文件路径和蓝图节点标题可修改，不用作唯一身份。创建标识后作为源数据持久保存，不能每次扫描重算随机值；删除后的已发布标识保留 tombstone，禁止复用。
+GameId、ModId、ExportId、TypeId、MemberId、ProviderId、ExtensionPointId 均为发布后稳定的标识。生成的标识取自持久化的声明数据。显示名称、文件路径和蓝图节点标题可以独立修改。删除后的已发布标识保留 tombstone，防止复用。
 
 SourceSignatureHash 记录原始游戏成员的所属类型、完整签名与限定符，用于发现生成产物过期。SignatureHash 对生成后的 Mod 侧规范化签名计算，覆盖参数顺序、公开 TypeId、值/引用/const/out、返回类型、同步或异步、公开继承约束、关联类型布局版本和必要分派语义。
 
@@ -248,10 +248,10 @@ C++ 导出采用声明前标记，指向真实游戏成员并提供导出范围�
 ```cpp
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "ModExportMetadataAnnotations.h"
+#include "ModExportAnnotations.h"
 #include "MyCharacter.generated.h"
 
-MOD_EXPORT_CLASS(ExportId = "game.character")
+MOD_EXPORT_CLASS(TypeId = "game.character")
 UCLASS(MinimalAPI)
 class AMyCharacter : public ACharacter
 {
@@ -260,7 +260,6 @@ class AMyCharacter : public ACharacter
 
 public:
     MOD_EXPORT_API(
-        ExportId = "game.character.get_health",
         ExportVersion = "1.0",
         Scope = World,
         Thread = GameThread,
@@ -272,7 +271,6 @@ public:
     DECLARE_MULTICAST_DELEGATE_OneParam(FOnDied, AMyCharacter*);
 
     MOD_EXPORT_EVENT(
-        ExportId = "game.character.died",
         ExportVersion = "1.0",
         Scope = World,
         Delivery = Sync,
@@ -282,13 +280,9 @@ public:
     FOnDied OnDied;
 
     MOD_EXPORT_HOOK(
-        ExportId = "game.character.apply_damage",
         ExportVersion = "1.0",
-        Scope = World,
-        Stages = (Before, After, OnFailure),
-        MutableInputs = (Amount),
-        MutableOutputs = (ReturnValue),
-        Permissions = ("character.modify_damage"))
+        AllowedStages = (Pre, Post),
+        AllowedOperations = (ModifyInputs, ModifyResult))
     float ApplyDamage(float Amount);
 };
 ```
@@ -297,7 +291,7 @@ public:
 | --- | --- | --- |
 | MOD_EXPORT_API | 函数或明确支持的调用声明 | 完整原始签名、重载身份及调用策略 |
 | MOD_EXPORT_EVENT | delegate/EventSource 字段或显式事件签名锚点 | 事件源、载荷和订阅签名 |
-| MOD_EXPORT_HOOK | 游戏业务函数 | Core 签名、阶段上下文和允许修改范围 |
+| MOD_EXPORT_HOOK | 游戏业务函数 | 原版业务签名、开放阶段、允许操作和可写字段 |
 
 关联时只允许跨过 Schema 规定的 UE 标记、C++ 属性和注释；遇到其他声明、跨所有者或无法唯一绑定时拒绝。多个 Kind 叠加仅在 Schema 明确允许时成立。非 UFUNCTION 成员也可由 MHT 的 AST 前端解析，但必须处于支持的形状和后端范围，不依赖 UHT 解析任意 C++。
 
@@ -323,20 +317,24 @@ MHT 在宏被擦除前收集标记。上述友元形式要求类中存在正确�
 
 ### 统一选项 Schema
 
-一个版本化 Schema 驱动 C++ 标记语法、蓝图编辑选项、默认值、验证器、文档及兼容摘要，C++ 和蓝图不得各自维护独立语义。已有 GameplayTags 和 DefaultGameMod 配置可提供标识与选项输入，但其可选值不代表运行时已经实现该能力；生成时须核对同一 Schema 与宿主能力策略。
+一个版本化 Schema 驱动 C++ 标记语法、蓝图编辑选项、默认值、验证器、文档及兼容摘要，C++ 和蓝图共用这套语义。DefaultGameMod 配置提供候选选项，生成时须核对同一 Schema 与宿主能力策略。
 
-宏中的契约标识沿用现有 `ExportId` 字段及已注册 GameplayTag 校验，类型映射、生成清单和发布清单均引用这份稳定身份；不引入另一套独立的 ContractId 身份。
+MHT 按类型和公开名生成 C++ API 的契约标识。类型映射、生成清单和发布清单均引用对应的导出标识。
 
 | 类别 | 必须表达的配置 |
 | --- | --- |
-| 公共 | ExportId、版本、显示名称、描述、作用域、线程、Authority 与稳定身份关联 |
+| 公共 | 版本、显示名称、描述、作用域、线程、Authority 与稳定身份关联 |
 | API | 调用权限、FailureRule（可恢复失败统一 ReturnError）、同步/显式异步、完成/取消关联、Pure/执行引脚、副作用、绑定要求、参数方向与生命周期 |
 | Event | 发布/订阅权限、发布/分发线程、同步/队列、载荷策略、顺序、重入/限深、容量/预算、溢出/合并、退订与监听失败 |
-| Hook | 参与权限、阶段、输入/结果写入范围、取消及完整结果、Around/替代/组合规则、重入、阶段失败、排序与输入提交 |
+| Hook | 参与权限、`AllowedStages`、`AllowedOperations`、输入和结果的可写字段、取消及完整结果、包装与替换规则、重入、阶段失败、排序与输入提交 |
+
+C++ 元数据和蓝图声明使用相同的阶段及操作名称。`AllowedStages` 至少包含一个阶段，默认 `(Post)`。`AllowedOperations` 默认 `()`，每项操作要求开放对应阶段，规则见[第18节](#18-hook-语义与执行计划)。C++ 的 `scan` 和蓝图声明编译校验这些选择。类型化执行接入和可写字段验证属于后续生成能力。
+
+旧蓝图资产加载时，`Observe`、`Modify`、`Intercept` 分别映射为 `Post`、`Pre`、`On`，`AllowedOperations` 为空。需要修改输入、取消、包装、替换或修改结果时，由游戏开发者在对应 Hook 上显式授权。
 
 语法支持字符串、布尔、数值、枚举、列表与嵌套字段；类型、成员路径和契约引用以明确的引用种类保存。未知/重复字段与非法组合直接报错。文本、权限列表和嵌套数据按公开的可配置预算验证，不使用未声明的固定数量或静默截断。
 
-首版核心 DSL 使用字面量和 Schema 枚举。若以后允许命名 constexpr 表达式，必须交给 AST 常量求值，不能靠字符串替换模拟 C++。API 的 const 不自动意味着 Pure、线程安全或授权；Event 的只读性不要求发布者/监听者的 this 为 const；Hook Core 是游戏业务体，不是可供 Mod 注册的阶段。Around 等可选组合仍受独立能力开关限制。
+首版核心 DSL 使用字面量和 Schema 枚举。若以后允许命名 constexpr 表达式，必须交给 AST 常量求值，不能靠字符串替换模拟 C++。API 的 const 不自动意味着 Pure、线程安全或授权，Event 的只读性也不要求发布者和监听者的 this 为 const。Hook 的 `Core` 是 `On` 阶段的原版业务体。`On` 的包装与替换各自受能力开关和 Hook 声明限制。
 
 业务接入点至少包括提供实例、调用 Hook、发布 Event、注册逻辑内容槽和登记世界锚点。它们可以由游戏 C++ 接入，也可以由对应蓝图业务节点接入。构建报告分别展示“已声明”“已实现”“已接入”“已 Cook 验证”，只标记声明不得显示为运行时可用。
 
@@ -453,7 +451,7 @@ MHT 负责声明解析与代码生成；MBT 根据生成清单独立编译宿主
 
 | 职责 | MHT | MBT | 原生 UE 工具 |
 | --- | --- | --- | --- |
-| 解析 MOD_EXPORT_*、检查配置和稳定契约 ID | 唯一负责方 | 传递版本化输入 | Editor 提供实际配置选项与标签目录 |
+| 解析 MOD_EXPORT_*、检查配置和稳定契约 ID | 唯一负责方 | 传递版本化输入 | Editor 提供实际配置选项与函数重定向 |
 | 获取真实 C++ 类型与完整成员签名 | UhtTypeAdapter / CppTypeAnalyzer | 只提供真实构建上下文 | UHT 提供已解析反射信息 |
 | 完整类型依赖闭包、游戏到 Mod/ABI 类型投影 | 唯一负责方 | 不解析类型或重算规则 | 不定义 Mod 导出语义 |
 | 生成 FModRuntimeObject、参数/结果转换及调用连接 | 唯一负责方 | 独立编译生成实现，不生成代码 | 消费生成声明并链接宿主库 |
@@ -576,7 +574,7 @@ Exporter 通过 UHT 的 AddExternalDependency 登记 Schema、选项目录和其
 
 默认不复制或改写全项目源码。若以后确需隔离快照，标记变换、友元接缝和完整源码映射由 MHT 负责；MBT 只管理已声明的模块路径、输入文件、依赖、输出与失效。UHT、MHT 和编译器必须读取同一份正式输入，插入内容及 GENERATED_BODY 行号也必须可追溯。快照后端另行验收，不能让 MBT 实现第二套宏或类型解释器。
 
-首次构建先准备源码基线中的真实类型和可发现的模块描述，不用本轮尚未生成的 Mod 视图定义原始游戏成员。需要新公共反射包装时，MHT 先生成源码，再由后续原生目标执行正常 UHT；不能指望同一轮 Exporter 自动重新扫描新类型。当前选项目录需要通过已编译 Editor 的 ModExportOptions 导出，缺失时由外层原生构建流程显式准备导出器，不让 MBT 另写一套 INI 或 GameplayTags 解析。需要蓝图 IR 而导出器尚不可运行时同样采用标记为不可发布的引导批次，收集完整输入后重新生成和构建。
+首次构建先准备源码基线中的真实类型和可发现的模块描述，不用本轮尚未生成的 Mod 视图定义原始游戏成员。需要新公共反射包装时，MHT 先生成源码，再由后续原生目标执行正常 UHT。当前选项目录由已编译 Editor 的 ModExportOptions 导出，缺失时由外层原生构建流程显式准备导出器。需要蓝图 IR 而导出器尚不可运行时同样采用标记为不可发布的引导批次，收集完整输入后重新生成和构建。
 
 ### 分阶段生成
 
@@ -773,7 +771,7 @@ TypeProjection 和 GeneratedCallPlan 是生成器的工作数据。Runtime 仅�
 | 配置在构建期确定 | DSL 求值，允许表达式时使用 AST 常量求值 | 必要的 constexpr 一致性验证 |
 | 配置组合有效 | Schema、跨项和全局策略校验 | 生成策略类型与后端连接一致 |
 
-成员 traits 和 static_assert 是生成验证库，不替代标记解析、AST 关联或实际构建。识别 C variadic、引用限定或其他 C++ 形状不代表该形状已获所有后端支持。Event 不通过业务返回值或 out/inout 写回原业务，队列载荷必须具有拥有型或显式保留的传输方案；Hook 校验真实可写字段、取消完整结果与 Around 协议。任意回调正文是否私存或重复调用 Next 无法由声明完整静态证明，相应运行时检查按已生成协议执行。
+成员 traits 和 static_assert 是生成验证库，不替代标记解析、AST 关联或实际构建。识别 C variadic、引用限定或其他 C++ 形状不代表该形状已获所有后端支持。Event 的队列载荷必须具有拥有型或显式保留的传输方案，业务结果独立于监听者回调。Hook 校验真实可写字段、取消和替换的完整结果，以及 `Wrap` 的 `Next` 协议。`Next` 的生命周期和调用次数由生成的运行时入口检查。
 
 每个拥有导出实现的模块必须在清单中明确列出全部 MBT 编译单元，例如：
 
@@ -1022,29 +1020,27 @@ PSO 预热和 Shader 字节码可用是两个条件。宿主分别报告库可�
 
 ### 定义与接入
 
-HookDefinition 包含 HookId、输入/输出签名、Scope、允许阶段、修改字段、取消策略、重入策略、错误策略、线程、权限和顺序规则。游戏把 Hook 放在真实业务入口，显式划定 Core 业务体和提交边界。声明函数为 Hook 不会自动拦截已有 C++、蓝图或引擎调用。
+HookDefinition 包含 HookId、输入和输出签名、Scope、`AllowedStages`、`AllowedOperations`、可写字段、取消策略、重入策略、错误策略、线程、权限和顺序规则。游戏在真实业务入口接入 Hook，显式划定原版业务体 `Core` 和提交边界。Mod 可用的操作由 Hook 声明和宿主授权共同决定。
 
-生成器分别生成各阶段的具体上下文、对象视图、处理器签名、必要的 Next 类型及游戏上下文的双向连接。只读字段不生成写入入口，可修改字段按声明生成转换、验证和提交代码；处理器不能凭字段名或 FProperty 任意写回游戏对象。未知字段、只读写入和不支持的上下文投影在生成或编译阶段失败。
+生成器为开放阶段生成类型化上下文、对象视图、处理器签名及游戏上下文的连接，`Next` 只供获授权的 `Wrap` 处理器使用。可写字段按声明生成转换、验证和提交代码。未知字段、只读写入和不支持的上下文投影在生成或编译阶段失败。
 
-首版基础能力是同步 Before/After，OnFailure 是显式结果通知，Around 单独启用。所有处理器保持类型化参数和专用调用入口，不使用“事件名称加任意参数字典”。未注册处理器时保持直接 Core 路径；若需要运行时空链检查，其分支也计入 Hook 成本。
+首版基础能力是同步 `Pre` 和 `Post`。`Wrap` 和 `Replace` 各自启用。所有处理器使用类型化参数和专用调用入口。未注册处理器时直接执行 `Core`，运行时若检查空链，该分支也计入 Hook 成本。
 
 ### 阶段规则
 
-| 阶段 | 可读写范围 | 默认行为 |
+| 阶段 | 时机与默认行为 | 可声明的操作 |
 | --- | --- | --- |
-| Before | 只允许声明字段的输入修改 | 正序执行；Continue、Cancel 或 Fail |
-| Around | 参数、结果与单次 Next | 可包围后续 Around/Core；单独能力 |
-| Core | 游戏原业务体 | 每个 Hook 调用帧至多执行一次 |
-| After | 最终结果；仅声明字段可改写 | 成功且未取消时按该阶段顺序执行 |
-| OnFailure | 原错误与执行来源 | 只读诊断；不恢复成功、不重新执行 Core |
+| `Pre` | 核心执行前按阶段顺序处理，只读输入 | `ModifyInputs` 写入声明允许的输入字段，`Cancel` 结束当前操作并返回完整的取消结果 |
+| `On` | 核心执行，默认运行 `Core` | `Wrap` 包装后续执行，`Replace` 以明确选定的 Mod 实现执行该操作 |
+| `Post` | 成功完成 `On` 后按阶段顺序处理，只读结果 | `ModifyResult` 写入声明允许的结果字段 |
 
-Cancel 仅在定义允许时有效，停止尚未开始的 Before、Around 和 Core，并返回定义要求的合法取消结果。After 默认不执行；取消若需要观察，使用单独声明的完成/取消通知。Fail 停止业务阶段，进入 OnFailure，错误结果不能伪装成返回值默认初始化。若 Core 已产生不可逆业务效果，After 报错不会把这些效果恢复，诊断必须标记提交状态。
+宿主按 `Pre → On → Post` 执行，未开放的 `Pre` 或 `Post` 跳过对应处理器。`On` 未开放或没有获授权的处理器时直接执行 `Core`。只有显式列在 `AllowedOperations` 中的 `Wrap` 或 `Replace` 才能注册相应的 `On` 处理器。`Pre` 的 `Cancel` 停止其余处理器并跳过 `On` 和 `Post`。任一阶段失败时停止后续阶段，按 Hook 契约返回错误。需要观察取消或失败时，宿主可单独发布相应 Event。
 
-调用帧记录 CoreEntered、CoreReturned 和业务提交标识。Core 已进入后不能再声称“未执行的取消”；只能传播实际失败或修改允许的成功结果。After 失败停止剩余 After 并进入 OnFailure；OnFailure 自身的错误只作为次要诊断，不再次触发 OnFailure，不重新执行 Core。必须无论结果如何运行的资源清理由宿主调用帧负责，不寄托于成功阶段 After。
+调用帧记录有效业务体的进入、返回和提交状态。`On` 开始后按实际执行结果报告成功或失败。若业务已产生不可逆效果，`Post` 失败时记录提交状态并返回错误，已产生的效果继续有效。诊断与失败通知中的错误只作为次要诊断。宿主调用帧负责所有路径的资源清理。
 
-Before 默认按快照顺序逐个修改允许字段，后一个处理器能看到前一个结果；这种组合是明确的串行业务语义。投影连接按固定规则验证候选并提交允许字段，失败时按本阶段的 Fail 合同处理。单个处理器执行到一半失败时，不承诺撤销其外部副作用。需要“候选输入成功才生效”的扩展点必须定义复制/验证策略，由生成器固定连接，并把复制成本纳入该 Hook 的预算。
+`Pre` 按快照顺序逐个修改允许的字段，后一个处理器能看到前一个结果。投影连接按固定规则验证候选并提交允许字段，失败时按本阶段的错误策略处理。单个处理器执行到一半失败时，不承诺撤销其外部副作用。需要“候选输入成功才生效”的扩展点必须定义复制和验证策略，由生成器固定连接，并把复制成本纳入该 Hook 的预算。
 
-Around 的 Next 只能在当前同步栈调用零次或一次，不得存储、跨线程、跨帧或调用两次。零次仅在允许替代结果时合法，并必须给出完整结果；一次继续后续链。第二次调用在进入后续业务前被拒绝，不能造成 Core 重复扣款或重复伤害。Next 的令牌、使用检查和链步进成本均属于 Around 语义。
+`Wrap` 的 `Next` 只在当前同步调用帧有效，成功完成必须调用一次。它继续下一层包装或有效业务体。框架在进入后续业务前拒绝第二次调用和过期调用。`Replace` 使用独立处理器接管执行并提供完整结果。每个调用帧至多执行一次有效业务体。`Next` 的令牌、使用检查和链步进成本计入包装成本。
 
 需要运行时安全拒绝过期 Next 的入口使用宿主管理的稳定槽位与代次令牌。调用结束先使令牌失效，再释放帧内资源；迟到请求只检查仍可验证的记录，不解引用已销毁的调用帧。槽位复用必须更换代次。允许重入时嵌套调用建立独立帧，Core 分帧计数，共同受深度上限约束。
 
@@ -1052,9 +1048,9 @@ Around 的 Next 只能在当前同步栈调用零次或一次，不得存储、�
 
 ### 顺序与快照
 
-每个阶段先处理显式 Before/After 约束，再以优先级、稳定 ModId、RegistrationId 处理并列项；约束循环在提交前拒绝。Around 的进入顺序是外层到内层，退出自然反向。After 是独立阶段，其顺序由自身声明决定，不能把未配对的 Before/After 自动当成调用栈。
+每个阶段先处理显式的先后约束，再以优先级、稳定 ModId、RegistrationId 处理并列项。约束循环在提交前拒绝。`Wrap` 按外层到内层进入，反向退出。`Pre` 和 `Post` 的处理器各自排序。
 
-优先级统一约定为小值先执行。排他替代型 Hook 在 Ready 前必须只剩一个合格替代者，多个未决候选拒绝；可组合 Around 才允许多个处理器嵌套。稳定字典序用于有序组合的并列排序，不默认替用户选择排他业务胜者。
+优先级统一约定为小值先执行。使用 `Replace` 时须在 Ready 前决议出唯一替代者，多个未决候选拒绝。声明允许组合时，多个 `Wrap` 处理器可以嵌套。稳定字典序只用于有序组合的并列排序。
 
 有顺序保证的链采用框架排序后的类型化数组。UE multicast delegate 的 Broadcast 顺序没有定义，不能依赖注册顺序实现有序 Hook。[^R16]
 
@@ -1207,7 +1203,7 @@ Direct API 的结构性验收为：框架新增通用 ID 查询、运行时类�
 
 拟定验收可将小型稳态直接调用的等价区间设为基准的 ±5%，同时给出由测量噪声校准的绝对误差阈值；这是待基准工程确认的目标，不是已测结果。对于极短调用不能只看比例；对于长业务不能靠总耗时掩盖固定附加成本。最终阈值由宿主基准报告锁定。
 
-Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每处理器增量和载荷复制。预建快照减少注册查询与排序，不减少真正要执行的处理器数量。0 监听者的分支、快照引用计数和 Around 的 Next 检查都应如实计量。
+Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每处理器增量和载荷复制。预建快照减少注册查询与排序，不减少真正要执行的处理器数量。0 监听者的分支、快照引用计数和 `Wrap` 的 `Next` 检查都应如实计量。
 
 启动预算按扫描/验证、依赖决议、容器、索引、Shader、对象加载、绑定和 Patch 分项。没有目标游戏内容规模与硬件数据时不写虚构毫秒承诺；CI 使用经游戏确认的启动、内存和首帧预算，并保存原始测量与构建指纹。
 
@@ -1221,7 +1217,7 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 | 调用 | NativeDirect、BlueprintCall、BlueprintOverride、CABIBridge | 展开/调用栈证据及正确性、性能数据 |
 | 数据 | 每个公开 TypeId、投影规则摘要与参数形态 | 源/Mod 签名、只读/可空、容器所有权、转换连接、边界和布局证据 |
 | 生命周期 | Global、World、Player、MultiPIE、Travel | 隔离、关闭、迟到回调和销毁用例 |
-| 扩展 | BeforeAfterHook、AroundHook、OrderedEvent、ImmediateUnsubscribe | 精确定义和顺序/取消/重入用例 |
+| 扩展 | PrePostHook、OnWrapHook、OnReplaceHook、OrderedEvent、ImmediateUnsubscribe | 精确定义和顺序/取消/重入用例 |
 | 内容 | LogicalContent、WorldPatch、StreamingAnchor | 冲突、幂等、部分失败与回收用例 |
 | 资源 | Pak、IoStore、Registry、CookedBlueprint、MaterialShaderLibrary | 独立 Cook 到 Shipping 的完整链路 |
 | 原生与渲染 | NativeCABI、NativeUEModule、EarlyShaderTypeModule | ABI、构建、符号与加载阶段验证 |
@@ -1271,9 +1267,9 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 | --- | --- | --- |
 | H01 | 打乱发现和注册顺序 | 声明相同则最终快照顺序与摘要相同 |
 | H02 | 顺序约束成环或排他替代冲突 | Ready 前拒绝，给出来源链 |
-| H03 | Before 取消或失败 | Core 零次；结果完整；阶段符合第18节 |
-| H04 | Around 两次 Next 或延迟 Next | 同一调用帧 Core 至多一次，失效令牌不访问旧帧 |
-| H05 | Core 已执行后 After 失败 | 不重试 Core，不声称已回滚，记录提交状态 |
+| H03 | `Pre` 取消或失败 | 跳过 `On` 和 `Post`，返回完整结果 |
+| H04 | `Wrap` 两次调用 `Next` 或延迟调用 | 同一调用帧的有效业务体至多执行一次，失效令牌不访问旧帧 |
+| H05 | `On` 已提交后 `Post` 失败 | 记录提交状态，保留已提交效果并返回错误 |
 | H06 | 同键重入与处理器中请求关闭 | 按策略限深/拒绝，在途上下文保持有效 |
 | E01 | A 中新增 C 与普通退订 B | C 不进当前发布树；B 遵循旧快照直到安全点 |
 | E02 | ImmediateUnsubscribe 退订 B | B 尚未开始则跳过；已开始允许结束 |
@@ -1328,7 +1324,7 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 
 ### 阶段 P3 基础扩展语义
 
-实现 Before/After Hook、有序 Event、逻辑内容槽与受控 Patch；冻结第18至21节语义。先实现 Game Thread 同步版本，再按真实需求加入 Around、立即退订或工作线程版本。退出条件为顺序、取消、错误、幂等和失败补偿用例通过。
+实现 `Pre` 和 `Post` Hook、有序 Event、逻辑内容槽与受控 Patch，冻结第18至21节语义。先实现 Game Thread 同步版本，再按真实需求加入 `On` 包装和替换、立即退订或工作线程版本。退出条件为顺序、取消、错误、幂等和失败补偿用例通过。
 
 ### 阶段 P4 原生与资源能力
 
@@ -1357,7 +1353,7 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 
 游戏公开 World 作用域 DamageService，以及 DamageRequest、DamageResult 的公共投影。游戏侧伤害目标 Actor 继续作为真实类型的显式参数，不注册成进程级服务；生成的 Mod 签名使用相应 `FModRuntimeObject<T>`，请求/结果中的对象字段也递归投影。游戏提供者返回当前 World 的 DamageService 实例，生成入口关联当前调用者与租约，SDK 只公开受限视图、契约和所需投影类型。
 
-游戏把真实 ApplyDamage 业务划成参数校验、Before、可选 Around、Core、After 与结果发布。生成器为各阶段生成固定上下文及字段转换：Before 只允许修改最终伤害候选值和原因标签；Core 按权威游戏规则验证目标并提交生命值变化；After 只允许修订约定的显示信息，不能把已经应用的伤害改成“没有发生”。DamageApplied Event 在游戏定义的提交时机通过生成的载荷与回调连接发布。游戏接入不需要手写第二套签名或角色对象包装代码。
+游戏在真实 ApplyDamage 业务中开放 `Pre` 和 `Post`，授权 `ModifyInputs` 和 `ModifyResult`。`Pre` 只允许修改伤害候选值和原因标签。`On` 的原版业务按权威游戏规则验证目标并提交生命值变化。`Post` 只允许修订约定的显示信息。宿主在成功路径的 Hook 完成后显式发布 `DamageApplied` Event，载荷与回调连接由生成器提供。游戏接入不需要手写第二套签名或角色对象包装代码。
 
 假定基础伤害为100，模组A提供明确先执行的乘0.8规则，模组B随后减5且下限为0，则 Core 收到75。这个结果来自声明顺序。若相反执行则为76，说明排序是业务语义，不能从加载偶然顺序推导。浮点、舍入和下限规则属于该游戏 Hook 的契约。
 
@@ -1393,7 +1389,7 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 
 首版固定采用声明前宏、MHT 唯一导出语义与生成核心、原生 UHT/UBT 构建及 MBT 产物管理。MHT 在构建期完成完整类型分析、签名投影、全部转换/调用连接和验证代码，生成 Mod 侧受限视图及统一 ReturnError。两个工具以生成清单交接；UBT 按 Game/Editor 目标实际编译宿主、SDK 与适配产物，MBT 依据目标凭证和兼容信息交付完整 SDK Bundle。宏/UHT 共存、Exporter/构建回调时序、生成头及增量依赖分别验收。当前 MBT 的导出与 Mod 调用范围不扩展为 Cook、挂载、模组依赖决议或完整宿主生命周期管理。
 
-运行时不提供动态转换器选择或通用反射转换回退。整体 Runtime 在上述工具边界之上采用固定集合、Game Thread 玩法入口、固定服务实现、独立公共契约、显式业务接入、基础 Before/After、有界事件队列、逻辑内容决议和受控 Patch。运行中更换相同包身份、DLL 和反射定义统一走新进程；只有没有进程级身份冲突且宿主已验证的场景才允许仅重建 Session。
+运行时不提供动态转换器选择或通用反射转换回退。整体 Runtime 在上述工具边界之上采用固定集合、Game Thread 玩法入口、固定服务实现、独立公共契约、显式业务接入、基础 `Pre` 和 `Post` Hook、有界事件队列、逻辑内容决议和受控 Patch。运行中更换相同包身份、DLL 和反射定义统一走新进程；只有没有进程级身份冲突且宿主已验证的场景才允许仅重建 Session。
 
 主要技术风险集中在公共蓝图符号与 Cook 身份、目标 Shipping 的模块导出、容器/索引互操作、Shader 注册阶段、可销毁目标的绑定安全、Patch 外部副作用和实际性能。每个风险都有对应 P0 样例或验收项；未验证结果不转成能力承诺。
 

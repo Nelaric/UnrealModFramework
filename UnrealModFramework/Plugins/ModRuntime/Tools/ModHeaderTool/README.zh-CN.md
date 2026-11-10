@@ -27,7 +27,7 @@ MHT 在 UE 视图后端之外生成纯 C 的 `ContextHandlesV1` 边界。全部�
 
 1. 根据描述中的 `ownerModule` 定位实际所属二进制，解析 `querySymbol`，使用生成的 ABI 版本、`sizeof(table)` 和哈希查询函数表。
 2. 调用对应客户端的 `connectSymbol`。客户端先检查版本、结构大小、哈希和全部必需回调，再绑定函数指针。
-3. 游戏批准调用者、作用域及权限。宿主侧 `Mod::API::FNativeAccess::Open` 签发非零 context/scope token；示例 `UGameModAPIHost::OpenLocalPlayer` 的返回值已包含 `Native` 字段。
+3. 游戏批准调用者、作用域及权限。`UModAPIHostSubsystem::OpenLocalPlayer` 绑定生成的 LocalPlayer 提供者，通过 `Mod::API::FNativeAccess::Open` 签发非零 context/scope token，并在 `Native` 字段返回。
 4. 将 token 交给消费者。Getter 接收 context/scope，返回 object token。成员方法接收 context/object 和生成签名定义的入参。宿主每次调用检查线程、调用者生命周期、类型、作用域与权限。
 5. 模组停止时撤销对应 Caller；关闭作用域或 Registry 同样使 token 失效。ReleaseObject 显式使该 token 的所有副本失效，不拥有或销毁实际 UObject。重复投影复用仍然有效的绑定。
 6. 卸载宿主或 SDK 模块前，先 Disconnect 并等待调用结束。Disconnect 清空函数指针，不等待已进入的调用，也不撤销共享该客户端模块的其他调用者。
@@ -44,7 +44,7 @@ ABI 使用显式 `cdecl`、64 位进程内 token、定宽整数/标量和 `uint3
 
 省略 `CompatibleNames` 时，MHT 使用 UE 从 Engine 配置及启用插件配置解析出的 `FunctionRedirects`。同一类内指向已导出宿主 `UFUNCTION` 的精确重定向会贡献一个旧名。函数名可能重复时，用反射类名和模块限定重定向。连续改名会导出链上的各个旧名。显式填写 `CompatibleNames = ()` 表示兼容名列表为空。
 
-MHT 会在宏声明或 INI 条目处报告非法名称、名称冲突和适用范围内的错误重定向。修改重定向后，重新运行 `ModExportOptions` 刷新配置快照，并用同一份生成契约构建宿主和 SDK。
+MHT 会在宏声明或 INI 条目处报告非法名称、名称冲突和适用范围内的错误重定向。UBT 构建会自动刷新默认配置快照。独立运行 MHT 时，修改重定向后用 `ModExportOptions` 刷新快照。宿主和 SDK 使用同一份生成契约。
 
 ## FullView 与对象输入
 
