@@ -545,6 +545,11 @@ bool PrepareCache(IFileHandle& Input, const TArray<FEntry>& Entries, double Dead
 	}
 	return true;
 }
+
+bool ShouldEnforcePackageAllowlist(const FLoadPolicy& Policy)
+{
+	return Policy.bEnforcePackageAllowlist.Get(!Policy.TrustedPackageSha256.IsEmpty());
+}
 } // namespace
 
 bool Fail(FLoadResult& Result, ELoadError Error, FString Detail)
@@ -559,13 +564,18 @@ bool ValidatePolicy(const FLoadPolicy& Policy, FLoadResult& Result)
 	if (!IsIdentifier(Policy.GameId) || !IsIdentifier(Policy.BaseReleaseVersion) ||
 	    !IsDigest(Policy.BaseRegistrySha256) ||
 	    (Policy.Backend != EBackend::Pak && Policy.Backend != EBackend::IoStore) ||
-	    Policy.TrustedPackageSha256.Num() > MaxTrustedDigests ||
-	    !Algo::AllOf(Policy.TrustedPackageSha256, [](const FString& Value) { return IsDigest(Value); }) ||
 	    !FMath::IsFinite(Policy.PreparationTimeoutSeconds) || Policy.PreparationTimeoutSeconds < 1.0 ||
 	    Policy.PreparationTimeoutSeconds > 3600.0)
 	{
 		return Fail(Result, ELoadError::InvalidPolicy,
 		            TEXT("Supply a valid game ID, release, registry hash, and policy."));
+	}
+	if (ShouldEnforcePackageAllowlist(Policy) &&
+	    (Policy.TrustedPackageSha256.Num() > MaxTrustedDigests ||
+	     !Algo::AllOf(Policy.TrustedPackageSha256, [](const FString& Value) { return IsDigest(Value); })))
+	{
+		return Fail(Result, ELoadError::InvalidPolicy,
+		            TEXT("TrustedPackageSha256 exceeds the digest limit or contains an invalid SHA-256."));
 	}
 	return true;
 }
@@ -631,7 +641,11 @@ bool PrepareArchive(const FLoadPolicy& Policy, double Deadline, FLoadResult& Res
 		return FailTransfer(Result, Deadline, ELoadError::InputUnavailable, TEXT("The archive could not be hashed."));
 	}
 	Result.Package.ArchiveSha256 = Hash.Finish();
-	if (Result.Package.ArchiveSha256.IsEmpty() ||
+	if (Result.Package.ArchiveSha256.IsEmpty())
+	{
+		return Fail(Result, ELoadError::InputUnavailable, TEXT("The archive SHA-256 could not be computed."));
+	}
+	if (ShouldEnforcePackageAllowlist(Policy) &&
 	    !Policy.TrustedPackageSha256.ContainsByPredicate(
 	        [&Result](const FString& Trusted)
 	        { return Trusted.Equals(Result.Package.ArchiveSha256, ESearchCase::IgnoreCase); }))

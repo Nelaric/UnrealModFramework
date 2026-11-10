@@ -64,20 +64,20 @@ After engine initialization, game-thread code can call `Mod::Loader::IModLoaderM
 
 Host C++ can subscribe through `OnLoadCompleted()`. Each startup or manual operation broadcasts its origin, input path, and `FLoadResult` entries. An empty scan has no entries. A scan-level failure returns one entry with `Error` and `Detail`. Callbacks run on the game thread. Reentrant and wrong-thread completions are deferred.
 
-Add these settings to the host's `Config/DefaultGame.ini` to scan top-level `.mod` files in `Saved/Mods` at startup. Automatic loading is disabled by default.
+Startup scans top-level `.mod` files in `Saved/Mods` by default. Configure the host release in `Config/DefaultGame.ini`. Set `bLoadAtStartup=False` in `[ModLoader]` to disable the scan.
 
 ```ini
 [ModLoader]
-bLoadAtStartup=True
 GameId=YourGame
 BaseReleaseVersion=1.0.0
 BaseRegistrySha256=<SHA-256 of the base release AssetRegistry.bin>
 Backend=IoStore
-+TrustedPackageSha256=<SHA-256 of an approved complete .mod file>
 PreparationTimeoutSeconds=120
 ```
 
-Use the game and base release values supplied to the authoring tool, and select the backend used by the game release. Add a digest for each approved package from the `sha256` field in its build result. The loader also verifies the archive format, target platform, UE build, cook receipt, and payload digests.
+Use the game and base release values supplied to the authoring tool, and select the backend used by the game release. The loader verifies the archive format, target platform, UE build, cook receipt, and payload digests.
+
+The package allowlist is disabled by default. To enable it, add one `+TrustedPackageSha256=<digest>` per approved `.mod` using the `sha256` field in its build result. An explicit `bEnforcePackageAllowlist=False` bypasses a populated list. Setting it to `True` requires a match even when the list is empty. Manual loads use the corresponding `FLoadPolicy` fields.
 
 Payloads live in `Saved/ModCache/<archive SHA-256>` and are rechecked before reuse. A mount retains its cooked package root and admits one version of a mod ID at a time. In a cooked game, containers, package roots, and shader libraries remain active until process exit. This version accepts unencrypted content in its own package root and can append its cooked asset registry when present.
 

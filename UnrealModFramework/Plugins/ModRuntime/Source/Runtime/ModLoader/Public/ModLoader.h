@@ -5,6 +5,7 @@
 #include "Containers/Array.h"
 #include "Containers/UnrealString.h"
 #include "Delegates/Delegate.h"
+#include "Misc/Optional.h"
 #include "Modules/ModuleInterface.h"
 #include "UObject/NameTypes.h"
 
@@ -45,7 +46,7 @@ enum class ELoadError : uint8
 	InvalidArchive,
 	/// The package does not match the host release or supported features.
 	Incompatible,
-	/// The archive's exact digest is absent from the host allowlist.
+	/// The allowlist rejected this archive's SHA-256.
 	Untrusted,
 	/// The package set exceeds a loader limit.
 	LimitExceeded,
@@ -82,6 +83,8 @@ struct FLoadPolicy
 	TArray<FString> TrustedPackageSha256;
 	/// Time budget in seconds for archive and cache preparation.
 	float PreparationTimeoutSeconds = 120.0f;
+	/// Overrides the default of enforcing only a populated allowlist.
+	TOptional<bool> bEnforcePackageAllowlist;
 };
 
 /// Content described by a mounted mod package.
@@ -93,7 +96,7 @@ struct FMountedPackage
 	FString Version;
 	/// The package namespace fixed at cook time.
 	FString PackageRoot;
-	/// Exact digest of the archive admitted by the host.
+	/// SHA-256 of the complete archive.
 	FString ArchiveSha256;
 	/// Provenance identifier written by the cooker.
 	FString CookProfileId;
@@ -149,7 +152,7 @@ public:
 	 */
 	virtual FLoadResult LoadPackage(const FString& Path, const FLoadPolicy& Policy) = 0;
 
-	/** @brief Mounts approved .mod files directly inside a directory.
+	/** @brief Mounts eligible .mod files directly inside a directory.
 	 * @param Directory Directory on the physical filesystem.
 	 * @param Policy Trusted release policy for the current game.
 	 * @return One result per candidate, or a scan-level failure.

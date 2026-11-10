@@ -64,20 +64,20 @@ ID 可使用全局字典中任意已注册的 GameplayTag；标签可定义在 `
 
 宿主 C++ 可通过 `OnLoadCompleted()` 订阅启动和手动加载。每次操作广播一次，携带加载来源、输入路径和全部 `FLoadResult`。目录无候选时结果为空，目录扫描失败时携带一项失败。失败项包含 `Error` 和 `Detail`。回调在 Game Thread 执行，回调重入或错误线程的结果延后分发。
 
-在宿主的 `Config/DefaultGame.ini` 写入以下配置，可在引擎启动时扫描 `Saved/Mods` 的顶层 `.mod` 文件。默认关闭自动加载。
+启动时默认扫描 `Saved/Mods` 顶层的 `.mod` 文件。在宿主的 `Config/DefaultGame.ini` 配置基础发布信息。如需关闭启动扫描，在 `[ModLoader]` 节设置 `bLoadAtStartup=False`。
 
 ```ini
 [ModLoader]
-bLoadAtStartup=True
 GameId=YourGame
 BaseReleaseVersion=1.0.0
 BaseRegistrySha256=<基础发布 AssetRegistry.bin 的 SHA-256>
 Backend=IoStore
-+TrustedPackageSha256=<已批准 .mod 的整包 SHA-256>
 PreparationTimeoutSeconds=120
 ```
 
-将游戏和基础发布信息填为制作工具使用的值，`Backend` 与游戏发布的实际容器后端一致。整包摘要来自打包任务 `Result.json` 的 `sha256` 字段，每个批准的包填写一项。加载器同时校验包格式、目标平台、UE 构建、Cook 回执及各载荷摘要。
+将游戏和基础发布信息填为制作工具使用的值，`Backend` 与游戏发布的实际容器后端一致。加载器校验包格式、目标平台、UE 构建、Cook 回执及各载荷摘要。
+
+白名单默认关闭。要启用白名单，从打包任务 `Result.json` 的 `sha256` 字段取整包摘要，为每个批准的 `.mod` 添加一条 `+TrustedPackageSha256=<摘要>`。显式设置 `bEnforcePackageAllowlist=False` 可跳过已有名单。设为 `True` 时，空名单也会执行校验并拒绝所有包。手动加载使用 `FLoadPolicy` 的同名字段。
 
 载荷写入 `Saved/ModCache/<整包 SHA-256>`，复用时重新核对文件。挂载保持 Cook 时的包根，同一个 ModId 同时只接受一个版本。在已 Cook 的游戏中，原生容器、包根和 Shader 库保留到进程退出。首版接受独立包根下的未加密内容，支持将包内可用的 Cooked Asset Registry 追加到游戏索引。
 
