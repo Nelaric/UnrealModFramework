@@ -3,7 +3,9 @@
 
 #include "Containers/Queue.h"
 #include "Containers/Ticker.h"
+#include "Engine/World.h"
 #include "GenericPlatform/GenericPlatformFile.h"
+#include "HAL/PlatformProcess.h"
 #include "HAL/PlatformProperties.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/CoreDelegates.h"
@@ -44,9 +46,8 @@ struct FDeferredCompletion
 struct FMountedRecord
 {
 	FMountedPackage Package;
-#if WITH_EDITOR
-	Private::FMountedResources PIEResources;
-#endif
+	Private::FMountedResources Resources;
+	bool bUnloadNotified = false;
 };
 } // namespace
 
@@ -65,11 +66,22 @@ public:
 		if (FPlatformProperties::RequiresCookedData() && !IsRunningCommandlet())
 		{
 			StartupHandle = FCoreDelegates::OnPostEngineInit.AddRaw(this, &FModLoaderModule::LoadAtStartup);
+			WorldTearDownHandle =
+			    FWorldDelegates::OnWorldBeginTearDown.AddRaw(this, &FModLoaderModule::BeginGameShutdown);
 		}
 #if WITH_EDITOR
 		else if (GIsEditor && !IsRunningCommandlet())
 		{
+#if PLATFORM_WINDOWS
+			FString Backend;
+			if (GConfig && GConfig->GetString(ConfigSection, TEXT("Backend"), Backend, GGameIni) &&
+			    Backend == TEXT("Pak"))
+			{
+				Private::InitializePIEPakPlatform();
+			}
+#endif
 			BeginPIEHandle = FEditorDelegates::BeginPIE.AddRaw(this, &FModLoaderModule::BeginPIE);
+			PrePIEEndedHandle = FEditorDelegates::PrePIEEnded.AddRaw(this, &FModLoaderModule::PrePIEEnded);
 			EndPIEHandle = FEditorDelegates::EndPIE.AddRaw(this, &FModLoaderModule::EndPIE);
 			ShutdownPIEHandle = FEditorDelegates::ShutdownPIE.AddRaw(this, &FModLoaderModule::ShutdownPIE);
 		}
@@ -79,8 +91,10 @@ public:
 	void ShutdownModule() override
 	{
 		FCoreDelegates::OnPostEngineInit.Remove(StartupHandle);
+		FWorldDelegates::OnWorldBeginTearDown.Remove(WorldTearDownHandle);
 #if WITH_EDITOR
 		FEditorDelegates::BeginPIE.Remove(BeginPIEHandle);
+		FEditorDelegates::PrePIEEnded.Remove(PrePIEEndedHandle);
 		FEditorDelegates::EndPIE.Remove(EndPIEHandle);
 		FEditorDelegates::ShutdownPIE.Remove(ShutdownPIEHandle);
 #endif
@@ -117,7 +131,10 @@ public:
 			Result.Reserve(Mounted.Num());
 			for (const TPair<FString, FMountedRecord>& Entry : Mounted)
 			{
-				Result.Add(Entry.Value.Package);
+				if (!Entry.Value.bUnloadNotified)
+				{
+					Result.Add(Entry.Value.Package);
+				}
 			}
 			Result.Sort([](const FMountedPackage& Left, const FMountedPackage& Right)
 			            { return Left.ModId < Right.ModId; });
@@ -282,6 +299,45 @@ private:
 		return true;
 	}
 
+	void NotifyBeforeUnload(FMountedRecord& Record)
+	{
+		if (!Record.bUnloadNotified)
+		{
+			Record.bUnloadNotified = true;
+			BroadcastBeforeUnload(Record.Package);
+		}
+	}
+
+	bool Unmount(FMountedRecord& Record)
+	{
+		if (Private::UnmountPackage(Record.Package, Record.Resources))
+		{
+			UE_LOG(LogModLoader, Display, TEXT("Unmounted mod %s %s."), *Record.Package.ModId, *Record.Package.Version);
+			return true;
+		}
+		bNeedsRestart = true;
+		UE_LOG(LogModLoader, Error, TEXT("Could not unmount mod %s. Restart before loading more mods."),
+		       *Record.Package.ModId);
+		return false;
+	}
+
+	void NotifySessionEnding()
+	{
+		TGuardValue<bool> Loading(bLoading, true);
+		for (TPair<FString, FMountedRecord>& Entry : Mounted)
+		{
+			NotifyBeforeUnload(Entry.Value);
+		}
+	}
+
+	void BeginGameShutdown(UWorld* World)
+	{
+		if (IsEngineExitRequested() && World->IsGameWorld())
+		{
+			NotifySessionEnding();
+		}
+	}
+
 	bool CanLoad(const FLoadPolicy& Policy, FLoadResult& Result) const
 	{
 		if (!IsInGameThread())
@@ -352,7 +408,11 @@ private:
 		}
 		if (const FMountedRecord* Existing = Mounted.Find(Result.Package.ModId))
 		{
-			if (Existing->Package.ArchiveSha256 == Result.Package.ArchiveSha256)
+			if (Existing->bUnloadNotified)
+			{
+				Fail(Result, ELoadError::Busy, TEXT("This mod is awaiting unload."));
+			}
+			else if (Existing->Package.ArchiveSha256 == Result.Package.ArchiveSha256)
 			{
 				Result.Package = Existing->Package;
 				Result.bAlreadyMounted = true;
@@ -364,19 +424,14 @@ private:
 			return;
 		}
 		FMountedRecord Record;
-		Private::FMountedResources* Resources = nullptr;
 #if WITH_EDITOR
-		if (!FPlatformProperties::RequiresCookedData())
+		if (!FPlatformProperties::RequiresCookedData() && !IsPIEActive())
 		{
-			if (!IsPIEActive())
-			{
-				Fail(Result, ELoadError::BackendUnavailable, TEXT("The PIE session ended before the mod could mount."));
-				return;
-			}
-			Resources = &Record.PIEResources;
+			Fail(Result, ELoadError::BackendUnavailable, TEXT("The PIE session ended before the mod could mount."));
+			return;
 		}
 #endif
-		if (Private::MountPrepared(Prepared, Result, Resources))
+		if (Private::MountPrepared(Prepared, Result, Record.Resources))
 		{
 			Record.Package = Result.Package;
 			Mounted.Add(Result.Package.ModId, MoveTemp(Record));
@@ -404,8 +459,11 @@ private:
 			Policy.bEnforcePackageAllowlist = bEnforcePackageAllowlist;
 		}
 		GConfig->GetFloat(ConfigSection, TEXT("PreparationTimeoutSeconds"), Policy.PreparationTimeoutSeconds, GGameIni);
-		const FString Directory =
-		    FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Mods")));
+		const FString BinariesDirectory =
+		    FPlatformProperties::RequiresCookedData()
+		        ? FPaths::GetPath(FPlatformProcess::ExecutablePath())
+		        : FPaths::Combine(FPaths::ProjectDir(), TEXT("Binaries"), FPlatformProcess::GetBinariesSubdirectory());
+		const FString Directory = FPaths::ConvertRelativePathToFull(FPaths::Combine(BinariesDirectory, TEXT("Mods")));
 		TArray<FLoadResult> Results;
 		FString Backend;
 		if (GConfig->GetString(ConfigSection, TEXT("Backend"), Backend, GGameIni))
@@ -480,6 +538,14 @@ private:
 		}
 	}
 
+	void PrePIEEnded(bool)
+	{
+		if (IsPIEActive())
+		{
+			NotifySessionEnding();
+		}
+	}
+
 	void ShutdownPIE(bool)
 	{
 		if (bPIECleanupQueued)
@@ -501,36 +567,29 @@ private:
 		}
 		TGuardValue<bool> Loading(bLoading, true);
 		TArray<FName> PackageNames;
-		for (const TPair<FString, FMountedRecord>& Entry : Mounted)
+		for (TPair<FString, FMountedRecord>& Entry : Mounted)
 		{
+			NotifyBeforeUnload(Entry.Value);
 			PackageNames.Append(Entry.Value.Package.PackageNames);
 		}
 		FString Reason;
-		if (!Private::ReleasePIEPackages(PackageNames, Reason))
+		if (!Private::ReleaseModPackages(PackageNames, Reason))
 		{
 			UE_LOG(LogModLoader, Error, TEXT("Could not unload PIE mods. %s"), *Reason);
 			return false;
 		}
 		for (auto Entry = Mounted.CreateIterator(); Entry; ++Entry)
 		{
-			const FMountedRecord& Record = Entry.Value();
-			if (Private::UnmountPIE(Record.Package, Record.PIEResources))
+			if (Unmount(Entry.Value()))
 			{
-				UE_LOG(LogModLoader, Display, TEXT("Unmounted PIE mod %s %s."), *Record.Package.ModId,
-				       *Record.Package.Version);
 				Entry.RemoveCurrent();
-			}
-			else
-			{
-				bNeedsRestart = true;
-				UE_LOG(LogModLoader, Error, TEXT("Could not unmount PIE mod %s. Restart the editor."),
-				       *Record.Package.ModId);
 			}
 		}
 		return !bNeedsRestart;
 	}
 
 	FDelegateHandle BeginPIEHandle;
+	FDelegateHandle PrePIEEndedHandle;
 	FDelegateHandle EndPIEHandle;
 	FDelegateHandle ShutdownPIEHandle;
 	TArray<FLoadResult> PIEStartupResults;
@@ -541,6 +600,7 @@ private:
 #endif
 
 	FDelegateHandle StartupHandle;
+	FDelegateHandle WorldTearDownHandle;
 	FTSTicker::FDelegateHandle CompletionTicker;
 	TMap<FString, FMountedRecord> Mounted;
 	TQueue<FDeferredCompletion, EQueueMode::Mpsc> DeferredCompletions;

@@ -48,7 +48,7 @@ UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相�
 
 `DevelopmentEditor` 通过 UAT `BuildPlugin` 独立构建。它不得静态依赖项目侧的 `ExportMetadata` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
 
-`ExportCodeGenerator` 是 Editor 模块，公开依赖 `ExportMetadata`，私有依赖 `Core`、`CoreUObject`、`Engine`、`Json` 和 `Projects`。`ModExportOptions` commandlet 导出 UE 解析后的 GameMod 选项和函数重定向。声明宏的规范头为 Runtime 模块中的 `ModExportAnnotations.h`，旧 `ModExportMacros.h` 仅转发。独立 MHT 的 scan 命令保留词法扫描和参数校验。generate 命令通过实际 UBT 编译数据库和 libclang AST 解析活动 API，生成受限 SDK、具体宿主桥、编译验证、契约和清单。首个同步 UObject 后端要求 GameThread、ReturnError、标量值参数及标量/void/World 对象返回。其他形式和 Event/Hook 代码生成明确拒绝。它不依赖 `BlueprintIntegration`。
+`ExportCodeGenerator` 是 Editor 模块，公开依赖 `ExportMetadata`，私有依赖 `Core`、`CoreUObject`、`Engine`、`Json` 和 `Projects`。`ModExportOptions` commandlet 导出 UE 解析后的 GameMod 选项和函数重定向。Runtime 模块 `ExportMetadata` 提供共用的声明宏。独立 MHT 的 scan 命令保留词法扫描和参数校验。generate 命令通过实际 UBT 编译数据库和 libclang AST 解析活动 API，生成受限 SDK、具体宿主桥、编译验证、契约和清单。首个同步 UObject 后端要求 GameThread、ReturnError、标量值参数及标量/void/World 对象返回。其他形式和 Event/Hook 代码生成明确拒绝。它不依赖 `BlueprintIntegration`。
 
 原生模组 ABI 类型应与面向 UE 的公开 API 分离。UE 内部的 C++ 契约使用 UE 类型；外部 C ABI 使用固定宽度字段、显式长度、不透明句柄及已说明的所有权规则，因为独立构建的二进制不能依赖 UE 对象或 C++ ABI 布局保持可移植。
 
@@ -62,7 +62,7 @@ UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相�
 
 宿主 C++ 可通过 `OnLoadCompleted()` 订阅启动和手动加载。每次操作广播一次，携带加载来源、输入路径和全部 `FLoadResult`。目录无候选时结果为空，目录扫描失败时携带一项失败。失败项包含 `Error` 和 `Detail`。回调在 Game Thread 执行，回调重入或错误线程的结果延后分发。
 
-启动时默认扫描 `Saved/Mods` 顶层的 `.mod` 文件。在宿主的 `Config/DefaultGame.ini` 配置基础发布信息。如需关闭启动扫描，在 `[ModLoader]` 节设置 `bLoadAtStartup=False`。
+打包游戏启动时默认扫描实际游戏可执行文件同级的 `Mods` 目录，读取顶层的 `.mod` 文件。标准 Win64 打包目录中的位置是 `<项目>/Binaries/Win64/Mods`。在宿主的 `Config/DefaultGame.ini` 配置基础发布信息。如需关闭启动扫描，在 `[ModLoader]` 节设置 `bLoadAtStartup=False`。
 
 ```ini
 [ModLoader]
@@ -79,11 +79,13 @@ PreparationTimeoutSeconds=120
 
 载荷写入 `Saved/ModCache/<整包 SHA-256>`，复用时重新核对文件。挂载保持 Cook 时的包根，同一个 ModId 同时只接受一个版本。在已 Cook 的游戏中，原生容器、包根和 Shader 库保留到进程退出。首版接受独立包根下的未加密内容，支持将包内可用的 Cooked Asset Registry 追加到游戏索引。
 
-Windows 宿主编辑器启动 PIE 时使用同一份 `[ModLoader]` 配置和 `Saved/Mods` 目录。在 **项目设置 → 引擎 → Cooker** 中启用 **Allow Cooked Content in the Editor**。按后端启动编辑器，`Backend=Pak` 使用 `-UsePaks`，`Backend=IoStore` 使用 `-UsePaks -UseIoStore`。加载无版本号的 Cook 资产时，在 `Config/DefaultEngine.ini` 的 `[ConsoleVariables]` 节设置 `s.AllowUnversionedContentInEditor=1`。
+Windows 下启动 PIE 时使用宿主项目的 `Binaries/Win64/Mods` 目录和同一份 `[ModLoader]` 配置。在 **项目设置 → 引擎 → Cooker** 中启用 **Allow Cooked Content in the Editor**。配置 `Backend=Pak` 后，ModLoader 会在编辑器启动时初始化 Pak 平台文件。使用 `Backend=IoStore` 时，以 `-UsePaks -UseIoStore` 启动编辑器。加载无版本号的 Cook 资产时，在 `Config/DefaultEngine.ini` 的 `[ConsoleVariables]` 节设置 `s.AllowUnversionedContentInEditor=1`。
 
 同一进程的 PIE 世界共享挂载，各自持有 Mod 实例。每个 PIE 地图就绪后，其实例收到启动加载结果。结束 PIE 时先停止向会话分发结果，等世界清理后释放已加载的包，再卸载容器并注销包根。若编辑器对象仍引用包内资产，加载器会报告并保留挂载，直到可以安全清理。
 
-`ModSDKTool` 从宿主导出的生命周期声明生成 `ModInstance` 和 `ModInstanceSubSystem`，保留 `/Script/ModLoader` 类型路径。打包时会自动收集内容插件内的具体蓝图派生类。加载批次结束后，游戏会话为挂载成功的模组创建实例，再向活动实例逐项分发结果。C++ 子类覆盖 `OnModLoadCompleted`，并调用 `Super::OnModLoadCompleted` 触发蓝图事件 `ReceiveModLoadCompleted`。蓝图中显示为 **On Mod Load Completed**。两边接收同一份结果，失败项包含错误码和原因。
+`ModSDKTool`（MDT）从宿主导出的生命周期声明生成 `ModInstance` 和 `ModInstanceSubSystem`，保留 `/Script/ModLoader` 类型路径。打包时会自动收集内容插件内的具体蓝图派生类。加载批次结束后，游戏会话为挂载成功的模组创建实例，再向活动实例逐项分发结果。C++ 子类覆盖 `OnModLoadCompleted`，并调用 `Super::OnModLoadCompleted` 触发蓝图事件 `ReceiveModLoadCompleted`。蓝图中显示为 **On Mod Load Completed**。两边接收同一份结果，失败项包含错误码和原因。
+
+**On Mod Before Unload** 在 Game Thread 为即将卸载的模组的每个实例调用一次，此时其内容仍已挂载。C++ 子类覆盖 `OnModBeforeUnload`，并调用 `Super::OnModBeforeUnload` 触发蓝图事件。模组可在此恢复游戏状态并释放资产引用。宿主 C++ 可订阅 `IModLoaderModule::OnBeforeUnload()` 获取挂载记录。
 
 ## 仅供框架集成的接口
 

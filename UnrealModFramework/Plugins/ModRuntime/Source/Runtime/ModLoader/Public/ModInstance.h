@@ -62,7 +62,8 @@ public:
 
 protected:
 	/** @brief Receives the result of a load operation on the game thread.
-	 * @param Result The completed startup or manual load result.
+	 * @param Result The completed startup or
+	 * manual load result.
 	 * @details Call Super::OnModLoadCompleted to dispatch the Blueprint event.
 	 */
 	virtual void OnModLoadCompleted(const FModLoadNotification& Result)
@@ -71,10 +72,26 @@ protected:
 	}
 
 	/** @brief Blueprint event for a completed Mod load.
-	 * @param Result The same load result passed to the C++ entry point.
+	 * @param Result The same load result passed to the C++
+	 * entry point.
 	 */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Mod|Lifecycle", meta = (DisplayName = "On Mod Load Completed"))
 	void ReceiveModLoadCompleted(const FModLoadNotification& Result);
+
+	/** @brief Releases game state and references before this Mod is unloaded.
+	 * @details Runs once per instance on
+	 * the game thread while the Mod's content
+	 * is still mounted. Call Super::OnModBeforeUnload to dispatch the
+	 * event.
+	 */
+	virtual void OnModBeforeUnload()
+	{
+		ReceiveModBeforeUnload();
+	}
+
+	/// Blueprint event dispatched before this Mod's content is unloaded.
+	UFUNCTION(BlueprintImplementableEvent, Category = "Mod|Lifecycle", meta = (DisplayName = "On Mod Before Unload"))
+	void ReceiveModBeforeUnload();
 
 private:
 	friend class UModLifecycleSubsystem;

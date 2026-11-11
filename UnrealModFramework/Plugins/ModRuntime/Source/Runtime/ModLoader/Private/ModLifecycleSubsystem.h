@@ -8,6 +8,17 @@
 
 class UModInstance;
 
+USTRUCT()
+struct FActiveModInstance
+{
+	GENERATED_BODY()
+
+	FString ModId;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UModInstance> Instance;
+};
+
 UCLASS()
 class UModLifecycleSubsystem final : public UGameInstanceSubsystem
 {
@@ -20,7 +31,10 @@ public:
 
 private:
 	void SubscribeToLoader();
+	void ActivateMountedPackages();
 	void Activate(const Mod::Loader::FMountedPackage& Package);
+	void Deactivate(const FString& ModId);
+	void HandleBeforeUnload(const Mod::Loader::FMountedPackage& Package);
 	void HandleLoadCompleted(Mod::Loader::ELoadOrigin Origin, const FString& Path,
 	                         TConstArrayView<Mod::Loader::FLoadResult> Results);
 	void DispatchResults(Mod::Loader::ELoadOrigin Origin, TConstArrayView<Mod::Loader::FLoadResult> Results);
@@ -32,8 +46,9 @@ private:
 #endif
 
 	UPROPERTY(Transient)
-	TArray<TObjectPtr<UModInstance>> Instances;
+	TArray<FActiveModInstance> Instances;
 	TSet<FString> ActivatedModIds;
 	FDelegateHandle CompletionHandle;
+	FDelegateHandle BeforeUnloadHandle;
 	bool bActive = false;
 };
