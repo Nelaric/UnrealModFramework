@@ -23,3 +23,6 @@ foreach(tool IN ITEMS ModBuildTool ModSourceTool ModHeaderTool ModSDKTool)
         )
     endif()
 endforeach()
+
+add_custom_target(ModRuntimeUhtTools)
+add_dependencies(ModRuntimeUhtTools ModBuildTool ModHeaderTool ModSourceTool)

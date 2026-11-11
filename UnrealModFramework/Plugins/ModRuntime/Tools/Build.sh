@@ -3,13 +3,21 @@
 
 set -eu
 
-cmake_command=${UMF_CMAKE_EXECUTABLE:-cmake}
+script_dir=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
+cmake_command=${UMF_CMAKE_EXECUTABLE-}
+if [ -z "$cmake_command" ]; then
+    cmake_finder="$script_dir/../../../../Setup/FindCMake.sh"
+    if [ -f "$cmake_finder" ]; then
+        cmake_command=$(sh "$cmake_finder")
+    else
+        cmake_command=cmake
+    fi
+fi
 if ! command -v "$cmake_command" >/dev/null 2>&1; then
     echo "CMake 3.20 or newer is required on PATH." >&2
     exit 1
 fi
 
-script_dir=$(CDPATH= cd -P "$(dirname "$0")" && pwd)
 build_script="$script_dir/Build.cmake"
 if [ "${1-}" = --setup ]; then
     build_script="$script_dir/Setup.cmake"

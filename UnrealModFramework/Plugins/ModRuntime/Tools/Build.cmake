@@ -14,7 +14,9 @@ Wrappers also accept --build-dir directory and --generator name.
 Options (place all -D options before -P):
   TOOLCHAIN_DIR  Optional compiler root or bin directory; takes precedence
                 over environment variables. An invalid directory is an error.
-  TARGET      all (default), ModBuildTool, ModHeaderTool, ModSDKTool, or ModSourceTool
+  TARGET      all (default), ModRuntimeUhtTools, ModBuildTool, ModHeaderTool,
+              ModSDKTool, or ModSourceTool. ModRuntimeUhtTools builds
+              ModBuildTool, ModHeaderTool, and ModSourceTool together.
   JOBS        Positive parallel job count; defaults to the logical CPU count
               or CMAKE_BUILD_PARALLEL_LEVEL when set. NMake builds serially.
   GENERATOR   Ninja, Ninja Multi-Config, NMake Makefiles (Windows), or
@@ -42,8 +44,8 @@ set(CONFIG Release)
 if(NOT DEFINED TARGET)
     set(TARGET all)
 endif()
-if(NOT "${TARGET}" MATCHES "^(all|ModBuildTool|ModHeaderTool|ModSDKTool|ModSourceTool)$")
-    message(FATAL_ERROR "Invalid TARGET '${TARGET}'. Use all, ModBuildTool, ModHeaderTool, ModSDKTool, or ModSourceTool.")
+if(NOT "${TARGET}" MATCHES "^(all|ModRuntimeUhtTools|ModBuildTool|ModHeaderTool|ModSDKTool|ModSourceTool)$")
+    message(FATAL_ERROR "Invalid TARGET '${TARGET}'. See -DHELP=ON for supported targets.")
 endif()
 if(NOT DEFINED JOBS)
     if(DEFINED ENV{CMAKE_BUILD_PARALLEL_LEVEL} AND NOT "$ENV{CMAKE_BUILD_PARALLEL_LEVEL}" STREQUAL "")
@@ -171,6 +173,7 @@ get_filename_component(BUILD_DIR "${BUILD_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRE
 if(BUILD_DIR STREQUAL CMAKE_CURRENT_LIST_DIR)
     message(FATAL_ERROR "BUILD_DIR must be separate from the Tools source directory.")
 endif()
+file(LOCK "${BUILD_DIR}/.build.lock" GUARD PROCESS)
 if(EXISTS "${BUILD_DIR}/CMakeCache.txt")
     file(STRINGS "${BUILD_DIR}/CMakeCache.txt" _cached_compiler REGEX "^CMAKE_CXX_COMPILER:[^=]*=")
     string(REGEX REPLACE "^CMAKE_CXX_COMPILER:[^=]*=" "" _cached_compiler "${_cached_compiler}")
@@ -226,6 +229,13 @@ set(_configure_command "${CMAKE_COMMAND}"
 list(APPEND _configure_command "-DCMAKE_CXX_COMPILER:FILEPATH=${_compiler}")
 if(GENERATOR STREQUAL "Ninja Multi-Config")
     list(APPEND _configure_command "-DCMAKE_CONFIGURATION_TYPES:STRING=Release")
+elseif(GENERATOR STREQUAL "NMake Makefiles")
+    # CMake detects NMake's UTF-8 makefile support from its English version banner.
+    # Without the BOM, NMake can misread the localized /showIncludes filter prefix.
+    execute_process(COMMAND "${_build_tool}" -? OUTPUT_QUIET ERROR_VARIABLE _nmake_banner TIMEOUT 5)
+    if(NOT _nmake_banner MATCHES "Program Maintenance Utility Version")
+        list(APPEND _configure_command "-DCMAKE_DEPENDS_USE_COMPILER:BOOL=OFF")
+    endif()
 endif()
 
 message(STATUS "Toolchain: ${_compiler_id}; generator: ${GENERATOR}; configuration: ${CONFIG}")
@@ -252,13 +262,17 @@ if(GENERATOR STREQUAL "NMake Makefiles")
 else()
     list(APPEND _build_command --parallel "${JOBS}")
 endif()
+if(_release_tool_output_root)
+    # Setup publishes to the same executable directories.
+    file(LOCK "${_release_tool_output_root}/.setup.lock" GUARD PROCESS)
+endif()
 execute_process(COMMAND ${_build_command} RESULT_VARIABLE _build_result)
 if(NOT _build_result STREQUAL "0")
     message(FATAL_ERROR "Build failed (${_build_result}).")
 endif()
 if(NOT _release_tool_output_root)
     set(_executables "${BUILD_DIR}/bin/${CONFIG}")
-elseif("${TARGET}" STREQUAL "all")
+elseif("${TARGET}" STREQUAL "all" OR "${TARGET}" STREQUAL "ModRuntimeUhtTools")
     set(_executables "${_release_tool_output_root}/<tool>")
 else()
     set(_executables "${_release_tool_output_root}/${TARGET}")

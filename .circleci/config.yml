@@ -3,10 +3,6 @@ version: 2.1
 
 commands:
   pull_unreal_image:
-    parameters:
-      with_mst:
-        type: boolean
-        default: false
     steps:
       - run:
           name: Prepare Unreal Engine 5.6.1 Linux image
@@ -17,14 +13,12 @@ commands:
             : "${GHCR_TOKEN:?Set GHCR_TOKEN in CircleCI project settings}"
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
             docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1
-            if << parameters.with_mst >>; then
-              printf '%s\n' \
-                'FROM ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1' \
-                'USER root' \
-                'RUN apt-get update && apt-get install -y --no-install-recommends cmake && rm -rf /var/lib/apt/lists/*' \
-                'USER ue4' |
-                docker build --tag umf-ue-mst:5.6.1 -
-            fi
+            printf '%s\n' \
+              'FROM ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1' \
+              'USER root' \
+              'RUN apt-get update && apt-get install -y --no-install-recommends cmake g++ make && rm -rf /var/lib/apt/lists/*' \
+              'USER ue4' |
+              docker build --tag umf-ue-build:5.6.1 -
             docker logout ghcr.io
   stage_project:
     steps:
@@ -49,7 +43,7 @@ commands:
             : "${UE_PROJECT_DIR:?Project staging directory is missing}"
             docker run --rm --network none \
               --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
-              ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1 \
+              umf-ue-build:5.6.1 \
               /home/ue4/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh \
               << parameters.target >> Linux Development \
               -Project=/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject \
@@ -72,8 +66,7 @@ jobs:
     resource_class: large
     steps:
       - checkout
-      - pull_unreal_image:
-          with_mst: true
+      - pull_unreal_image
       - stage_project
       - compile_target:
           target: UnrealModFrameworkDevEditor
@@ -89,7 +82,7 @@ jobs:
             docker run --rm --init --network none \
               --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
               --workdir /workspace \
-              umf-ue-mst:5.6.1 \
+              umf-ue-build:5.6.1 \
               bash .circleci/build-editor-plugin.sh
 
 workflows:
