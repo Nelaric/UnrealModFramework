@@ -11,6 +11,7 @@ public class DevelopmentEditor : ModuleRules
 			new[]
 			{
 				"AssetRegistry",
+				"AssetTools",
 				"Core",
 				"CoreUObject",
 				"DesktopPlatform",

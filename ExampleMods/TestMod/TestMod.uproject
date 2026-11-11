@@ -20,6 +20,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "ControlRigSpline",
+			"Enabled": true
+		},
+		{
 			"Name": "IKRig",
 			"Enabled": true,
 			"TargetAllowList": [

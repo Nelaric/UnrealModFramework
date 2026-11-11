@@ -26,31 +26,31 @@ UnrealModFramework 是以 UE 5.6 为开发基线的工程，目标是提供可�
 
 修改代码或构建文件前，请阅读[编码规范](Docs/CodingStandards/README.zh-CN.md)、[贡献指南](CONTRIBUTING.zh-CN.md)和 [CircleCI 接入说明](Docs/CircleCI.zh-CN.md)。
 
-## SDK 构建工具
+## 快速开始
 
-四个工具的 Release 可执行文件分别构建到 UE 工程的 `Plugins/ModRuntime/Tools/build/<工具名>`。
+1. 按平台安装支持 C++20 的工具链。
+2. 克隆仓库并进入根目录。
 
-`ModSDKTool`（MDT）提供 `plan`、`build` 和 `inspect`，根据导出契约及链接产物构建游戏专属 SDK。构建入口为 `Tools/Build.bat --target ModSDKTool`，请求和产物格式见 [MDT 文档](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)。
+   ```sh
+   git clone https://github.com/Nelaric/UnrealModFramework.git
+   cd UnrealModFramework
+   ```
 
-## MHT 的 C++ 导出参数校验
+3. 运行对应平台的 Setup。
 
-MHT 是独立 CMake C++20 工具，只处理 `MOD_EXPORT_API`、`MOD_EXPORT_EVENT`、`MOD_EXPORT_HOOK` 的 C++ 声明，不扫描或校验蓝图。工程采用 `include/ModHeaderTool` 和 `src` 布局，`main.cpp` 只转发入口。构建工具：
+   | 平台 | C++ 工具链 | 命令 |
+   | --- | --- | --- |
+   | Windows | MSVC 和 Windows SDK | `.\Setup.bat` |
+   | Linux | GNU `g++` | `sh Setup.sh` |
+   | macOS | 通过 `CXX` 指定已安装的 GNU `g++` | `sh Setup.sh` |
 
-```powershell
-.\UnrealModFramework\Plugins\ModRuntime\Tools\Build.bat --target ModHeaderTool
-```
+Setup 可使用 `PATH` 上的 CMake 3.20 或更高版本。新克隆的工作区缺少可用 CMake 时，Setup 会联网下载 Kitware 的固定版本并校验 SHA-256。[CMake 包清单](Setup/CMakePackages.txt)
 
-独立运行 MHT 扫描时，通过已编译的 UE Editor 中的 `ModExportOptions` 将 UE 解析后的 GameMod 选项和函数重定向导出给 MHT。
+Setup 的构建范围仅包括四个独立工具的 Release 版本，分别是 `ModHeaderTool`、`ModBuildTool`、`ModSourceTool` 和 `ModSDKTool`。可执行文件位于 `UnrealModFramework/Plugins/ModRuntime/Tools/build/<工具名>/`，可用 `--help` 检查工具能否启动。使用 Ninja 或 Unix Makefiles 时，可通过 `--jobs 8` 将并行任务数限制为 8。
 
-```powershell
-$project = (Resolve-Path UnrealModFramework/UnrealModFrameworkDev.uproject).Path
-& "C:/Program Files/Epic Games/UE_5.6/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" $project -run=ModExportOptions -unattended -NullRHI -nosound
-.\UnrealModFramework\Plugins\ModRuntime\Tools\build\ModHeaderTool\ModHeaderTool.exe scan --project $project --output UnrealModFramework/Intermediate/ModTools/ModHeaderTool/Exports.json
-```
+### 导出宏字段
 
-选项目录默认写入工程的 `Intermediate/ModTools/ModHeaderTool/MetadataOptions.json`，也可以用导出命令的 `-Output=<文件.json>` 和 MHT 的 `--options <文件.json>` 指定。配置输入新增、删除或改变时，目录指纹检查会报错，须重新导出。未找到任何导出调用时可以不提供选项目录。`.modexpot` 仍为可选的额外扫描目录配置，不会自动创建。
-
-字段规则定义在 `ModExportMetadataSchema.h`，字段名和候选值区分大小写：
+字段名和候选值区分大小写，定义见 [ModExportMetadataSchema.h](UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ExportMetadata/Public/ModExportMetadataSchema.h)。
 
 | 宏 | 必填字段 | 可选字段 |
 | --- | --- | --- |
@@ -59,92 +59,11 @@ $project = (Resolve-Path UnrealModFramework/UnrealModFrameworkDev.uproject).Path
 | `MOD_EXPORT_EVENT` | `SourceScope`、`PublishRule` | `PayloadType` |
 | `MOD_EXPORT_HOOK` | — | `ContextType`、`AllowedStages`（默认 `(Post)`）、`AllowedOperations`（默认 `()`） |
 
-`Scope` 等候选值接受标识符或字符串。权限、阶段和操作使用括号列表，例如 `AllowedStages = (Pre, Post)` 搭配 `AllowedOperations = (ModifyInputs)`。阶段至少有一个，列表项须唯一。`ExportVersion` 为两段或三段数字版本字符串，各段不允许多余的前导零。`PayloadType` 和 `ContextType` 校验 C++ 类型名语法，类型是否存在及声明绑定由 AST 阶段验证。
+UE 宿主工程的构建步骤和 libclang 配置见 [ModRuntime UHT 接入](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
 
-`ModifyInputs` 和 `Cancel` 要求开放 `Pre`。`Wrap` 和 `Replace` 各自要求开放 `On`，并在 `AllowedOperations` 中显式声明。`ModifyResult` 要求开放 `Post`。默认声明只开放业务成功后的只读观察。旧版选项目录须用 `ModExportOptions` 重新导出。
+## SDK 构建工具
 
-```cpp
-MOD_EXPORT_API(
-    Scope = World,
-    Thread = GameThread,
-    FailureRule = ReturnError,
-    Permissions = ("WorldRead"))
-```
-
-解析支持注释、续行、相邻字符串、普通/raw string、常规转义、Unicode 转义及 `TEXT("...")`。不接受任意 C++ 表达式、命名常量、用户自定义字符串后缀或嵌套列表。未知或重复字段、缺少必填字段、类型错误、非法候选值和重复列表项均输出 `"文件"(行,列): error: 宏名: 具体原因`。行列从 1 开始，列按 UTF-8 字节计。
-
-有错误时继续收集可恢复的诊断，返回 `1`，不写入成功报告；成功返回 `0`。JSON 报告版本为 `2`，保留原始参数并新增解析后的 `Metadata` 和 `ParametersValidated`。`PreprocessorEvaluated` 仍为 `false`：条件分支尚不求值，C++ AST、类型存在性和运行时策略语义不属于本阶段。
-
-## MHT API 代码生成
-
-已加入[薄 UHT 适配工程](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md) `ModRuntime.ubtplugin.csproj`，由 UBT 自动发现。开发工程的 `Config/ModHeaderTool.json` 选择 `generate`；未配置时适配层仍默认 `scan`。生成批次写入工程的 `Intermediate/ModTools/ModHeaderTool/Generated`。生成模式在 UHT 返回前依次调用 MHT 和独立的 MBT 宿主编译，UBT 通过所属模块的私有 External 依赖链接所得静态库。
-
-同步 UObject 成员 API 支持公开、非静态成员，按值标量或已加载 UObject 指针入参，标量、void 或 World 作用域 UObject 指针返回值，GameThread 与 ReturnError。MHT 使用 libclang 的真实 AST 和 UBT 编译数据库，关联活动宏与具体重载。对象返回值按 `ErrorIfNull` 规则投影为 `FModRuntimeObject<T>`，const 对象返回只读视图。MHT 还生成定宽类型的 ContextHandlesV1 C ABI 与独立客户端入口。Event、Hook、结构体、容器及引用参数缺少投影时，生成阶段报错。
-
-MHT 按类型 ID 和公开函数名生成 API ID。`CompatibleNames = ("OldName")` 为同一实现生成一个可调用的旧名入口。省略该字段时，MHT 使用配置快照中适用的 UE 函数重定向。详见 [API 兼容名](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md#api-兼容名)。
-
-`FullView = ("USkeletalMesh")` 选择签名里的 UObject 指针入参类。MHT 检查目标构建可见的公开实例成员和公开基类，自动生成的成员采用选择该类的声明所要求的权限。任一成员缺少投影时，MHT 报出类名和具体成员，整个生成批次失败。详见 [FullView 与对象输入](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md#fullview-与对象输入)。
-
-`ExportMetadata/Public/ModExportMacros.h` 定义 Game 和 Editor Target 共用的声明宏。`ModAPI` Runtime 模块提供 `TModResult`、类型化调用表绑定、World/Player 作用域、显式提供者、权限检查和撤销。视图不拥有或公开原始 UObject；Actor 结束玩法、World 清理、玩家控制器变化、提供者撤销或调用者撤销后拒绝旧绑定。权限由宿主显式授予，查询角色不会隐含授予写权限。
-
-开发宿主的 `UGameLocalPlayerAPI::GetLocalCharacter` 查询其 LocalPlayer 当前控制的 `AGameCharacter`。角色的 `AddHealth` 返回更新后的生命值，`SetMesh` 接受已加载的骨骼网格并验证骨架兼容性。
-
-生成工作流：
-
-1. 使用 `Tools/Build.bat` 构建 MHT、MBT 和 `ModSourceTool`（MST），并准备匹配的 libclang 与资源头。本环境验证了 LLVM 21.1.8、UE 5.6、MSVC 14.51。仓库携带 LLVM 18.1.8 的稳定 C API 头及许可证。
-2. 正常构建对应的 UE Target。UHT 适配层根据 `Config/ModHeaderTool.json` 生成 UBT 编译数据库及 build input。首次构建时，适配层也会按需构建用于导出元数据的 Development Editor。MHT 生成源码，MBT 构建库，MST 在 UBT 链接前生成链接头。Editor 和 Game 使用独立输出根及宿主库。
-
-自动生成的 `BuildInput.json` 采用下面的结构。`project` 可相对输入文件，其他文件及模块路径可相对工程目录。适配层根据实际工具链填写 LLVM 及 MSVC 兼容参数。
-
-```json
-{
-  "schemaVersion": 1,
-  "project": "<project>/UnrealModFrameworkDev.uproject",
-  "gameId": "UnrealModFrameworkDev",
-  "target": "UnrealModFrameworkDevEditor",
-  "platform": "Win64",
-  "configuration": "Development",
-  "architecture": "x64",
-  "objectReturnPolicy": "ErrorIfNull",
-  "compilationDatabase": "Intermediate/ModTools/ModHeaderTool/HostTargets/UnrealModFrameworkDevEditor/Win64/Development/x64/Ubt/compile_commands.json",
-  "typeIdentities": "Config/ModAPITypes.json",
-  "modules": [{
-    "name": "ExportTest",
-    "sourceDirectory": "Source/ExportTest",
-    "translationUnits": [
-      "Source/ExportTest/GameCharacter.cpp",
-      "Source/ExportTest/GameLocalPlayerAPI.cpp"
-    ]
-  }],
-  "analysisArguments": [
-    "-resource-dir=<LLVM>/lib/clang/21",
-    "-fms-compatibility-version=19.51",
-    "-Wno-invalid-constexpr"
-  ],
-  "pathRoots": { "Engine": "<UE_5.6>", "LLVM": "<LLVM>" }
-}
-```
-
-`typeIdentities` 保存受版本控制的类型身份，也可直接给出 `types` 对象；两者互斥。`pathRoots` 为本地诊断/输入摘要中的绝对路径提供规范名称。编译数据库采用 [Clang 的标准格式](https://clang.llvm.org/docs/JSONCompilationDatabase.html)，每个指定 TU 必须唯一对应实际编译命令；Target、平台、配置和模块名会与 UBT 宏核对。
-
-独立生成可使用同一变体的正常 UHT 构建所准备的 build input 和生产者上下文。
-
-```powershell
-$mht = ".\UnrealModFramework\Plugins\ModRuntime\Tools\build\ModHeaderTool\ModHeaderTool.exe"
-$output = "UnrealModFramework/Intermediate/ModTools/ModHeaderTool/Generated/UnrealModFrameworkDevEditor/Win64/Development/x64"
-$hostTarget = "UnrealModFramework/Intermediate/ModTools/ModHeaderTool/HostTargets/UnrealModFrameworkDevEditor/Win64/Development/x64"
-& $mht generate --build-input "$hostTarget/BuildInput.json" --output-dir $output --host-contexts "$hostTarget/contexts.json" --libclang "<LLVM>/bin/libclang.dll"
-```
-
-输出直接覆盖 MHT 下固定的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 及 `<gameId>.generated-artifacts.json`，不再建立 Profile/批次目录或 `current.json`。已移除的文件会清理，内容相同则保留时间戳；完整清单最后提交，中断的替换不会被当作完整结果消费。`generationId` 仅保留为内容摘要。
-
-MBT 编译 `Host/<owner>/<owner>.modhost.cpp`、`<owner>.modabi.cpp`、`<owner>.modverify.cpp`、`SDK/Private/<owner>.modviews.cpp` 及独立的 `Client/<game>ModClient/<game>ModClient.modclient.cpp`。生成的 `<owner>.modlink.h` 将宿主库中的注册入口链接到所属模块，`UModAPIHostSubsystem` 为每个 GameInstance 注册生成的类型。`ExportTest` 私有依赖 External 模块 `ExportTestHost`，由该模块通过 `PublicPreBuildLibraries` 预先登记库路径。库与回执位于所属工程或插件的 `Intermediate/ModTools/ModBuildTool/<Target>/<Platform>/<Configuration>/<Architecture>`。客户端库归工程。
-
-MHT 交付 `.modabi.h`、`.clientabi.json`、`.sdkcontract.json` 和产物清单，明确列出编译单元及经过库检查的 Host/Client API 符号。[客户端 ABI 文档](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md) 规定查询、Connect/Disconnect、token 交付与生命周期；MDT 消费已解析 SDK 契约，内部 UE 视图头作为私有宿主产物。
-
-自动编译配方支持 Win64 x64 MSVC，保留真实 UBT 模块的生产者参数。构建前检查目录清单，链接后核对实际所属二进制中的归档见证并发布链接回执。参见 [UHT 接入](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
-
-宿主为调用者授权时，通过 GameInstance 的 `UModAPIHostSubsystem::OpenLocalPlayer<UGameLocalPlayerAPI>(Player, Permissions)` 传入选定的玩家和已批准的权限。运行时根据生成的提供者信息绑定该玩家已有的子系统。用返回的绑定调用 `Mod::API::FViewFactory::Make<UGameLocalPlayerAPI>(Binding)`，将生成视图交给模组。之后调用 `GetLocalCharacter()`，成功后调用角色视图的 `AddHealth(Amount)`，并检查两个结果。模组结束时调用 `RevokeCaller`。玩家移除、控制器变化或 World 清理会关闭玩家作用域。角色尚未准备好时返回 `ObjectUnavailable`。
+`ModSDKTool`（MDT）提供 `plan`、`build` 和 `inspect`，根据导出契约及链接产物构建游戏专属 SDK。构建入口为 `Tools/Build.bat --target ModSDKTool`，请求和产物格式见 [MDT 文档](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)。
 
 ## 参与贡献
 

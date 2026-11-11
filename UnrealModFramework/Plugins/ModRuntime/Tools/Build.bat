@@ -2,11 +2,20 @@
 @echo off
 setlocal
 set "UMF_SCRIPT_PATH=%~dp0Build.cmake"
+set "UMF_SETUP_MODE="
+if /i "%~1"=="--setup" (
+    set "UMF_SCRIPT_PATH=%~dp0Setup.cmake"
+    set "UMF_SETUP_MODE=1"
+    shift
+)
 
-where cmake.exe >nul 2>&1
-if errorlevel 1 (
-    echo CMake 3.20 or newer is required on PATH. 1>&2
-    exit /b 1
+if not defined UMF_CMAKE_EXECUTABLE (
+    where cmake.exe >nul 2>&1
+    if errorlevel 1 (
+        echo CMake 3.20 or newer is required on PATH. 1>&2
+        exit /b 1
+    )
+    set "UMF_CMAKE_EXECUTABLE=cmake.exe"
 )
 set "UMF_ARGUMENT_DIR="
 set "UMF_TARGET=all"
@@ -74,8 +83,23 @@ for %%D in ("%TOOLCHAIN_DIR%" "%MSVC_ROOT%" "%VCToolsInstallDir%" "%VCINSTALLDIR
 )
 if defined CXX (
     for %%D in ("%CXX%") do call :prepare "%%~dpD"
+    if not errorlevel 1 goto build
 )
+if defined UMF_SETUP_MODE call :discover_visual_studio
 goto build
+
+:discover_visual_studio
+set "UMF_VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if not exist "%UMF_VSWHERE%" set "UMF_VSWHERE=%ProgramFiles%\Microsoft Visual Studio\Installer\vswhere.exe"
+if not exist "%UMF_VSWHERE%" exit /b 1
+set "UMF_VC_COMPONENT=Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "UMF_VC_COMPONENT=Microsoft.VisualStudio.Component.VC.Tools.ARM64"
+if /i "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "UMF_VC_COMPONENT=Microsoft.VisualStudio.Component.VC.Tools.ARM64"
+for /f "usebackq delims=" %%D in (`"%UMF_VSWHERE%" -latest -products * -requires %UMF_VC_COMPONENT% -property installationPath`) do (
+    call :prepare "%%D"
+    if not errorlevel 1 exit /b 0
+)
+exit /b 1
 
 :prepare
 if "%~1"=="" exit /b 1
@@ -111,9 +135,9 @@ set "UMF_GENERATOR_OPTION="
 if defined UMF_OUTPUT_DIR set UMF_OUTPUT_OPTION="-DBUILD_DIR=%UMF_OUTPUT_DIR%"
 if defined UMF_GENERATOR set UMF_GENERATOR_OPTION="-DGENERATOR=%UMF_GENERATOR%"
 if defined UMF_JOBS (
-    cmake "-DTOOLCHAIN_DIR=%UMF_ARGUMENT_DIR%" "-DTARGET=%UMF_TARGET%" "-DJOBS=%UMF_JOBS%" %UMF_OUTPUT_OPTION% %UMF_GENERATOR_OPTION% -P "%UMF_SCRIPT_PATH%"
+    "%UMF_CMAKE_EXECUTABLE%" "-DTOOLCHAIN_DIR=%UMF_ARGUMENT_DIR%" "-DTARGET=%UMF_TARGET%" "-DJOBS=%UMF_JOBS%" %UMF_OUTPUT_OPTION% %UMF_GENERATOR_OPTION% -P "%UMF_SCRIPT_PATH%"
 ) else (
-    cmake "-DTOOLCHAIN_DIR=%UMF_ARGUMENT_DIR%" "-DTARGET=%UMF_TARGET%" %UMF_OUTPUT_OPTION% %UMF_GENERATOR_OPTION% -P "%UMF_SCRIPT_PATH%"
+    "%UMF_CMAKE_EXECUTABLE%" "-DTOOLCHAIN_DIR=%UMF_ARGUMENT_DIR%" "-DTARGET=%UMF_TARGET%" %UMF_OUTPUT_OPTION% %UMF_GENERATOR_OPTION% -P "%UMF_SCRIPT_PATH%"
 )
 if errorlevel 1 exit /b 1
 exit /b 0
@@ -123,5 +147,5 @@ echo Usage: Build.bat [toolchain-directory] [--target name] [--jobs count] [--bu
 exit /b 1
 
 :help
-cmake -DHELP=ON -P "%UMF_SCRIPT_PATH%"
+"%UMF_CMAKE_EXECUTABLE%" -DHELP=ON -P "%UMF_SCRIPT_PATH%"
 exit /b %errorlevel%

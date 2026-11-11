@@ -24,6 +24,7 @@ Doxyfile text eol=lf
 *.ps1 text eol=lf
 *.cmake text eol=lf
 CMakeLists.txt text eol=lf
+Setup/CMakePackages.txt text eol=lf
 *.bat text eol=crlf
 *.ini text eol=lf
 *.uproject text eol=lf

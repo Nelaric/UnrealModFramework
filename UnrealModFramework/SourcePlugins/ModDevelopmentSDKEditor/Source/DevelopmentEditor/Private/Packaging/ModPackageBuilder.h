@@ -19,6 +19,9 @@ struct FModPackageRequest
 	FString BaseReleaseDirectory;
 	FString TargetPlatform;
 	FString OutputFile;
+	FString HostTargetReceipt;
+	FString HostEngineDirectory;
+	bool bPackageProject = false;
 	bool bUseIoStore = true;
 	bool bIncludeEngineContent = false;
 	int32 TimeoutMinutes = 120;
@@ -39,7 +42,7 @@ struct FModPackageRequest
 	static bool Read(const FString& File, FModPackageRequest& OutRequest, FText& OutError);
 	/// Returns the wire request.
 	TSharedRef<FJsonObject> ToJson() const;
-	/** @brief Checks the selected project plugin and release.
+	/** @brief Checks the selected project or plugin and release.
 	 * @param OutError The failure explanation.
 	 * @return Whether cooking can begin.
 	 */

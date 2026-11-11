@@ -12,12 +12,27 @@ struct FNativeContainer
 	FString TocPath;
 };
 
+struct FNativeModule
+{
+	FString Name;
+	FString FileName;
+};
+
+struct FNativeModuleSet
+{
+	FString Directory;
+	FString ManifestName;
+	FString BuildId;
+	TArray<FNativeModule> Modules;
+};
+
 struct FPreparedPackage
 {
 	FString PluginName;
 	FString StageRoot;
 	FString ContentRelativePath;
 	TArray<FNativeContainer> Containers;
+	FNativeModuleSet NativeCode;
 	bool bSkipped = false;
 };
 

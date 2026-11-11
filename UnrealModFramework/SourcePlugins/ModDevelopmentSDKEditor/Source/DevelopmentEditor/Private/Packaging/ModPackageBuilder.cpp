@@ -9,16 +9,18 @@
 #include "Engine/Blueprint.h"
 #include "HAL/FileManager.h"
 #include "Interfaces/IPluginManager.h"
+#include "Interfaces/IProjectManager.h"
 #include "Internationalization/Regex.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
-#include "Misc/MonitoredProcess.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
 #include "ModPackagingSettings.h"
+#include "ModProjectPackage.h"
 #include "Modules/ModuleManager.h"
+#include "ProjectDescriptor.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
@@ -143,9 +145,12 @@ FString ConfigurationFingerprint(const FString& PluginName)
 	TArray<FString> Files;
 	IFileManager::Get().FindFilesRecursive(Files, *FPaths::ProjectConfigDir(), TEXT("*.ini"), true, false);
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName);
-	IFileManager::Get().FindFilesRecursive(Files, *FPaths::Combine(Plugin->GetBaseDir(), TEXT("Config")), TEXT("*.ini"),
-	                                       true, false, false);
-	Files.Add(Plugin->GetDescriptorFileName());
+	if (Plugin)
+	{
+		IFileManager::Get().FindFilesRecursive(Files, *FPaths::Combine(Plugin->GetBaseDir(), TEXT("Config")),
+		                                       TEXT("*.ini"), true, false, false);
+		Files.Add(Plugin->GetDescriptorFileName());
+	}
 	Files.Add(FPaths::GetProjectFilePath());
 	Files.Sort();
 	FSha256 Hash;
@@ -186,11 +191,12 @@ uint64 ReadNumber(FArchive& File, int32 ByteCount)
 	return Value;
 }
 
-void WriteHeader(FArchive& File, uint64 ManifestSize, uint64 IndexOffset, uint64 IndexSize, uint64 FileSize)
+void WriteHeader(FArchive& File, uint16 Version, uint64 ManifestSize, uint64 IndexOffset, uint64 IndexSize,
+                 uint64 FileSize)
 {
 	File.Seek(0);
 	File.Serialize(const_cast<uint8*>(Magic), sizeof(Magic));
-	WriteNumber(File, 1, 2);
+	WriteNumber(File, Version, 2);
 	WriteNumber(File, 0, 2);
 	WriteNumber(File, HeaderSize, 4);
 	WriteNumber(File, HeaderSize, 8);
@@ -211,11 +217,14 @@ uint64 WriteText(FArchive& File, const FString& Text)
 bool ReadJson(FArchive& File, uint64 Size, TSharedPtr<FJsonObject>& OutObject)
 {
 	TArray<ANSICHAR> Bytes;
-	Bytes.SetNumUninitialized(static_cast<int32>(Size) + 1);
+	Bytes.SetNumUninitialized(static_cast<int32>(Size));
 	File.Serialize(Bytes.GetData(), Size);
-	Bytes[Size] = 0;
-	const FString Text = FString(FUTF8ToTCHAR(Bytes.GetData(), static_cast<int32>(Size)).Get());
-	return !File.IsError() && FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), OutObject) &&
+	if (File.IsError() || Bytes.Contains(0))
+	{
+		return false;
+	}
+	const FUTF8ToTCHAR Text(Bytes.GetData(), Bytes.Num());
+	return FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(FString(Text.Length(), Text.Get())), OutObject) &&
 	       OutObject.IsValid();
 }
 
@@ -231,7 +240,7 @@ bool ReadSize(const FJsonObject& Object, const TCHAR* Key, uint64& OutSize)
 	return static_cast<double>(OutSize) == Number;
 }
 
-bool VerifyArchive(const FString& Path)
+bool VerifyArchive(const FString& Path, uint16 Version)
 {
 	TUniquePtr<FArchive> File(IFileManager::Get().CreateFileReader(*Path));
 	if (!File || File->TotalSize() < static_cast<int64>(HeaderSize) ||
@@ -250,10 +259,11 @@ bool VerifyArchive(const FString& Path)
 	const uint64 IndexSize = ReadNumber(*File, 8);
 	const uint64 TotalSize = ReadNumber(*File, 8);
 	const uint64 Flags = ReadNumber(*File, 8);
-	if (FMemory::Memcmp(ActualMagic, Magic, sizeof(Magic)) || Major != 1 || Minor != 0 || HeaderLength != HeaderSize ||
-	    ManifestOffset != HeaderSize || ManifestSize == 0 || ManifestSize > MaxManifestSize || IndexSize == 0 ||
-	    IndexSize > MaxIndexSize || Flags != 0 || TotalSize != static_cast<uint64>(File->TotalSize()) ||
-	    IndexOffset > TotalSize || IndexSize != TotalSize - IndexOffset || IndexOffset < HeaderSize + ManifestSize)
+	if (FMemory::Memcmp(ActualMagic, Magic, sizeof(Magic)) || Major != Version || Minor != 0 ||
+	    HeaderLength != HeaderSize || ManifestOffset != HeaderSize || ManifestSize == 0 ||
+	    ManifestSize > MaxManifestSize || IndexSize == 0 || IndexSize > MaxIndexSize || Flags != 0 ||
+	    TotalSize != static_cast<uint64>(File->TotalSize()) || IndexOffset > TotalSize ||
+	    IndexSize != TotalSize - IndexOffset || IndexOffset < HeaderSize + ManifestSize)
 	{
 		return false;
 	}
@@ -261,11 +271,13 @@ bool VerifyArchive(const FString& Path)
 	TSharedPtr<FJsonObject> Index;
 	if (!ReadJson(*File, ManifestSize, Manifest))
 	{
+		UE_LOG(LogModPackaging, Error, TEXT("The written manifest is not valid JSON."));
 		return false;
 	}
 	File->Seek(IndexOffset);
 	if (!ReadJson(*File, IndexSize, Index))
 	{
+		UE_LOG(LogModPackaging, Error, TEXT("The written payload index is not valid JSON."));
 		return false;
 	}
 	const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
@@ -291,6 +303,7 @@ bool VerifyArchive(const FString& Path)
 		    (!PreviousPath.IsEmpty() && PreviousPath.Compare(EntryPath, ESearchCase::CaseSensitive) >= 0) ||
 		    !Matches(Digest, TEXT("[a-f0-9]{64}")))
 		{
+			UE_LOG(LogModPackaging, Error, TEXT("Invalid written payload index entry: %s"), *EntryPath);
 			return false;
 		}
 		Paths.Add(EntryPath.ToLower());
@@ -299,6 +312,7 @@ bool VerifyArchive(const FString& Path)
 		FSha256 Hash;
 		if (!StreamBytes(*File, Size, Hash) || Hash.Finish() != Digest)
 		{
+			UE_LOG(LogModPackaging, Error, TEXT("The written payload failed its digest check: %s"), *EntryPath);
 			return false;
 		}
 		ExpectedOffset += Size;
@@ -306,14 +320,14 @@ bool VerifyArchive(const FString& Path)
 	return ExpectedOffset == IndexOffset && !File->IsError();
 }
 
-bool CollectLifecycleClasses(const FString& PluginName, TArray<TSharedPtr<FJsonValue>>& Classes)
+bool CollectLifecycleClasses(const FString& Root, const TMap<FName, FString>& MigratedPackages,
+                             TArray<TSharedPtr<FJsonValue>>& Classes)
 {
 	const UClass* Base = FindObject<UClass>(nullptr, TEXT("/Script/ModLoader.ModInstance"));
 	if (!Base)
 	{
 		return true;
 	}
-	const FString Root = TEXT("/") + PluginName;
 	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
 	Registry.ScanPathsSynchronous({Root});
 	TSet<FTopLevelAssetPath> Derived;
@@ -342,6 +356,10 @@ bool CollectLifecycleClasses(const FString& PluginName, TArray<TSharedPtr<FJsonV
 		FString Path = FPackageName::ExportTextPathToObjectPath(GeneratedClass);
 		if (Derived.Contains(FTopLevelAssetPath(Path)))
 		{
+			if (const FString* Migrated = MigratedPackages.Find(Asset.PackageName))
+			{
+				Path = *Migrated + Path.Mid(Asset.PackageName.ToString().Len());
+			}
 			Paths.Add(MoveTemp(Path));
 		}
 	}
@@ -359,43 +377,12 @@ bool CollectLifecycleClasses(const FString& PluginName, TArray<TSharedPtr<FJsonV
 	return true;
 }
 
-bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory)
+bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory, const FString& ProjectFile,
+             const FString& PluginFile, const FString& Configuration, double Deadline)
 {
-	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(Request.PluginName);
-	const FString AutomationTool = FPaths::ConvertRelativePathToFull(
-	    FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries/DotNET/AutomationTool/AutomationTool.dll")));
-	TArray<FString> DotnetPaths;
-#if PLATFORM_WINDOWS
-	const TCHAR* ExecutableName = TEXT("dotnet.exe");
-	const TCHAR* HostDirectory = TEXT("/win-x64/");
-#elif PLATFORM_MAC
-	const TCHAR* ExecutableName = TEXT("dotnet");
-#if PLATFORM_CPU_ARM_FAMILY
-	const TCHAR* HostDirectory = TEXT("/mac-arm64/");
-#else
-	const TCHAR* HostDirectory = TEXT("/mac-x64/");
-#endif
-#else
-	const TCHAR* ExecutableName = TEXT("dotnet");
-#if PLATFORM_CPU_ARM_FAMILY
-	const TCHAR* HostDirectory = TEXT("/linux-arm64/");
-#else
-	const TCHAR* HostDirectory = TEXT("/linux-x64/");
-#endif
-#endif
-	IFileManager::Get().FindFilesRecursive(DotnetPaths,
-	                                       *FPaths::Combine(FPaths::EngineDir(), TEXT("Binaries/ThirdParty/DotNet")),
-	                                       ExecutableName, true, false);
-	DotnetPaths.Sort();
-	FString Dotnet;
-	for (FString Candidate : DotnetPaths)
-	{
-		FPaths::NormalizeFilename(Candidate);
-		if (Candidate.Contains(HostDirectory))
-		{
-			Dotnet = FPaths::ConvertRelativePathToFull(Candidate);
-		}
-	}
+	const FString EngineDirectory = FPaths::ConvertRelativePathToFull(FPaths::EngineDir());
+	const FString AutomationTool = EngineDirectory / TEXT("Binaries/DotNET/AutomationTool/AutomationTool.dll");
+	const FString Dotnet = FindPackagingDotnet(EngineDirectory);
 	if (Dotnet.IsEmpty() || !FPaths::FileExists(AutomationTool))
 	{
 		UE_LOG(LogModPackaging, Error, TEXT("The engine's bundled dotnet or AutomationTool.dll is missing."));
@@ -403,12 +390,11 @@ bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory)
 	}
 	FString Arguments = FString::Printf(
 	    TEXT("\"%s\" BuildCookRun -project=\"%s\" -nop4 -utf8output -unattended -nocompile -nocompileeditor ")
-	        TEXT("-cook -stage -pak -clientconfig=Shipping -targetplatform=%s -dlcname=\"%s\" ")
+	        TEXT("-cook -stage -pak -clientconfig=%s -targetplatform=%s -dlcname=\"%s\" ")
 	            TEXT("-basedonreleaseversion=\"%s\" -basedonreleaseversionroot=\"%s\" ")
 	                TEXT("-stagingdirectory=\"%s\" -cookoutputdir=\"%s\""),
-	    *AutomationTool, *FullPath(FPaths::GetProjectFilePath()), *Request.TargetPlatform,
-	    *Plugin->GetDescriptorFileName(), *Request.BaseReleaseVersion, *Request.BaseReleaseDirectory,
-	    *FPaths::Combine(WorkDirectory, TEXT("Stage")),
+	    *AutomationTool, *ProjectFile, *Configuration, *Request.TargetPlatform, *PluginFile,
+	    *Request.BaseReleaseVersion, *Request.BaseReleaseDirectory, *FPaths::Combine(WorkDirectory, TEXT("Stage")),
 	    *FPaths::Combine(WorkDirectory, TEXT("Cooked"), Request.GetCookPlatform()));
 	Arguments += Request.bUseIoStore ? TEXT(" -iostore") : TEXT(" -skipiostore");
 	if (Request.bIncludeEngineContent)
@@ -416,28 +402,7 @@ bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory)
 		Arguments += TEXT(" -DLCIncludeEngineContent");
 	}
 	UE_LOG(LogModPackaging, Display, TEXT("Cooking Mod %s with UAT: %s"), *Request.PluginName, *Arguments);
-	TAtomic<int32> ExitCode{INDEX_NONE};
-	FMonitoredProcess Process(Dotnet, Arguments, true);
-	Process.OnOutput().BindLambda([](const FString& Line) { UE_LOG(LogModPackaging, Display, TEXT("%s"), *Line); });
-	Process.OnCompleted().BindLambda([&ExitCode](int32 Code) { ExitCode.Store(Code); });
-	Process.OnCanceled().BindLambda([&ExitCode] { ExitCode.Store(1); });
-	if (!Process.Launch())
-	{
-		return false;
-	}
-	const double Deadline = FPlatformTime::Seconds() + Request.TimeoutMinutes * 60.0;
-	bool bTimedOut = false;
-	while (ExitCode.Load() == INDEX_NONE)
-	{
-		Process.Update();
-		if (!bTimedOut && FPlatformTime::Seconds() > Deadline)
-		{
-			bTimedOut = true;
-			Process.Cancel(true);
-		}
-		FPlatformProcess::Sleep(0.05f);
-	}
-	return !bTimedOut && ExitCode.Load() == 0;
+	return RunPackagingProcess(Dotnet, Arguments, Deadline);
 }
 } // namespace
 
@@ -450,8 +415,16 @@ TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
 {
 	TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
 	Json->SetStringField(TEXT("format"), TEXT("UMF.ModPackageBuildRequest"));
-	Json->SetNumberField(TEXT("schemaVersion"), 1);
-	Json->SetStringField(TEXT("pluginName"), PluginName);
+	Json->SetNumberField(TEXT("schemaVersion"), bPackageProject ? 2 : 1);
+	if (bPackageProject)
+	{
+		Json->SetStringField(TEXT("hostTargetReceipt"), HostTargetReceipt);
+		Json->SetStringField(TEXT("hostEngineDirectory"), HostEngineDirectory);
+	}
+	else
+	{
+		Json->SetStringField(TEXT("pluginName"), PluginName);
+	}
 	Json->SetStringField(TEXT("modVersion"), ModVersion);
 	Json->SetStringField(TEXT("gameId"), GameId);
 	Json->SetStringField(TEXT("baseReleaseVersion"), BaseReleaseVersion);
@@ -467,7 +440,16 @@ TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
 bool FModPackageRequest::FromSettings(const UModPackagingSettings& Settings, FModPackageRequest& OutRequest,
                                       FText& OutError)
 {
-	OutRequest.PluginName = Settings.PluginName;
+	OutRequest.bPackageProject = Settings.bPackageProject;
+	OutRequest.PluginName =
+	    Settings.bPackageProject ? FPaths::GetBaseFilename(FPaths::GetProjectFilePath()) : Settings.PluginName;
+	if (Settings.bPackageProject)
+	{
+		OutRequest.HostTargetReceipt = FullPath(Settings.HostTargetReceipt.FilePath);
+		OutRequest.HostEngineDirectory = FullPath(Settings.HostEngineDirectory.Path.IsEmpty()
+		                                              ? FPaths::ConvertRelativePathToFull(FPaths::EngineDir())
+		                                              : Settings.HostEngineDirectory.Path);
+	}
 	OutRequest.ModVersion = Settings.ModVersion;
 	OutRequest.GameId = Settings.GameId;
 	OutRequest.BaseReleaseVersion = Settings.BaseReleaseVersion;
@@ -480,7 +462,7 @@ bool FModPackageRequest::FromSettings(const UModPackagingSettings& Settings, FMo
 	const FString OutputDirectory = FullPath(Settings.OutputDirectory.Path.IsEmpty()
 	                                             ? FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("PackagedMods"))
 	                                             : Settings.OutputDirectory.Path);
-	OutRequest.OutputFile = FPaths::Combine(OutputDirectory, Settings.PluginName + TEXT("-") + Settings.ModVersion +
+	OutRequest.OutputFile = FPaths::Combine(OutputDirectory, OutRequest.PluginName + TEXT("-") + Settings.ModVersion +
 	                                                             TEXT("-") + Settings.TargetPlatform + TEXT(".mod"));
 	return OutRequest.Validate(OutError);
 }
@@ -495,8 +477,7 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 	    !FFileHelper::LoadFileToString(Text, *File) ||
 	    !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Json) || !Json.IsValid() ||
 	    !Json->TryGetStringField(TEXT("format"), Format) || Format != TEXT("UMF.ModPackageBuildRequest") ||
-	    !Json->TryGetNumberField(TEXT("schemaVersion"), Version) || Version != 1 ||
-	    !Json->TryGetStringField(TEXT("pluginName"), OutRequest.PluginName) ||
+	    !Json->TryGetNumberField(TEXT("schemaVersion"), Version) || (Version != 1 && Version != 2) ||
 	    !Json->TryGetStringField(TEXT("modVersion"), OutRequest.ModVersion) ||
 	    !Json->TryGetStringField(TEXT("gameId"), OutRequest.GameId) ||
 	    !Json->TryGetStringField(TEXT("baseReleaseVersion"), OutRequest.BaseReleaseVersion) ||
@@ -510,6 +491,26 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 		OutError = LOCTEXT("BadRequest", "Mod 打包请求损坏或版本不受支持。");
 		return false;
 	}
+	OutRequest.bPackageProject = Version == 2;
+	if (OutRequest.bPackageProject)
+	{
+		FString Receipt, EngineDirectory;
+		if (!Json->TryGetStringField(TEXT("hostTargetReceipt"), Receipt) || Receipt.IsEmpty())
+		{
+			OutError = LOCTEXT("MissingHostTarget", "打包当前工程需要宿主模块化构建的 Target 回执。");
+			return false;
+		}
+		Json->TryGetStringField(TEXT("hostEngineDirectory"), EngineDirectory);
+		OutRequest.PluginName = FPaths::GetBaseFilename(FPaths::GetProjectFilePath());
+		OutRequest.HostTargetReceipt = FullPath(Receipt);
+		OutRequest.HostEngineDirectory = FullPath(
+		    EngineDirectory.IsEmpty() ? FPaths::ConvertRelativePathToFull(FPaths::EngineDir()) : EngineDirectory);
+	}
+	else if (!Json->TryGetStringField(TEXT("pluginName"), OutRequest.PluginName))
+	{
+		OutError = LOCTEXT("MissingPlugin", "请指定要打包的 Mod 内容插件。");
+		return false;
+	}
 	OutRequest.BaseReleaseDirectory = FullPath(OutRequest.BaseReleaseDirectory);
 	OutRequest.OutputFile = FullPath(OutRequest.OutputFile);
 	return OutRequest.Validate(OutError);
@@ -518,26 +519,51 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 bool FModPackageRequest::Validate(FText& OutError) const
 {
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName);
-	if (!Matches(PluginName, TEXT("[A-Za-z][A-Za-z0-9_]{0,63}")) || !Plugin || !Plugin->IsEnabled() ||
-	    Plugin->GetType() != EPluginType::Project || !Plugin->CanContainContent() ||
-	    !Plugin->GetDescriptor().Modules.IsEmpty())
+	FString ContentDirectory;
+	if (!Matches(PluginName, TEXT("[A-Za-z][A-Za-z0-9_]{0,63}")))
 	{
-		OutError = LOCTEXT("BadPlugin", "请选择已启用的项目内容插件；此版本仅打包不包含 C++ 模块的 Mod。");
+		OutError = LOCTEXT("BadName", "工程或内容插件名称须以字母开头，且最多包含 64 个字母、数字或下划线。");
 		return false;
+	}
+	if (bPackageProject)
+	{
+		const FProjectDescriptor* Project = IProjectManager::Get().GetCurrentProject();
+		if (!Project || Project->Modules.IsEmpty() || Plugin ||
+		    PluginName != FPaths::GetBaseFilename(FPaths::GetProjectFilePath()) || TargetPlatform != TEXT("Win64") ||
+		    bUseIoStore || bIncludeEngineContent || !IsCommandArgument(HostEngineDirectory) ||
+		    !FPaths::DirectoryExists(HostEngineDirectory) || !IsCommandArgument(HostTargetReceipt) ||
+		    !FPaths::FileExists(HostTargetReceipt))
+		{
+			OutError = LOCTEXT("BadProject",
+			                   "请打开含 C++ 模块的工程，选择 Win64 Pak 和宿主 Target 回执。工程名须有独立包根。");
+			return false;
+		}
+		ContentDirectory = FPaths::ProjectContentDir();
+	}
+	else
+	{
+		if (!Plugin || !Plugin->IsEnabled() || Plugin->GetType() != EPluginType::Project ||
+		    !Plugin->CanContainContent() || !Plugin->GetDescriptor().Modules.IsEmpty() ||
+		    !IsCommandArgument(Plugin->GetDescriptorFileName()))
+		{
+			OutError = LOCTEXT("BadPlugin", "请选择已启用且不包含 C++ 模块的项目内容插件。");
+			return false;
+		}
+		FConfigFile PluginConfig;
+		PluginConfig.Read(
+		    *FPaths::Combine(Plugin->GetBaseDir(), TEXT("Config"), TEXT("Default") + PluginName + TEXT(".ini")));
+		bool bRemapContent = false;
+		PluginConfig.GetBool(TEXT("PluginSettings"), TEXT("RemapPluginContentToGame"), bRemapContent);
+		if (bRemapContent)
+		{
+			OutError = LOCTEXT("RemappedPlugin", "Mod 必须保留自己的包路径，请关闭 RemapPluginContentToGame。");
+			return false;
+		}
+		ContentDirectory = Plugin->GetContentDir();
 	}
 	if (!Matches(ModVersion, TEXT("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)")) || ModVersion.Len() > 64)
 	{
 		OutError = LOCTEXT("BadVersion", "Mod 版本应为三段数字，例如 1.0.0。");
-		return false;
-	}
-	FConfigFile PluginConfig;
-	PluginConfig.Read(
-	    *FPaths::Combine(Plugin->GetBaseDir(), TEXT("Config"), TEXT("Default") + PluginName + TEXT(".ini")));
-	bool bRemapContent = false;
-	PluginConfig.GetBool(TEXT("PluginSettings"), TEXT("RemapPluginContentToGame"), bRemapContent);
-	if (bRemapContent)
-	{
-		OutError = LOCTEXT("RemappedPlugin", "Mod 必须保留自己的包路径，请关闭 RemapPluginContentToGame。");
 		return false;
 	}
 	if (!Matches(GameId, TEXT("[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")) ||
@@ -562,9 +588,8 @@ bool FModPackageRequest::Validate(FText& OutError) const
 	}
 	if (TimeoutMinutes < 1 || TimeoutMinutes > 1440 || FPaths::GetExtension(OutputFile) != TEXT("mod") ||
 	    !IsCommandArgument(OutputFile) || !IsCommandArgument(BaseReleaseDirectory) ||
-	    !IsCommandArgument(FullPath(FPaths::GetProjectFilePath())) ||
-	    !IsCommandArgument(Plugin->GetDescriptorFileName()) || FPaths::FileExists(OutputFile) ||
-	    FPaths::IsUnderDirectory(OutputFile, Plugin->GetContentDir()) ||
+	    !IsCommandArgument(FullPath(FPaths::GetProjectFilePath())) || FPaths::FileExists(OutputFile) ||
+	    FPaths::IsUnderDirectory(OutputFile, FullPath(ContentDirectory)) ||
 	    FPaths::IsUnderDirectory(OutputFile, BaseReleaseDirectory))
 	{
 		OutError =
@@ -573,11 +598,11 @@ bool FModPackageRequest::Validate(FText& OutError) const
 		return false;
 	}
 	TArray<FString> Assets;
-	IFileManager::Get().FindFilesRecursive(Assets, *Plugin->GetContentDir(), TEXT("*.uasset"), true, false);
-	IFileManager::Get().FindFilesRecursive(Assets, *Plugin->GetContentDir(), TEXT("*.umap"), true, false, false);
+	IFileManager::Get().FindFilesRecursive(Assets, *ContentDirectory, TEXT("*.uasset"), true, false);
+	IFileManager::Get().FindFilesRecursive(Assets, *ContentDirectory, TEXT("*.umap"), true, false, false);
 	if (Assets.IsEmpty())
 	{
-		OutError = LOCTEXT("NoAssets", "所选 Mod 内容插件中没有可烘焙的资产或地图。");
+		OutError = LOCTEXT("NoAssets", "所选 Mod 来源中没有可烘焙的资产或地图。");
 		return false;
 	}
 	return true;
@@ -598,26 +623,49 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 		return Fail(Error.ToString());
 	}
 	const FString Stage = FPaths::Combine(WorkDirectory, TEXT("Stage"));
-	if (FPaths::DirectoryExists(Stage) || !IsCommandArgument(WorkDirectory))
+	if (FPaths::DirectoryExists(Stage) || !IsCommandArgument(WorkDirectory) ||
+	    (Request.bPackageProject && (FPaths::DirectoryExists(WorkDirectory / TEXT("Code")) ||
+	                                 FPaths::DirectoryExists(WorkDirectory / TEXT("Project")))))
 	{
-		return Fail(TEXT("This task already has a Stage directory. Start a new packaging task."));
-	}
-	TArray<TSharedPtr<FJsonValue>> LifecycleClasses;
-	if (!CollectLifecycleClasses(Request.PluginName, LifecycleClasses))
-	{
-		return Fail(TEXT("Could not collect up to 64 global Mod lifecycle Blueprints."));
+		return Fail(TEXT("This task already has staging files. Start a new packaging task."));
 	}
 	const FString BaseRegistry = FPaths::Combine(Request.BaseReleaseDirectory, Request.BaseReleaseVersion,
 	                                             Request.GetCookPlatform(), TEXT("AssetRegistry.bin"));
 	const FString BaseRegistryHash = HashFile(BaseRegistry);
 	const FString ConfigurationHash = ConfigurationFingerprint(Request.PluginName);
-	if (BaseRegistryHash.IsEmpty() || ConfigurationHash.IsEmpty() || !RunCook(Request, WorkDirectory))
+	const FString HostReceiptHash = Request.bPackageProject ? HashFile(Request.HostTargetReceipt) : FString();
+	if (BaseRegistryHash.IsEmpty() || ConfigurationHash.IsEmpty() ||
+	    (Request.bPackageProject && HostReceiptHash.IsEmpty()))
+	{
+		return Fail(TEXT("Could not fingerprint the project configuration, base release, or host receipt."));
+	}
+	const double Deadline = FPlatformTime::Seconds() + Request.TimeoutMinutes * 60.0;
+	FProjectModStage ProjectStage;
+	FString StageError;
+	if (Request.bPackageProject && !StageProjectMod(Request, WorkDirectory, Deadline, ProjectStage, StageError))
+	{
+		return Fail(StageError);
+	}
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(Request.PluginName);
+	const FString CookProject =
+	    Request.bPackageProject ? ProjectStage.CookProject : FullPath(FPaths::GetProjectFilePath());
+	const FString CookPlugin = Request.bPackageProject ? ProjectStage.CookPlugin : Plugin->GetDescriptorFileName();
+	const FString CookConfiguration = Request.bPackageProject ? ProjectStage.Configuration : TEXT("Shipping");
+	TArray<TSharedPtr<FJsonValue>> LifecycleClasses;
+	const FString SourceRoot = Request.bPackageProject ? TEXT("/Game") : TEXT("/") + Request.PluginName;
+	if (!CollectLifecycleClasses(SourceRoot, ProjectStage.MigratedPackages, LifecycleClasses))
+	{
+		return Fail(TEXT("Could not collect up to 64 global Mod lifecycle Blueprints."));
+	}
+	if (!RunCook(Request, WorkDirectory, CookProject, CookPlugin, CookConfiguration, Deadline))
 	{
 		return Fail(TEXT("UE Cook/Stage failed or timed out. See the UAT output in Editor.log."));
 	}
-	if (HashFile(BaseRegistry) != BaseRegistryHash || ConfigurationFingerprint(Request.PluginName) != ConfigurationHash)
+	if (HashFile(BaseRegistry) != BaseRegistryHash ||
+	    ConfigurationFingerprint(Request.PluginName) != ConfigurationHash ||
+	    (Request.bPackageProject && HashFile(Request.HostTargetReceipt) != HostReceiptHash))
 	{
-		return Fail(TEXT("The base release or project configuration changed while cooking. Start a new task."));
+		return Fail(TEXT("The base release, project configuration, or host receipt changed during packaging."));
 	}
 	TArray<FString> StageFiles;
 	IFileManager::Get().FindFilesRecursive(StageFiles, *Stage, TEXT("*"), true, false);
@@ -651,7 +699,8 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 		PakCount += Extension == TEXT("pak");
 		TocCount += Extension == TEXT("utoc");
 	}
-	if (PakCount == 0 || Payloads.Num() > MaxEntries - 1 || (Request.bUseIoStore ? TocCount == 0 : TocCount != 0))
+	if (PakCount == 0 || Payloads.Num() + ProjectStage.NativePayloads.Num() > MaxEntries - 1 ||
+	    (Request.bUseIoStore ? TocCount == 0 : TocCount != 0))
 	{
 		return Fail(TEXT("Cook/Stage did not produce the selected Mod container backend."));
 	}
@@ -663,7 +712,6 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 			return Fail(TEXT("An IoStore container is missing its .ucas payload."));
 		}
 	}
-	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(Request.PluginName);
 	TSharedRef<FJsonObject> Profile = MakeShared<FJsonObject>();
 	Profile->SetStringField(TEXT("gameId"), Request.GameId);
 	Profile->SetStringField(TEXT("baseReleaseVersion"), Request.BaseReleaseVersion);
@@ -726,15 +774,17 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 		return Fail(TEXT("Could not write CookReceipt.json."));
 	}
 	Payloads.Add(TEXT("Metadata/CookReceipt.json"), ReceiptFile);
+	Payloads.Append(MoveTemp(ProjectStage.NativePayloads));
 	Payloads.GetKeys(Paths);
 	Paths.Sort([](const FString& Left, const FString& Right)
 	           { return Left.Compare(Right, ESearchCase::CaseSensitive) < 0; });
 	TSharedRef<FJsonObject> Manifest = MakeShared<FJsonObject>();
+	const uint16 ArchiveVersion = Request.bPackageProject ? 2 : 1;
 	Manifest->SetStringField(TEXT("format"), TEXT("UMF.ModPackage"));
-	Manifest->SetNumberField(TEXT("schemaVersion"), 1);
+	Manifest->SetNumberField(TEXT("schemaVersion"), ArchiveVersion);
 	Manifest->SetStringField(TEXT("modId"), Request.PluginName.ToLower());
 	Manifest->SetStringField(TEXT("version"), Request.ModVersion);
-	Manifest->SetStringField(TEXT("displayName"), Plugin->GetDescriptor().FriendlyName);
+	Manifest->SetStringField(TEXT("displayName"), Plugin ? Plugin->GetDescriptor().FriendlyName : Request.PluginName);
 	Manifest->SetStringField(TEXT("pluginName"), Request.PluginName);
 	Manifest->SetStringField(TEXT("packageRoot"), TEXT("/") + Request.PluginName + TEXT("/"));
 	Manifest->SetObjectField(TEXT("cookProfile"), Profile);
@@ -742,6 +792,10 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	Manifest->SetStringField(TEXT("cookReceipt"), TEXT("Metadata/CookReceipt.json"));
 	Manifest->SetBoolField(TEXT("shippingValidated"), false);
 	Manifest->SetStringField(TEXT("exportRequirements"), TEXT("NotVerified"));
+	if (ProjectStage.NativeCode)
+	{
+		Manifest->SetObjectField(TEXT("nativeCode"), ProjectStage.NativeCode);
+	}
 	if (!LifecycleClasses.IsEmpty())
 	{
 		Manifest->SetArrayField(TEXT("lifecycleClasses"), MoveTemp(LifecycleClasses));
@@ -763,7 +817,7 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	{
 		return Fail(TEXT("Could not create the temporary Mod package."));
 	}
-	WriteHeader(*Output, 0, 0, 0, 0);
+	WriteHeader(*Output, ArchiveVersion, 0, 0, 0, 0);
 	const uint64 ManifestLength = WriteText(*Output, ManifestText);
 	TArray<TSharedPtr<FJsonValue>> Entries;
 	for (const FString& Path : Paths)
@@ -798,14 +852,14 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	const uint64 IndexOffset = Output->Tell();
 	const uint64 IndexLength = WriteText(*Output, IndexText);
 	const uint64 FileSize = Output->Tell();
-	WriteHeader(*Output, ManifestLength, IndexOffset, IndexLength, FileSize);
+	WriteHeader(*Output, ArchiveVersion, ManifestLength, IndexOffset, IndexLength, FileSize);
 	if (IndexLength > MaxIndexSize || FileSize > MaxArchiveSize || Output->IsError() || !Output->Close())
 	{
 		return Fail(TEXT("Could not finish the Mod package."));
 	}
 	Output.Reset();
 	UE_LOG(LogModPackaging, Display, TEXT("Verifying Mod package (%llu bytes)..."), FileSize);
-	if (!VerifyArchive(Temporary))
+	if (!VerifyArchive(Temporary, ArchiveVersion))
 	{
 		return Fail(TEXT("The written Mod package failed verification."));
 	}

@@ -14,6 +14,26 @@
 		{
 			"Name": "ModRuntime",
 			"Enabled": true
+		},
+		{
+			"Name": "Fracture",
+			"Enabled": true,
+			"PlatformAllowList": [
+				"Win64"
+			],
+			"TargetAllowList": [
+				"Game"
+			]
+		},
+		{
+			"Name": "PlanarCut",
+			"Enabled": true,
+			"PlatformAllowList": [
+				"Win64"
+			],
+			"TargetAllowList": [
+				"Game"
+			]
 		}
 	]
 }
