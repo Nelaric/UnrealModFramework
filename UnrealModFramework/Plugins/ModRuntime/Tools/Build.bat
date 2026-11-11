@@ -1,21 +1,24 @@
 @rem Copyright (c) 2026 Nelaric Contributors
 @echo off
-setlocal
+setlocal DisableDelayedExpansion
 set "UMF_SCRIPT_PATH=%~dp0Build.cmake"
-set "UMF_SETUP_MODE="
 if /i "%~1"=="--setup" (
     set "UMF_SCRIPT_PATH=%~dp0Setup.cmake"
-    set "UMF_SETUP_MODE=1"
     shift
 )
 
 if not defined UMF_CMAKE_EXECUTABLE (
-    where cmake.exe >nul 2>&1
-    if errorlevel 1 (
-        echo CMake 3.20 or newer is required on PATH. 1>&2
-        exit /b 1
+    if exist "%~dp0..\..\..\..\Setup\FindCMake.bat" (
+        call "%~dp0..\..\..\..\Setup\FindCMake.bat"
+        if errorlevel 1 exit /b 1
+    ) else (
+        where cmake.exe >nul 2>&1
+        if errorlevel 1 (
+            echo CMake 3.20 or newer is required on PATH. 1>&2
+            exit /b 1
+        )
+        set "UMF_CMAKE_EXECUTABLE=cmake.exe"
     )
-    set "UMF_CMAKE_EXECUTABLE=cmake.exe"
 )
 set "UMF_ARGUMENT_DIR="
 set "UMF_TARGET=all"
@@ -85,7 +88,7 @@ if defined CXX (
     for %%D in ("%CXX%") do call :prepare "%%~dpD"
     if not errorlevel 1 goto build
 )
-if defined UMF_SETUP_MODE call :discover_visual_studio
+call :discover_visual_studio
 goto build
 
 :discover_visual_studio

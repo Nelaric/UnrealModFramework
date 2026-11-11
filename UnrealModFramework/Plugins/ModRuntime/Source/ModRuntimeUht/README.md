@@ -19,7 +19,10 @@ See Epic's [UE 5.6 UHT extension documentation](https://dev.epicgames.com/docume
 
 ## Native tool and default invocation
 
-The native tool must already be built. Discovery uses, in order:
+Normal Win64 x64, Linux, and macOS builds configured with
+`ExportMetadata.ConfigureTarget(this)` build ModHeaderTool, ModBuildTool, and
+ModSourceTool before UHT. For a direct UHT invocation, prepare the tools with
+the native build script first. UHT looks for MHT in the following order.
 
 1. `UMF_MHT_EXECUTABLE`.
 2. `executable` in the project's optional `Config/ModHeaderTool.json`.
@@ -165,10 +168,19 @@ an explicitly chosen player. MBT also compiles SDK view methods, constructors,
 and TypeId helpers.
 
 The Target rules call `ExportMetadata.ConfigureTarget(this)` once to install
-UE 5.6 build hooks. The pre-build step updates a UHT dependency stamp when a
-watched directory changes or a recorded optional file appears. MBT verifies the exact archive's PE export
-in the owning DLL or EXE and checks the UBT target receipt and modular ownership.
-It writes `<owner>.lib.link.json` and `<owner>.lib.linked.json` beside the archive.
+the UE 5.6 build hooks. UBT runs `Tools/Build.bat --target ModRuntimeUhtTools`
+on Windows and `sh Tools/Build.sh --target ModRuntimeUhtTools` on Linux and macOS
+when the script is present. The scripts reuse `Tools/build/.cmake` for incremental
+Release builds. If the tools fail to build, UBT stops before UHT. Linux and
+macOS use GNU `g++`. On macOS, set `CXX` to the installed GNU C++ compiler.
+A staged Unix project without the workspace CMake finder can continue the UE
+build when CMake is neither configured nor available on PATH.
+
+On Win64 x64, the next pre-build step asks MBT to update the UHT dependency
+stamp when a watched directory changes or a recorded optional file appears.
+In the post-build step, MBT verifies the exact archive's PE export in the owning
+DLL or EXE and checks the UBT target receipt and modular ownership. It writes
+`<owner>.lib.link.json` and `<owner>.lib.linked.json` beside the archive.
 The client library has its own build receipt.
 
 ## Build behavior and limits
@@ -187,8 +199,8 @@ Existing tool, configuration, metadata, reflected headers, build inputs, and
 generated-manifest inputs, metadata configuration inputs, compiler recipes, libraries, MBT receipts, and their
 compiler dependencies are registered using `AddExternalDependency`. UHT
 regenerates the affected variant when a registered file or the watch stamp
-changes. With the native tools and LLVM installed, a normal Win64 build prepares
-the default project's inputs from a clean checkout.
+changes. With MSVC, the Windows SDK, and LLVM installed, a normal Win64 build
+prepares the default project's inputs from a clean checkout.
 The automatic link verification covers standard Win64 x64 project DLLs and
 monolithic EXEs. Live Coding and Hot Reload require separate integration.
 
