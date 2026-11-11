@@ -2,8 +2,6 @@
 /** @file CommandLine.h */
 #pragma once
 
-#include "ModHeaderTool/src/Cli/CommandLineOptions.h"
-
 #include <ostream>
 #include <string>
 #include <vector>
@@ -13,8 +11,10 @@ namespace Mod::HeaderTool
 class CommandLine
 {
 public:
-	/// Parses command-line arguments, including the executable name.
-	static CommandLineOptions ParseArguments(const std::vector<std::string>& Arguments);
+	/// Runs an explicit tool command or displays help.
+	static int RunCommandLine(const std::vector<std::string>& Arguments);
+
+private:
 	/// Writes command-line usage without accessing project files.
 	static void PrintHelp(std::ostream& Output);
 };

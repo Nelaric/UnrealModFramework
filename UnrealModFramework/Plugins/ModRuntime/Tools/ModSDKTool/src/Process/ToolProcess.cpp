@@ -2,6 +2,7 @@
 #include "ToolProcess.h"
 
 #include "Common/Files/Path.h"
+#include "Common/Process/ProcessOutput.h"
 #include "ModSDKTool/src/Process/Handle.h"
 #include "ModSDKTool/src/Process/ProcessArguments.h"
 #include "ModSDKTool/src/Process/ProcessCancellation.h"
@@ -30,7 +31,7 @@ namespace Mod::SdkTool
 namespace fs = std::filesystem;
 
 int ToolProcess::RunTool(const fs::path& Executable, const std::vector<std::string>& Arguments,
-                         const fs::path& WorkingDirectory, unsigned TimeoutSeconds)
+                         const fs::path& WorkingDirectory, unsigned TimeoutSeconds, const fs::path& StandardOutput)
 {
 	if (!fs::is_regular_file(Executable) || !fs::is_directory(WorkingDirectory) || TimeoutSeconds == 0 ||
 	    TimeoutSeconds > 86400)
@@ -44,6 +45,7 @@ int ToolProcess::RunTool(const fs::path& Executable, const std::vector<std::stri
 			throw std::runtime_error("Tool arguments cannot contain NUL or newline characters.");
 		}
 	}
+	const Mod::BuildTool::ProcessOutput Output(StandardOutput);
 #ifdef _WIN32
 	std::wstring Command = ProcessArguments::Quote(Mod::BuildTool::Path::PathToUtf8(Executable));
 	for (const std::string& Argument : Arguments)
@@ -75,7 +77,7 @@ int ToolProcess::RunTool(const fs::path& Executable, const std::vector<std::stri
 	Startup.cb = sizeof(Startup);
 	Startup.dwFlags = STARTF_USESTDHANDLES;
 	Startup.hStdInput = Input.Value;
-	Startup.hStdOutput = Diagnostics.Value;
+	Startup.hStdOutput = Output.GetHandle(Diagnostics.Value);
 	Startup.hStdError = Diagnostics.Value;
 	PROCESS_INFORMATION Info{};
 	if (!CreateProcessW(Executable.c_str(), Command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED,
@@ -143,7 +145,7 @@ int ToolProcess::RunTool(const fs::path& Executable, const std::vector<std::stri
 		setpgid(0, 0);
 		const int Input = open("/dev/null", O_RDONLY);
 		if (Input < 0 || dup2(Input, STDIN_FILENO) < 0 || chdir(WorkingDirectory.c_str()) != 0 ||
-		    dup2(STDERR_FILENO, STDOUT_FILENO) < 0)
+		    !Output.RedirectInChild())
 		{
 			_exit(126);
 		}

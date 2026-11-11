@@ -2,13 +2,13 @@
 /** @file OptionsCheck.h */
 #pragma once
 
-#include "ModHeaderTool/src/Cli/CommandLineOptions.h"
+#include <filesystem>
 
 namespace Mod::HeaderTool
 {
 class OptionsCheck
 {
 public:
-	static int CheckOptions(const CommandLineOptions& Options);
+	static int CheckOptions(const std::filesystem::path& ProjectFile, const std::filesystem::path& Snapshot);
 };
 } // namespace Mod::HeaderTool

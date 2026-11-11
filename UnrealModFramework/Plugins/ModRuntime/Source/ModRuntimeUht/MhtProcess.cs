@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using EpicGames.Core;
@@ -21,7 +22,8 @@ internal static class MhtProcess
 		int timeoutSeconds,
 		string description = "ModRuntime MHT",
 		int allowedExitCode = 0,
-		IReadOnlyDictionary<string, string>? environment = null
+		IReadOnlyDictionary<string, string>? environment = null,
+		Stream? standardOutput = null
 	)
 	{
 		using ManagedProcessGroup group = new();
@@ -32,12 +34,18 @@ internal static class MhtProcess
 			workingDirectory,
 			environment,
 			Array.Empty<byte>(),
-			ProcessPriorityClass.Normal
+			ProcessPriorityClass.Normal,
+			flags: standardOutput == null ? ManagedProcessFlags.MergeOutputPipes : ManagedProcessFlags.None
 		);
 		using CancellationTokenSource deadline = new(TimeSpan.FromSeconds(timeoutSeconds));
 		try
 		{
-			Task.WhenAll(process.WaitForExitAsync(deadline.Token), ForwardOutput(process, logger, deadline.Token))
+			Task.WhenAll(
+					process.WaitForExitAsync(deadline.Token),
+					ForwardOutput(process.StdErrText, logger, deadline.Token),
+					standardOutput == null ? Task.CompletedTask : process.CopyToAsync(standardOutput, deadline.Token)
+				)
+				.WaitAsync(deadline.Token)
 				.GetAwaiter()
 				.GetResult();
 		}
@@ -54,9 +62,9 @@ internal static class MhtProcess
 		return process.ExitCode;
 	}
 
-	private static async Task ForwardOutput(ManagedProcess process, ILogger logger, CancellationToken cancellation)
+	private static async Task ForwardOutput(StreamReader diagnostics, ILogger logger, CancellationToken cancellation)
 	{
-		while (await process.ReadLineAsync(cancellation) is string line)
+		while (await diagnostics.ReadLineAsync(cancellation) is string line)
 		{
 			logger.LogInformation("{MhtDiagnostic}", line);
 		}

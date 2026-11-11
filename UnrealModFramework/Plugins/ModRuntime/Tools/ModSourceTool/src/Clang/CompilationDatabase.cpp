@@ -20,7 +20,7 @@ CompileCommand CompilationDatabase::LoadCompileCommand(const Clang& Clang, const
 {
 	if (Request.Database.filename() != "compile_commands.json" || !fs::is_regular_file(Request.Database))
 	{
-		throw std::runtime_error("--compdb must name an existing compile_commands.json.");
+		throw std::runtime_error("compilationDatabase must name an existing compile_commands.json.");
 	}
 	CXCompilationDatabase_Error Error{};
 	const std::unique_ptr<void, decltype(Clang.clang_CompilationDatabase_dispose)> Database(

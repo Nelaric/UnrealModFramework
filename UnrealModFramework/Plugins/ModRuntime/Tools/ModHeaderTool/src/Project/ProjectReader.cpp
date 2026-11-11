@@ -30,7 +30,7 @@ Project ProjectReader::LoadProject(const fs::path& Input)
 		{
 			throw std::runtime_error("Expected exactly one .uproject in " +
 			                         DiagnosticLocation::QuoteDiagnosticPath(ProjectFile) +
-			                         ". Specify a project file with --project.");
+			                         ". Specify the .uproject file directly.");
 		}
 		ProjectFile = Projects.front();
 	}

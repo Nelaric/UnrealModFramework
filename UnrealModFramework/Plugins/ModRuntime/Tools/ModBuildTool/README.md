@@ -20,16 +20,17 @@ An existing CMake build directory may also build the `ModBuildTool` target direc
 
 ```text
 ModBuildTool plan --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
-ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --expected-input <plan.inputFingerprint> --output BuildResult.json
+ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
+ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
 ModBuildTool verify-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
-ModBuildTool finalize-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --link-receipt Target.link.json --output LinkedArtifacts.json
+ModBuildTool finalize-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --link-receipt Target.link.json
 ModBuildTool hash-context --file HostCompileContext.json
 ModBuildTool hash-file --file <path>
-ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol> --symbol <api-symbol-1> --symbol <api-symbol-2>
+ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol>
 ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 --kind Executable
 ```
 
-`plan` validates inputs without compiling or creating directories. `build-host` locks the archive, revalidates an optional planned fingerprint, and returns `Built` or `UpToDate`. `verify-host` fails for stale inputs or artifacts. Exit code `0` means success; `1` means invalid input, build/I/O failure, or stale verification. Results are JSON on stdout or `--output`; child diagnostics go to stderr.
+`plan` validates inputs without compiling or creating directories. `build-host` locks the archive and returns `Built` or `UpToDate`. `build-planned-host` also checks the required fingerprint from an earlier plan under the archive lock. `verify-host` fails for stale inputs or artifacts. Exit code `0` means success. Exit code `1` means invalid input, build or I/O failure, or stale verification. JSON results go to stdout and child diagnostics go to stderr.
 
 ## Compilation context
 
@@ -103,7 +104,7 @@ The following broader action-graph integration is still a future contract:
 1. Build an owning-module/binary map from the real Target. After standard UHT, export actual module compilation contexts and run complete MHT generation.
 2. On cached Makefiles, also check source inventories and dependencies after the UHT check and before action invalidation. Non-reflected headers need independent discovery.
 3. Call `plan` and incorporate `inputFingerprint` into the MBT action command/version. Explicitly dirty actions with `upToDate=false`, including corrupted outputs with unchanged inputs.
-4. Execute `build-host --expected-input ...`; declare archive and receipt outputs, set `bProducesImportLibrary=false`, and initially disable remote/UBA execution.
+4. Execute `build-planned-host --input-fingerprint ...`. Declare archive and receipt outputs, set `bProducesImportLibrary=false`, and initially disable remote/UBA execution.
 5. Attach the archive and anchor retention to the real owning binary's private final link environment. Add the archive as a link prerequisite and do not propagate all host libraries through Runtime public dependencies.
 6. Reserve stable per-module archive paths/actions, including generated empty batches. Isolate engine/toolchain, Target, configuration, platform, and architecture variants.
 7. Implement platform-specific symbol retention only on the appropriate final link. Include host products in module outputs, receipts, Clean, and plugin output filtering.

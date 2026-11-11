@@ -17,7 +17,7 @@ C# 启动独立的 MHT、MBT 进程，传递真实编译配方、登记依赖与
 3. 插件 `Binaries/ThirdParty/ModHeaderTool/<宿主平台>/MHT[.exe]` 或 `ModHeaderTool[.exe]`，平台为 Win64、Linux、Mac。
 4. ModRuntime 插件的 `Tools/build/ModHeaderTool/ModHeaderTool[.exe]` 本地构建位置。
 
-未配置时默认模式是 `scan`；开发工程的 `Config/ModHeaderTool.json` 已选择 `generate`。scan 模式每次正常 UHT 执行时启动 MHT 参数校验，UHT output factory 将成功报告提交到工程的 `Intermediate/ModTools/ModHeaderTool/Scan/<Target>/<Platform>/<Configuration>/Scan.json`。scan 用于校验标记和参数。
+未配置时默认模式是 `scan`。开发工程的 `Config/ModHeaderTool.json` 选择 `generate`。scan 模式下，UHT 执行 `ModHeaderTool scan <实际.uproject> <元数据快照.json>` 校验标记和参数。UHT 从标准输出读取 JSON 报告，并将成功报告提交到工程的 `Intermediate/ModTools/ModHeaderTool/Scan/<Target>/<Platform>/<Configuration>/Scan.json`。
 
 元数据选项默认使用 `Intermediate/ModTools/ModHeaderTool/MetadataOptions.json`。生成前，适配层通过 MHT 检查快照。快照缺失、过期或版本较旧时，适配层调用当前引擎的 `ModExportOptions` commandlet，校验通过后发布快照。修改 `DefaultEngine.ini` 等已登记的配置会触发下一次增量构建的检查。scan 模式刷新已有的默认快照；源码无需快照时，也可以直接扫描。通过 `options` 指定其他路径的快照由调用方维护。
 
@@ -57,7 +57,7 @@ ModSourceTool（MST）依次查找环境变量 `UMF_MOD_SOURCE_TOOL_EXECUTABLE`�
 
 也可通过 `UMF_MHT_BUILD_INPUT` 指定本次 build input，它会选择 generate 模式并覆盖 Target 配置；`UMF_MHT_LIBCLANG` 覆盖 libclang。环境变量变化需要让 UHT 再次执行，例如在 UBT 命令中使用 `-ForceHeaderGeneration`。
 
-generate 按实际 Target、平台、配置和架构选择 build input，校验它与当前工程和 UHT 会话一致。适配层将所有生产者上下文通过 `--host-contexts` 交给 MHT，检查完整清单后逐个调用 `ModBuildTool build-host`。工程的生成根目录是 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。每次覆盖当前变体的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 和 `<gameId>.generated-artifacts.json`。相同内容保留时间戳，完整清单最后提交。导出插件所属模块的生成文件也按相对路径写入插件的 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。共享契约、客户端 ABI 和完整清单归工程。
+generate 按实际 Target、平台、配置和架构选择 build input，校验它与当前工程和 UHT 会话一致。适配层在变体的 `HostTargets` 目录写入 `GenerationRequest.json`，其中包含构建输入、生成目录、生产者上下文集，以及已解析的元数据快照、libclang 和生命周期源码路径。UHT 执行 `ModHeaderTool generate <GenerationRequest.json>`，检查完整清单后逐个调用 `ModBuildTool build-host`。工程的生成根目录是 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。每次覆盖当前变体的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 和 `<gameId>.generated-artifacts.json`。相同内容保留时间戳，完整清单最后提交。导出插件所属模块的生成文件也按相对路径写入插件的 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。共享契约、客户端 ABI 和完整清单归工程。
 
 正常构建时，适配层使用当前 Target 和 MSVC 工具链运行 UBT 的 `GenerateClangDatabase`，并在正式编译动作生成前展开导出模块的响应文件。变体的 `HostTargets` 目录保存 `BuildInput.json` 和 `Ubt/compile_commands.json`。UBT 复用 Makefile 时，适配层读取已保存的编译参数。Target 或变体显式配置的 `buildInput` 由调用方维护，其编译数据库及响应文件须匹配当前 Target。Clang 还依赖标准 UHT CodeGen 生成的头文件。
 

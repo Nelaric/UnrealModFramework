@@ -105,19 +105,4 @@ Json HostBuild::Finalize(const fs::path& LinkReceipt) const
 	return Result;
 }
 
-void HostBuild::ValidateResultOutput(const fs::path& Output, const fs::path& LinkReceipt) const
-{
-	if (Output.empty())
-	{
-		return;
-	}
-	const fs::path Destination = fs::weakly_canonical(fs::absolute(Output));
-	const Request Request = BuildInputs::ReadRequest(Context, Manifest);
-	if (Request.Inputs.contains(Destination) || Destination == Request.Library || Destination == Request.Receipt ||
-	    (!Request.BinaryPath.empty() && Destination == Request.BinaryPath) ||
-	    (!LinkReceipt.empty() && Destination == fs::canonical(LinkReceipt)))
-	{
-		throw std::runtime_error("JSON output would overwrite a build input or artifact.");
-	}
-}
 } // namespace Mod::BuildTool

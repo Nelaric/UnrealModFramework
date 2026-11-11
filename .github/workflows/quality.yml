@@ -150,14 +150,20 @@ jobs:
                       "-DWITH_EDITOR=0", "-c", str(source), "-o", source.with_suffix(".o").name,
                   ],
               } for source in sources]), encoding="utf-8")
-              command = [
-                  str(mst), "analyze-errors", "--compdb", str(database),
-                  "--target", "MSTNative", "--catalog", str(catalog), "--member", member,
-                  "--libclang", "/usr/lib/llvm-18/lib/libclang.so",
-                  "--resource-dir", os.environ["MST_RESOURCE_DIR"],
-              ]
-              if previous is None:
-                  command.append("--update-catalog")
+              request = directory / "SourceAnalysisRequest.json"
+              request.write_text(json.dumps({
+                  "format": "UMF.SourceAnalysisRequest",
+                  "schemaVersion": 1,
+                  "compilationDatabase": str(database),
+                  "target": "MSTNative",
+                  "catalog": str(catalog),
+                  "member": member,
+                  "libclang": "/usr/lib/llvm-18/lib/libclang.so",
+                  "resourceDirectory": os.environ["MST_RESOURCE_DIR"],
+                  "analysisArguments": [],
+              }), encoding="utf-8")
+              action = "update-catalog" if previous is None else "analyze-errors"
+              command = [str(mst), action, str(request)]
               result = json.loads(subprocess.check_output(command, text=True))
               failures = result["failures"]
               direct = any(

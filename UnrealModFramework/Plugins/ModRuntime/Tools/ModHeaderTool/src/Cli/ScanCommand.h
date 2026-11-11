@@ -2,13 +2,13 @@
 /** @file ScanCommand.h */
 #pragma once
 
-#include "ModHeaderTool/src/Cli/CommandLineOptions.h"
+#include <filesystem>
 
 namespace Mod::HeaderTool
 {
 class ScanCommand
 {
 public:
-	static int RunScan(const CommandLineOptions& Options);
+	static int RunScan(const std::filesystem::path& Project, const std::filesystem::path& Snapshot);
 };
 } // namespace Mod::HeaderTool

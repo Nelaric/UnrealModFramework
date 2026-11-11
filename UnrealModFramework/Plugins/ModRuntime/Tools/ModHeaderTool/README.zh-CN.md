@@ -56,7 +56,7 @@ UE SDK 的调用者传入真实 UObject 指针。ContextHandlesV1 对每个此�
 
 每个宿主模块有桥、ABI 入口、校验、UE 视图实现四个编译单元；独立客户端另有一个单元。清单 `compilationUnits` 逐项列出。`requiredSymbols` 同时记录宿主和客户端入口，关联相同 ExportId、签名与投影哈希；ExportId 唯一性按库所属模块检查。查询、连接、断开和释放函数同样是必需符号，宿主注册锚点确保 ABI 对象参与最终链接。
 
-UHT 适配器通过 `--host-contexts` 同时提供两类真实上下文，并分别调用 MBT。独立调用 `generate` 同样需要匹配的宿主和客户端生产者上下文，才能发布 Complete 清单。
+UHT 适配器执行 `generate <GenerationRequest.json>`。请求格式为 `UMF.ModHeaderGenerationRequest` v1，必填字段为 `buildInput`、`outputDirectory` 和 `hostContexts`。上下文集覆盖各宿主模块和独立客户端。请求还可以携带当前 Target 的 `metadataOptions`、`libclang` 和 `lifecycleSource` 路径。相对路径从请求所在目录解析。生成完成后，UHT 调用 MBT 构建清单中的库。
 
 MDT 消费 `.sdkcontract.json`、Host/Client 上下文及同一份 v3 清单。它保留原有对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。SDK 契约无法表示完整 API 集时标记为 `Unsupported`。
 

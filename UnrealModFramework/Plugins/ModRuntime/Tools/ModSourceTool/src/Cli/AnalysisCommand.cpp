@@ -3,25 +3,33 @@
 
 #include "Common/Files/Path.h"
 #include "ModSourceTool/src/Cli/AnalysisReport.h"
-#include "ModSourceTool/src/Cli/ReportOutput.h"
 #include "ModSourceTool/src/Errors/ErrorCatalog.h"
 
+#include <iostream>
+#include <nlohmann/json.hpp>
+#include <string>
 #include <utility>
 
 namespace Mod::SourceTool
 {
-int AnalysisCommand::RunAnalysis(AnalysisOptions Options)
+int AnalysisCommand::RunAnalysis(AnalysisOptions Options, bool bUpdateCatalog)
 {
 	const auto CatalogPath = Mod::BuildTool::Path::ResolvePath({}, Options.Catalog);
-	const auto ReportPath = ReportOutput::ResolveReportPath(Options.Output);
-	ErrorCatalog Catalog(CatalogPath, std::move(Options.MemberId), Options.bUpdateCatalog);
+	ErrorCatalog Catalog(CatalogPath, std::move(Options.MemberId), bUpdateCatalog);
 	const auto Request =
 	    Catalog.MakeAnalysisRequest(Options.CompilationDatabase, Options.ClangLibrary, Options.ResourceDirectory,
 	                                std::move(Options.Target), std::move(Options.AnalysisArguments));
 	const auto Report = AnalysisReport::AnalyzeReport(Catalog, Request);
-	ReportOutput::PrintDiagnostics(Report);
+	for (const auto& Diagnostic : Report.at("diagnostics"))
+	{
+		const auto& Location = Diagnostic.at("location");
+		std::cerr << "ModSourceTool: " << Location.at("file").get<std::string>() << '('
+		          << Location.at("line").get<unsigned>() << ',' << Location.at("column").get<unsigned>()
+		          << "): " << Diagnostic.at("message").get<std::string>() << '\n';
+	}
 	const auto Output = Report.dump(2);
 	Catalog.SaveChanges();
-	return ReportOutput::WriteReport(ReportPath, Output);
+	std::cout << Output << '\n' << std::flush;
+	return std::cout ? 0 : 1;
 }
 } // namespace Mod::SourceTool

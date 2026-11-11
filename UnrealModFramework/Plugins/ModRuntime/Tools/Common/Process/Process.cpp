@@ -6,6 +6,7 @@
 #include "Common/Process/Handle.h"
 #include "Common/Process/ProcessArguments.h"
 #include "Common/Process/ProcessCancellation.h"
+#include "Common/Process/ProcessOutput.h"
 
 #include <cerrno>
 #include <filesystem>
@@ -29,12 +30,14 @@ namespace Mod::BuildTool
 namespace fs = std::filesystem;
 
 int Process::RunProcess(const fs::path& Executable, const std::vector<std::string>& Arguments,
-                        const fs::path& WorkingDirectory, const std::map<std::string, std::string>& Environment)
+                        const fs::path& WorkingDirectory, const std::map<std::string, std::string>& Environment,
+                        const fs::path& StandardOutput)
 {
 	for (const std::string& Argument : Arguments)
 	{
 		ProcessArguments::RequireArgument(Argument);
 	}
+	const ProcessOutput Output(StandardOutput);
 #ifdef _WIN32
 	std::wstring Command = Path::PathFromUtf8(ProcessArguments::QuoteMsvc(Path::PathToUtf8(Executable))).wstring();
 	for (const std::string& Argument : Arguments)
@@ -66,7 +69,7 @@ int Process::RunProcess(const fs::path& Executable, const std::vector<std::strin
 	Startup.cb = sizeof(Startup);
 	Startup.dwFlags = STARTF_USESTDHANDLES;
 	Startup.hStdInput = Input.Value;
-	Startup.hStdOutput = Error.Value;
+	Startup.hStdOutput = Output.GetHandle(Error.Value);
 	Startup.hStdError = Error.Value;
 	PROCESS_INFORMATION Info{};
 	std::vector<wchar_t> EnvironmentBlock = EnvironmentBlock::MakeEnvironment(Environment);
@@ -132,7 +135,7 @@ int Process::RunProcess(const fs::path& Executable, const std::vector<std::strin
 		signal(SIGINT, SIG_DFL);
 		signal(SIGTERM, SIG_DFL);
 		setpgid(0, 0);
-		if (chdir(WorkingDirectory.c_str()) != 0 || dup2(STDERR_FILENO, STDOUT_FILENO) < 0)
+		if (chdir(WorkingDirectory.c_str()) != 0 || !Output.RedirectInChild())
 		{
 			_exit(126);
 		}

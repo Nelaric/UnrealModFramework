@@ -28,10 +28,10 @@ Json NativeBuild::BuildNativeLibraries(const SdkRequest& Request, const fs::path
 		const fs::path Result = Work / ("library-" + std::to_string(Index) + ".json");
 		const int Code = ToolProcess::RunTool(
 		    Request.Mbt,
-		    {"build-host", "--context", Mod::BuildTool::Path::PathToUtf8(Job.Context), "--generated-manifest",
-		     Mod::BuildTool::Path::PathToUtf8(Job.Manifest), "--expected-input",
-		     JsonDocument::Text(Job.Plan, "inputFingerprint"), "--output", Mod::BuildTool::Path::PathToUtf8(Result)},
-		    Request.Project.parent_path(), Request.Document.value("timeoutSeconds", 1800u));
+		    {"build-planned-host", "--context", Mod::BuildTool::Path::PathToUtf8(Job.Context), "--generated-manifest",
+		     Mod::BuildTool::Path::PathToUtf8(Job.Manifest), "--input-fingerprint",
+		     JsonDocument::Text(Job.Plan, "inputFingerprint")},
+		    Request.Project.parent_path(), Request.Document.value("timeoutSeconds", 1800u), Result);
 		if (Code != 0)
 		{
 			throw std::runtime_error("MBT library build failed: " + Mod::BuildTool::Path::PathToUtf8(Job.Context));

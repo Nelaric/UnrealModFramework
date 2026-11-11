@@ -30,8 +30,7 @@ ClangLibrary::ClangLibrary(const fs::path& Path)
 #endif
 	if (!Handle)
 	{
-		throw std::runtime_error(
-		    "Cannot load libclang. Supply --libclang <library> for the locked analysis toolchain.");
+		throw std::runtime_error("Cannot load libclang. Configure libclang for the locked analysis toolchain.");
 	}
 	const auto Find = [this](const char* Name)
 	{

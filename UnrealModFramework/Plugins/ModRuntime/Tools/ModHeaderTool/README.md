@@ -116,9 +116,13 @@ projection hashes. ExportId uniqueness is checked per library owner. Host table
 queries, client connection functions, and release functions are also required.
 The host registration anchor retains the ABI object for final linking.
 
-The UHT adapter supplies both actual contexts through `--host-contexts` and runs
-MBT for both libraries. Standalone `generate` requires a matching context set for every host module
-and the standalone client before it can publish a Complete manifest.
+The UHT adapter runs `generate <GenerationRequest.json>` with a
+`UMF.ModHeaderGenerationRequest` v1 document. It requires `buildInput`,
+`outputDirectory`, and `hostContexts`. The matching context set covers every
+host module and the standalone client. The request can also carry
+`metadataOptions`, `libclang`, and `lifecycleSource` paths for the current target.
+Relative paths resolve from the request directory. UHT then runs MBT for the
+declared libraries.
 
 MDT consumes `.sdkcontract.json`, the Host and Client contexts, and the same v3
 generated manifest. It keeps the existing object getter and float method

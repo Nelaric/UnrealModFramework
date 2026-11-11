@@ -2,6 +2,7 @@
 #include "SourceErrorAnalyzer.h"
 
 #include "Common/Errors/ErrorCodes.h"
+#include "Common/Files/File.h"
 #include "Common/Process/Process.h"
 #include "Common/Process/ProcessEnvironment.h"
 #include "ModHeaderTool/src/Analysis/SourceReport.h"
@@ -53,7 +54,7 @@ void SourceErrorAnalyzer::AnalyzeSourceErrors(GenerationModel& Model, const fs::
 		return;
 	}
 	const auto Tool = SourceToolInvocation::ResolveSourceTool(SourceTool);
-	const auto Common = SourceToolInvocation::SourceArguments(Model, AnalysisDatabase, ClangLibrary);
+	auto Request = SourceToolInvocation::SourceRequest(Model, AnalysisDatabase, ClangLibrary);
 	const auto Environment = Mod::BuildTool::ProcessEnvironment::CaptureEnvironment();
 	Model.Dependencies.insert(Tool);
 	Model.Dependencies.insert(fs::canonical(ClangLibrary));
@@ -65,9 +66,10 @@ void SourceErrorAnalyzer::AnalyzeSourceErrors(GenerationModel& Model, const fs::
 			continue;
 		}
 		const SourceReport Report;
-		auto Arguments = Common;
-		Arguments.insert(Arguments.end(), {"--member", API.Id, "--output", Path::PathToUtf8(Report.File)});
-		const int Exit = Mod::BuildTool::Process::RunProcess(Tool, Arguments, Model.Input.Project.Root, Environment);
+		Request["member"] = API.Id;
+		Mod::BuildTool::File::WriteFileAtomically(Report.Request, Request.dump(2) + "\n");
+		const int Exit = Mod::BuildTool::Process::RunProcess(Tool, {"analyze-errors", Path::PathToUtf8(Report.Request)},
+		                                                     Model.Input.Project.Root, Environment, Report.File);
 		if (Exit != 0)
 		{
 			throw std::runtime_error("ModSourceTool failed for " + API.Id + " (exit code " + std::to_string(Exit) +

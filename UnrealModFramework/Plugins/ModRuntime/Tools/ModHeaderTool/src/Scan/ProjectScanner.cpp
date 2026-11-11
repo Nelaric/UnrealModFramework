@@ -26,9 +26,10 @@ ProjectScanner::ProjectScanner(const fs::path& Input, const fs::path& OptionsFil
 {
 	Result.Project = ProjectReader::LoadProject(Input);
 	Result.SourceFiles = ProjectSources::CollectSourceFiles(Result.Project);
-	CatalogPath = OptionsFile.empty() ? Result.Project.Root / Mod::ExportMetadata::Schema::SnapshotPath
-	                                  : fs::absolute(OptionsFile);
-	if (!OptionsFile.empty())
+	const bool bHasSnapshot = fs::is_regular_file(OptionsFile);
+	CatalogPath =
+	    bHasSnapshot ? fs::absolute(OptionsFile) : Result.Project.Root / Mod::ExportMetadata::Schema::SnapshotPath;
+	if (bHasSnapshot)
 	{
 		LoadOptions();
 	}

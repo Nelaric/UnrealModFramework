@@ -12,5 +12,6 @@ SourceReport::~SourceReport()
 {
 	std::error_code Ignored;
 	fs::remove(File, Ignored);
+	fs::remove(Request, Ignored);
 }
 } // namespace Mod::HeaderTool

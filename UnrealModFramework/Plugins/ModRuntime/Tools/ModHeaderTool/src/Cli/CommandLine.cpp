@@ -1,80 +1,55 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "CommandLine.h"
 
+#include "ModHeaderTool/src/Cli/OptionsCheck.h"
+#include "ModHeaderTool/src/Cli/ScanCommand.h"
 #include "ModHeaderTool/src/Files/Path.h"
+#include "ModHeaderTool/src/Generation/Generation.h"
 
-#include <cstddef>
-#include <filesystem>
-#include <map>
+#include <algorithm>
+#include <iostream>
 #include <ostream>
-#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace Mod::HeaderTool
 {
-namespace fs = std::filesystem;
-
-CommandLineOptions CommandLine::ParseArguments(const std::vector<std::string>& Arguments)
+int CommandLine::RunCommandLine(const std::vector<std::string>& Arguments)
 {
-	CommandLineOptions Result;
-	std::map<std::string, fs::path*> Paths{{"--project", &Result.Project},
-	                                       {"--output", &Result.Output},
-	                                       {"--options", &Result.Options},
-	                                       {"--build-input", &Result.BuildInput},
-	                                       {"--output-dir", &Result.OutputDirectory},
-	                                       {"--libclang", &Result.ClangLibrary},
-	                                       {"--host-contexts", &Result.HostContexts},
-	                                       {"--lifecycle-source", &Result.LifecycleSource}};
-	std::set<std::string> Supplied;
-	Result.bGenerate = Arguments.size() > 1 && Arguments[1] == "generate";
-	Result.bCheckOptions = Arguments.size() > 1 && Arguments[1] == "check-options";
-	std::size_t Index =
-	    Arguments.size() > 1 && (Arguments[1] == "scan" || Result.bGenerate || Result.bCheckOptions) ? 2 : 1;
-	for (; Index < Arguments.size(); ++Index)
+	const auto IsHelp = [](const std::string& Argument) { return Argument == "--help" || Argument == "-h"; };
+	if (Arguments.size() <= 1 || (Arguments.size() == 2 && IsHelp(Arguments[1])))
 	{
-		const std::string& Argument = Arguments[Index];
-		if (Argument == "--help" || Argument == "-h")
-		{
-			Result.bHelp = true;
-		}
-		else if (Paths.contains(Argument))
-		{
-			if (!Supplied.insert(Argument).second || Index + 1 == Arguments.size() || Arguments[Index + 1].empty() ||
-			    Arguments[Index + 1].starts_with("--"))
-			{
-				throw std::runtime_error(Argument + " requires exactly one path argument.");
-			}
-			*Paths.at(Argument) = Path::PathFromUtf8(Arguments[++Index]);
-		}
-		else
-		{
-			throw std::runtime_error("Unknown argument '" + Argument + "'. Use --help for usage.");
-		}
+		PrintHelp(std::cout);
+		return std::cout ? 0 : 1;
 	}
-	if (!Result.bHelp)
+	const auto& Command = Arguments[1];
+	const bool bScan = Command == "scan";
+	const bool bCheckOptions = Command == "check-options";
+	const bool bGenerate = Command == "generate";
+	if (!bScan && !bCheckOptions && !bGenerate)
 	{
-		if (Result.bCheckOptions && Supplied.contains("--output"))
-		{
-			throw std::runtime_error("check-options does not write an output file.");
-		}
-		if (Result.bGenerate &&
-		    (Result.BuildInput.empty() || Result.OutputDirectory.empty() || Result.HostContexts.empty() ||
-		     Supplied.contains("--project") || Supplied.contains("--output")))
-		{
-			throw std::runtime_error("generate requires --build-input, --output-dir and --host-contexts. The project "
-			                         "comes from the build input.");
-		}
-		if (!Result.bGenerate &&
-		    (!Result.BuildInput.empty() || !Result.OutputDirectory.empty() || !Result.ClangLibrary.empty() ||
-		     !Result.HostContexts.empty() || !Result.LifecycleSource.empty()))
-		{
-			throw std::runtime_error(
-			    "--build-input, --output-dir, --libclang, --host-contexts and --lifecycle-source require generate.");
-		}
+		throw std::runtime_error("Unknown command '" + Command + "'. Use --help for usage.");
 	}
-	return Result;
+	if (Arguments.size() == 3 && IsHelp(Arguments[2]))
+	{
+		PrintHelp(std::cout);
+		return std::cout ? 0 : 1;
+	}
+	if (Arguments.size() != (bGenerate ? 3u : 4u) ||
+	    std::any_of(Arguments.begin() + 2, Arguments.end(),
+	                [](const std::string& Argument) { return Argument.empty() || Argument.starts_with("--"); }))
+	{
+		throw std::runtime_error("Invalid arguments for '" + Command + "'. Use --help for usage.");
+	}
+	if (bGenerate)
+	{
+		Generation::Generate(Path::PathFromUtf8(Arguments[2]));
+		return 0;
+	}
+	const auto Project = Path::PathFromUtf8(Arguments[2]);
+	const auto Snapshot = Path::PathFromUtf8(Arguments[3]);
+	return bScan ? ScanCommand::RunScan(Project, Snapshot) : OptionsCheck::CheckOptions(Project, Snapshot);
 }
 
 void CommandLine::PrintHelp(std::ostream& Output)
@@ -82,33 +57,32 @@ void CommandLine::PrintHelp(std::ostream& Output)
 	Output << R"(ModHeaderTool - scan Mod export declarations
 
 Usage:
-  ModHeaderTool [scan] [--project <file.uproject|directory>] [--output <file.json>]
-                      [--options <metadata-options.json>]
-  ModHeaderTool generate --build-input <target.json> --output-dir <directory>
-                         [--options <metadata-options.json>] [--libclang <library>]
-                         --host-contexts <contexts.json> [--lifecycle-source <directory>]
-  ModHeaderTool check-options [--project <file.uproject|directory>] [--options <metadata-options.json>]
+  ModHeaderTool scan <file.uproject|directory> <metadata-options.json>
+  ModHeaderTool generate <GenerationRequest.json>
+  ModHeaderTool check-options <file.uproject|directory> <metadata-options.json>
+  ModHeaderTool --help
 
 generate resolves active API markers with libclang and an actual compilation
 database. The build input pins modules, translation units, stable type identities,
 Target context and analysis arguments. It emits SDK views, concrete host bridges,
 compile verification, a contract and a complete manifest at fixed output paths.
 Implementation .cpp files are compiled independently by MBT, never by UBT.
---host-contexts pins each owner's actual MBT producer context in the manifest.
---lifecycle-source exports the host's lifecycle declarations for SDK generation.
+The UHT generation request supplies the build input, output directory, and
+host context set. It also carries the resolved metadata snapshot, libclang,
+and lifecycle source paths for the current target.
 The backend supports public UObject instance methods on GameThread, scalar
 and UObject pointer inputs, and scalar/void or World-scoped UObject pointer returns.
 FullView selects parameter classes for public instance method generation.
 Object returns use the explicitly selected ErrorIfNull projection. Other forms,
 Event and Hook generation are rejected. No Blueprint assets are processed.
 
-The project defaults to the current directory, which must contain one .uproject.
+When a project directory is supplied, it must contain exactly one .uproject.
 Scans Plugins, Source, and Directories from the optional <project>.modexpot JSON.
 Relative configured directories resolve from the project directory.
-Outputs JSON to stdout unless --output is supplied.
+scan writes its JSON report to stdout.
 Macro parameters are parsed and validated against the shared metadata schema.
 Choices come from the UE ModExportOptions commandlet, not Blueprint assets.
-The default catalog is <project>/Intermediate/ModTools/ModHeaderTool/MetadataOptions.json.
+UHT stores its default snapshot at Intermediate/ModTools/ModHeaderTool/MetadataOptions.json.
 Invalid metadata or stale catalogs produce "file"(line,column) diagnostics and
 return 1 without writing a scan report.
 

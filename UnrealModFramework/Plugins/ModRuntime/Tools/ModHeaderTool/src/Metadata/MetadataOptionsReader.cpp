@@ -29,7 +29,7 @@ MetadataOptions MetadataOptionsReader::LoadMetadataOptions(const Project& Projec
 	{
 		throw MetadataOptionsRefreshRequired(
 		    "Metadata option catalog not found: " + DiagnosticLocation::QuoteDiagnosticPath(File),
-		    ". Run UnrealEditor-Cmd <project> -run=ModExportOptions, or pass --options <catalog.json>.");
+		    ". Run UnrealEditor-Cmd <project> -run=ModExportOptions to create a current snapshot.");
 	}
 	const Json Document = Json::parse(TextFile::ReadTextFile(File));
 	const int Version = Document.is_object() ? Document.value("SchemaVersion", 0) : -1;
