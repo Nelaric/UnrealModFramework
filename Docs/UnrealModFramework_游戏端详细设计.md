@@ -8,7 +8,7 @@
 
 本方案规定游戏工程中的 ModRuntime 源码插件、游戏接入编辑器、契约和 SDK 生成、运行时宿主及验收标准。游戏安装源码插件后，通过 C++ 或蓝图公开契约，在实际业务中接入扩展点；构建时确定全部类型投影、转换规则和类型化调用连接，冻结契约并发布 SDK；正式游戏在进入 Gameplay 前完成资源准备、实例解析和扩展链构建。
 
-C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBuildTool（MBT）根据清单独立编译宿主实现并创建静态库；UBT 继续调度 UE 目标的 UHT、模块自身代码编译及最终链接。蓝图导出属于 ExportCodeGenerator 编辑器模块，后续 SDK 与开发者插件构建由 MST 编排。MHT 与 MBT 通过版本化的 Generated Artifact Manifest 交接，不共享第二套类型解析或转换规则实现。
+C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBuildTool（MBT）根据清单独立编译宿主实现并创建静态库；UBT 继续调度 UE 目标的 UHT、模块自身代码编译及最终链接。蓝图导出属于 ExportCodeGenerator 编辑器模块，后续 SDK 与开发者插件构建由 ModSDKTool（MDT）编排。MHT 与 MBT 通过版本化的 Generated Artifact Manifest 交接，不共享第二套类型解析或转换规则实现。
 
 当前仓库已有 MHT 的 C++ 扫描、参数校验和首个同步 UObject API 生成后端，支持标量参数、标量/void/World 对象返回、受限视图、宿主连接、编译验证及生成清单。宿主与视图实现是独立 `.cpp`，清单显式列出 `compilationUnits`；C# UHT Exporter 依次调用 MHT 和 MBT，已验证 UE 5.6 Win64 MSVC 的 Development Editor/Game 构建。任意类型闭包、完整 Event/Hook、通用 UBT 动作图、可信最终链接记录及跨平台自动接入仍需后续实现。当前 MHT 不扫描或校验蓝图资产。本文其余目标能力以锁定构建组合的实际验收为准。
 
@@ -107,7 +107,7 @@ C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBu
 | BlueprintIntegration | Source/Editor/BlueprintIntegration | Editor；面板、图、K2 节点和编译扩展 |
 | ModHeaderTool（MHT） | Plugins/ModRuntime/Tools/ModHeaderTool | 独立 C++ 工具；通过 C# UHT Exporter 适配器接入，拥有类型、投影和生成语义 |
 | ModBuildTool（MBT） | Plugins/ModRuntime/Tools/ModBuildTool | 独立 CMake/C++ 工具；从原生 UBT 步骤取得上下文，管理构建输入、产物与发布 |
-| ModSDKTool（MST） | Plugins/ModRuntime/Tools/ModSDKTool | 独立 CMake/C++20 工具；当前为 SDK 工程骨架，具体操作待实现 |
+| ModSDKTool（MDT） | Plugins/ModRuntime/Tools/ModSDKTool | 独立 CMake/C++20 工具；当前为 SDK 工程骨架，具体操作待实现 |
 | GameModSDK | 游戏公共插件或模块 | Runtime；受限视图、公共投影、蓝图具体反射类型和调用桥声明 |
 | GameModSDKEditor | 游戏 SDK 插件的 Editor 模块 | Editor；具体节点、显示与注册适配，消费 GameModSDK 和通用制作工具 |
 | 真实类型所属模块 | 游戏现有 Source 或项目插件模块 | Runtime；编译该模块拥有类型的生成访问桥、参数转换和实际业务调用 |
@@ -248,7 +248,7 @@ C++ 导出采用声明前标记，指向真实游戏成员并提供导出范围�
 ```cpp
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
-#include "ModExportAnnotations.h"
+#include "ModExportMacros.h"
 #include "MyCharacter.generated.h"
 
 MOD_EXPORT_CLASS(TypeId = "game.character")
@@ -684,7 +684,7 @@ RunUAT.bat BuildPlugin -Plugin="<plugin.uplugin>" -Package="<package-directory>"
 
 消费者先从实际所属二进制取得查询入口，以版本、表大小和 ABI 哈希查询函数表，再调用客户端 Connect。宿主批准 Caller、作用域和权限后，使用 `FNativeAccess::Open` 签发 context/scope token 并交付；Getter 返回 object token，成员调用接收 context/object 和定宽参数。API 入口重新验证线程、类型、权限和生命周期；撤销 Caller 或关闭作用域使旧 token 失效。模块卸载前 Disconnect 并等待调用结束；连接表按模块共享，调用身份按 context 隔离。
 
-宿主四个单元与客户端单元均由 MBT 编译。清单 `requiredSymbols` 关联两类入口与相同 ExportId、签名及投影哈希，按所属模块检查唯一性。只有纯 C ABI 头是 `SdkHeader`；内部 UE 视图头是私有 `HostHeader`。MST 消费匹配的 `.sdkcontract.json`，现有适配器支持 LocalPlayerSubsystem Getter 与 float 实例方法的调用图；超出适配形状时 SDK 契约明确标记 Unsupported，原生 ABI 仍按已支持的 MHT 签名生成。装载器的自动连接、运行中 token 交付与可信最终链接回执仍需后续接入。
+宿主四个单元与客户端单元均由 MBT 编译。清单 `requiredSymbols` 关联两类入口与相同 ExportId、签名及投影哈希，按所属模块检查唯一性。只有纯 C ABI 头是 `SdkHeader`；内部 UE 视图头是私有 `HostHeader`。MDT 消费匹配的 `.sdkcontract.json`，现有适配器支持 LocalPlayerSubsystem Getter 与 float 实例方法的调用图；超出适配形状时 SDK 契约明确标记 Unsupported，原生 ABI 仍按已支持的 MHT 签名生成。装载器的自动连接、运行中 token 交付与可信最终链接回执仍需后续接入。
 
 各清单分别承担不同作用：构建输入清单由 MBT 记录真实 Target 与依赖，生成清单由 MHT 记录本批生成内容，目标产物记录与 `MyGameModSDK.manifest.json` 由 MBT 关联原生构建及最终交付。未知 Schema、缺文件、内容哈希不符、Bootstrap 批次或目标身份不兼容时，MBT 拒绝完整发布并输出具体差异，不自行修复生成代码。
 

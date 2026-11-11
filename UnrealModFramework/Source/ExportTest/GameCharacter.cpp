@@ -44,6 +44,30 @@ bool AGameCharacter::SetMesh(USkeletalMesh* NewMesh)
 		}
 	}
 
-	MeshComponent->SetSkeletalMeshAsset(NewMesh);
+	if (MeshComponent->GetSkeletalMeshAsset() != NewMesh)
+	{
+		if (!bHasOriginalMesh)
+		{
+			OriginalMesh = MeshComponent->GetSkeletalMeshAsset();
+			bHasOriginalMesh = true;
+		}
+		MeshComponent->SetSkeletalMeshAsset(NewMesh);
+	}
+	return true;
+}
+
+bool AGameCharacter::RestoreMesh()
+{
+	if (!IsInGameThread() || !IsValid(GetMesh()))
+	{
+		return false;
+	}
+
+	if (bHasOriginalMesh)
+	{
+		GetMesh()->SetSkeletalMeshAsset(OriginalMesh);
+		OriginalMesh = nullptr;
+		bHasOriginalMesh = false;
+	}
 	return true;
 }
