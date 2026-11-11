@@ -10,7 +10,7 @@ C# 启动独立的 MHT、MBT 进程，传递真实编译配方、登记依赖与
 
 ## 工具发现与默认调用
 
-先构建原生工具，查找优先级为：
+调用了 `ExportMetadata.ConfigureTarget(this)` 的 Win64 x64、Linux 和 macOS Target 会在正常构建中先编译 ModHeaderTool、ModBuildTool 和 ModSourceTool，再启动 UHT。直接调用 UHT 时，先运行原生工具构建脚本。UHT 按以下顺序查找 MHT。
 
 1. 环境变量 `UMF_MHT_EXECUTABLE`。
 2. 项目可选配置 `Config/ModHeaderTool.json` 中的 `executable`。
@@ -73,7 +73,9 @@ MHT 在公共头中声明签名和常量，在显式 `.cpp` 编译单元中生�
 
 原生产物发布后，适配器刷新库、回执和生成文件的 UE `FileItem` 缓存。Internal UHT 与 UBT 共享这份缓存；刷新后当前构建才能识别新库并立即重新链接。
 
-Target 规则调用一次 `ExportMetadata.ConfigureTarget(this)`。UE 5.6 的 PreBuildSteps 检查目录清单和此前缺失的可选输入，有变化时更新 UHT 依赖标记。PostBuildSteps 调用 MBT 做链接核对。MBT 核对 UBT 目标回执、模块归属和最终 DLL 或 EXE 中对应归档的 PE 见证符号，在宿主库旁发布 `<owner>.lib.link.json` 和 `<owner>.lib.linked.json`。独立客户端库有自己的构建回执。
+Target 规则调用一次 `ExportMetadata.ConfigureTarget(this)`。构建脚本存在时，UBT 在 Windows 执行 `Tools/Build.bat --target ModRuntimeUhtTools`，在 Linux 和 macOS 执行 `sh Tools/Build.sh --target ModRuntimeUhtTools`。脚本复用 `Tools/build/.cmake` 增量构建 Release 工具。脚本失败时，UBT 在启动 UHT 前结束构建。Linux 和 macOS 使用 GNU `g++`，macOS 通过 `CXX` 指定已安装的 GNU C++ 编译器。精简的 Unix 工程副本在缺少工作区 CMake 查找器和 CMake 可执行文件时，仍可继续构建 UE 目标。
+
+Win64 x64 的后续预构建步骤会调用 MBT 检查目录清单和此前缺失的可选输入，有变化时更新 UHT 依赖标记。PostBuildSteps 调用 MBT 做链接核对。MBT 核对 UBT 目标回执、模块归属和最终 DLL 或 EXE 中对应归档的 PE 见证符号，在宿主库旁发布 `<owner>.lib.link.json` 和 `<owner>.lib.linked.json`。独立客户端库有自己的构建回执。
 
 ## 构建语义与范围
 
@@ -81,7 +83,7 @@ Target 规则调用一次 `ExportMetadata.ConfigureTarget(this)`。UE 5.6 的 Pr
 
 UHT 的 NoOutput、reference、引导及 `-Mode=GenerateClangDatabase` 调用会跳过原生生成。正常构建在准备完成后运行 MHT。`-FailIfGeneratedCodeChanges` 下拒绝完整生成，因为 MHT 尚无等价 dry-run 协议；scan 的最终报告仍由 UHT 实施变更检查。
 
-已有工具、配置、选项快照及其配置输入、反射头、编译输入、native manifest 输入、编译配方、库、回执及其 `compilerDependencies` 通过 `AddExternalDependency` 登记。已登记的文件或目录依赖标记发生变化时，UHT 会重新生成对应变体。原生工具和 LLVM 就绪后，正常 Win64 Build 可为干净检出的开发工程准备输入。自动链接核对覆盖标准 Win64 x64 工程 DLL 和 monolithic EXE。Live Coding 与 Hot Reload 需要单独接入。
+已有工具、配置、选项快照及其配置输入、反射头、编译输入、native manifest 输入、编译配方、库、回执及其 `compilerDependencies` 通过 `AddExternalDependency` 登记。已登记的文件或目录依赖标记发生变化时，UHT 会重新生成对应变体。MSVC、Windows SDK 和 LLVM 就绪后，正常 Win64 构建可为干净检出的开发工程准备输入。自动链接核对覆盖标准 Win64 x64 工程 DLL 和 monolithic EXE。Live Coding 与 Hot Reload 需要单独接入。
 
 UBT 自动生成带有 EngineDir 的邻接 `.ubtplugin.csproj.props`，已加入 Git 忽略。手工编译适配程序集可运行：
 
