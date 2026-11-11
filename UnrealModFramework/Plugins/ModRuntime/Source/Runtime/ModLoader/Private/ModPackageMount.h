@@ -23,7 +23,8 @@ struct FMountedResources
 void InitializePIEPakPlatform();
 #endif
 bool CheckBackend(EBackend Backend, bool bPIE, FLoadResult& Result);
-bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMountedResources& Resources);
+bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMountedResources& Resources,
+                   TFunctionRef<bool()> LoadCode);
 bool ReleaseModPackages(TConstArrayView<FName> PackageNames, FString& Reason);
 bool UnmountPackage(const FMountedPackage& Package, const FMountedResources& Resources);
 } // namespace Mod::Loader::Private

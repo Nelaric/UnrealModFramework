@@ -14,9 +14,14 @@ class UModPackagingSettings : public UDeveloperSettings
 	GENERATED_BODY()
 
 public:
+	/// Packages the Runtime modules and content of the open project.
+	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (DisplayName = "打包当前工程"))
+	bool bPackageProject = false;
+
 	/// Selected content plugin.
 	UPROPERTY(Config, EditAnywhere, Category = "Mod",
-	          meta = (DisplayName = "Mod 内容插件", GetOptions = "GetModPluginNames"))
+	          meta = (DisplayName = "Mod 内容插件", GetOptions = "GetModPluginNames",
+	                  EditCondition = "!bPackageProject"))
 	FString PluginName;
 
 	/// Published mod version.
@@ -40,6 +45,17 @@ public:
 	    meta = (DisplayName = "基础发布目录",
 	            ToolTip = "包含 <版本>/<Cook 平台>/AssetRegistry.bin 的 Releases 根目录；留空使用项目 Releases 目录。"))
 	FDirectoryPath BaseReleaseDirectory;
+
+	/// UBT receipt from the modular host build.
+	UPROPERTY(Config, EditAnywhere, Category = "Release",
+	          meta = (DisplayName = "宿主 Target 回执", FilePathFilter = "target", EditCondition = "bPackageProject"))
+	FFilePath HostTargetReceipt;
+
+	/// Host Engine directory, defaulting to the current Editor engine.
+	UPROPERTY(Config, EditAnywhere, Category = "Release",
+	          meta = (DisplayName = "宿主 Engine 目录", EditCondition = "bPackageProject",
+	                  ToolTip = "选择包含 Binaries、Build 和 Source 的 Engine 目录。留空使用当前编辑器的 Engine。"))
+	FDirectoryPath HostEngineDirectory;
 
 	/// Target UAT platform.
 	UPROPERTY(Config, EditAnywhere, Category = "Packaging",

@@ -21,9 +21,6 @@ ATestModPreviewPawn::ATestModPreviewPawn()
 	PreviewMesh->SetupAttachment(GetRootComponent());
 	PreviewMesh->SetRelativeLocation(FVector(0.0, 0.0, -88.0));
 	PreviewMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	static ConstructorHelpers::FObjectFinder<USkeletalMesh> Quinn(
-	    TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple"));
-	PreviewMesh->SetSkeletalMeshAsset(Quinn.Object);
 
 	UCameraComponent* Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("PreviewCamera"));
 	Camera->SetupAttachment(GetRootComponent());
@@ -38,8 +35,14 @@ ATestModPreviewPawn::ATestModPreviewPawn()
 	Light->SetIntensity(6000.0f);
 	Light->SetAttenuationRadius(800.0f);
 
-	static ConstructorHelpers::FClassFinder<UTestModInstance> Blueprint(TEXT("/Game/BP_CallbackProbe"));
-	CallbackClass = Blueprint.Class;
+	if (UTestModInstance::HasStandalonePreviewContent())
+	{
+		static ConstructorHelpers::FObjectFinder<USkeletalMesh> Quinn(
+		    TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple"));
+		PreviewMesh->SetSkeletalMeshAsset(Quinn.Object);
+		static ConstructorHelpers::FClassFinder<UTestModInstance> Blueprint(TEXT("/Game/BP_CallbackProbe"));
+		CallbackClass = Blueprint.Class;
+	}
 }
 
 void ATestModPreviewPawn::PawnClientRestart()

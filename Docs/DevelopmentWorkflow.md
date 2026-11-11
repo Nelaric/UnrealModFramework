@@ -32,7 +32,7 @@ Both the push configuration and trusted PR configuration build `UnrealModFramewo
 | `build_game_linux` | Compile `UnrealModFrameworkDev` and its enabled runtime modules. |
 | `build_editor_linux` | Compile `UnrealModFrameworkDevEditor` and its supported editor modules, then build and verify the independent `ModDevelopmentSDKEditor` plugin with `ModSDKTool build-editor`. |
 
-The jobs use separate writable staging directories and run the UE containers without network access after pulling the private engine image. Automatic host generation currently requires Win64 x64 MSVC. See the [host generation workflow](../README.md#mht-api-source-generation) for tool and input preparation.
+The jobs use separate writable staging directories and run the UE containers without network access after pulling the private engine image. Automatic host generation currently requires Win64 x64 MSVC. See the [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md) for tool and input preparation.
 
 There is no Server target. These jobs validate compilation and plugin packaging; they do not publish downloadable packages or run Unreal automation tests. Coverage of other platforms and newer supported engine releases remains a build coverage gap.
 

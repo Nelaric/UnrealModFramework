@@ -389,7 +389,8 @@ bool CheckBackend(EBackend Backend, bool bPIE, FLoadResult& Result)
 	return true;
 }
 
-bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMountedResources& Resources)
+bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMountedResources& Resources,
+                   TFunctionRef<bool()> LoadCode)
 {
 	if (FPackageName::MountPointExists(Result.Package.PackageRoot))
 	{
@@ -437,7 +438,7 @@ bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMounte
 	FPackageName::RegisterMountPoint(Result.Package.PackageRoot, ContentDirectory);
 	ON_SCOPE_EXIT
 	{
-		if (!bCommitted)
+		if (!bCommitted && Result.Error != ELoadError::RestartRequired)
 		{
 			if (bShaderOpened)
 			{
@@ -488,8 +489,17 @@ bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMounte
 			return Fail(Result, ELoadError::MountFailed, TEXT("The mod's cooked shader library could not be opened."));
 		}
 	}
-	if (!VerifyMountedPackages(Plan, Result) || !LoadRegistry(Plan, Result))
+	if (!VerifyMountedPackages(Plan, Result) || !LoadCode())
 	{
+		return false;
+	}
+	if (!LoadRegistry(Plan, Result))
+	{
+		if (!Package.NativeCode.Modules.IsEmpty())
+		{
+			return Fail(Result, ELoadError::RestartRequired,
+			            TEXT("A native module is resident, but its asset registry could not be published."));
+		}
 		return false;
 	}
 	Result.Package.PackageNames = Plan.Packages.Array();

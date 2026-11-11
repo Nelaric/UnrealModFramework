@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Nelaric Contributors
+# SHA-256 hashes for the portable archives published by Kitware.
+# https://github.com/Kitware/CMake/releases/tag/v4.4.5
+version 4.4.5
+windows-x86_64 326c826486d46a23cf9d5a1c9ee3a567d427bdd02c4a34071937a2a675cff004
+windows-arm64 b0b54ebdd3e7b9f5ad733d865541d6e0a3b774182e4318b26890221432835359
+windows-i386 2a1e1af6cf31dcc267b8a8c9a05bc543aef29f305d6eb3f9d13dd4f9fcf4c1f2
+linux-x86_64 ed85135c5a5135b45e50423cb406dea04ca3338da0b8ef3c9ede963559680be0
+linux-aarch64 301d5063ab259577c1b57ce5490b1aab9ea5c56dc4c822f73499553dab94925f
+macos-universal 679e77a96b9ef9484cc6c1445255fc4f84206b48a65420efbedf16bdab55fbff

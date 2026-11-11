@@ -37,6 +37,9 @@ protected:
 private:
 	friend class ATestModPreviewPawn;
 
+	static bool HasStandalonePreviewContent();
+	static FString ContentPath(const TCHAR* RelativePath);
+
 	UPROPERTY()
-	TObjectPtr<USkeletalMesh> ReplacementMesh;
+	TObjectPtr<USkeletalMesh> PreviewReplacementMesh;
 };
