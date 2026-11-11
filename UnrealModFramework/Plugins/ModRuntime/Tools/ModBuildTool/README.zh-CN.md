@@ -6,7 +6,7 @@
 
 MBT 独立编译 MHT 或 ExportCodeGenerator 已生成的宿主连接代码，为一个所属模块产出原生静态库。游戏构建随后将该库链接到所属二进制；MHT 源文件不进入 UBT 的 C++ 编译列表。开发者的目标用法仍是导出宏与原函数声明。
 
-当前实现包含库构建、多符号校验、供 MST 消费的公共产物清单，以及宿主库与成功链接记录的关联核对。[UHT 适配层](../../Source/ModRuntimeUht/README.zh-CN.md) 已为示例 UE 5.6 Win64 MSVC 目标调用 MHT 生成和 MBT 独立编译，私有 External 模块规则将库链接到所属模块。UE 5.6 的 PostBuildSteps 核对宿主库与实际链接产物并发布链接回执。现有 MHT `scan` 报告不能作为 MBT 输入。`Built` 表示宿主库构建完成，`Linked` 表示与可信链接记录及实际二进制的关联核对通过，均不证明游戏运行时行为。
+当前实现包含库构建、多符号校验、供 ModSDKTool（MDT）消费的公共产物清单，以及宿主库与成功链接记录的关联核对。[UHT 适配层](../../Source/ModRuntimeUht/README.zh-CN.md) 已为示例 UE 5.6 Win64 MSVC 目标调用 MHT 生成和 MBT 独立编译，私有 External 模块规则将库链接到所属模块。UE 5.6 的 PostBuildSteps 核对宿主库与实际链接产物并发布链接回执。现有 MHT `scan` 报告不能作为 MBT 输入。`Built` 表示宿主库构建完成，`Linked` 表示与可信链接记录及实际二进制的关联核对通过，均不证明游戏运行时行为。
 
 ## 构建和命令
 
@@ -106,7 +106,7 @@ MBT 检查普通归档容器、对象架构及全部必需符号的索引，缺�
 
 ## 获取角色与增加生命的清单片段
 
-MHT 输出 v3 清单，列出宿主桥、C ABI 入口、校验和 UE 视图实现四个宿主单元，并为 `<game>ModClient` 列出独立客户端单元。上下文锚点分别为 `UMF_ModHost_<owner>` 和 `UMF_ModClient_<game>`。[MHT ABI 协议](../ModHeaderTool/README.zh-CN.md) 给出实际公共头、Host/Client 符号记录及 MST 契约。
+MHT 输出 v3 清单，列出宿主桥、C ABI 入口、校验和 UE 视图实现四个宿主单元，并为 `<game>ModClient` 列出独立客户端单元。上下文锚点分别为 `UMF_ModHost_<owner>` 和 `UMF_ModClient_<game>`。[MHT ABI 协议](../ModHeaderTool/README.zh-CN.md) 给出实际公共头、Host/Client 符号记录及 MDT 契约。
 
 这两个 API 不写死在 MBT 中。下列简化 v3 片段展示 `ExportTest` 的记录方式；实际 MHT 符号名从生成描述中读取，MBT 自动加入上下文的注册锚点：
 
@@ -121,7 +121,7 @@ MHT 输出 v3 清单，列出宿主桥、C ABI 入口、校验和 UE 视图实�
 
 MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，生成 JSON 契约标记为 `Contract`，实现作为私有编译单元。Host/Client 为每个 ExportId 记录匹配的签名和投影哈希；内部 UE 视图头使用私有 `HostHeader` 角色。完整清单仍须列出所有内容哈希与编译单元，以上不是可直接运行的完整输入。
 
-构建结果同时返回两个入口、注册锚点、公共文件清单和 `OwnerBinaryOnly` 链接要求。MST 根据公共清单复制并再次核对文件哈希；MBT 不发布宿主私有源码，也不构建最终开发者插件。
+构建结果同时返回两个入口、注册锚点、公共文件清单和 `OwnerBinaryOnly` 链接要求。MDT 根据公共清单复制并再次核对文件哈希；MBT 不发布宿主私有源码，也不构建最终开发者插件。
 
 ## 最终链接核对
 
@@ -141,7 +141,7 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，生成 JSON 契约�
 
 记录中的路径相对链接记录目录解析。MBT 要求当前宿主构建仍然有效，并检查所属二进制身份、模块归属、宿主库路径及哈希、构建凭证哈希、上下文、批次、锚点保留声明和实际二进制哈希。实际图像再检查 PE/ELF/薄 Mach-O 类型与架构；ELF 区分 PIE 可执行文件与共享库，Mach-O fat 图像暂不支持。检查期间输入变化则拒绝。
 
-成功输出 `UMF.ModHostLinkedArtifacts` / `Linked`，包含公开文件、契约摘要、必需符号、实际二进制及库哈希、宿主构建凭证和链接记录的路径/哈希，供 MST 进一步汇总。记录的真实性和锚点保留事实依赖可信适配器；MBT 不从任意 JSON 或二进制字符串推断链接成功，也不把 `Linked` 当作运行时绑定就绪。
+成功输出 `UMF.ModHostLinkedArtifacts` / `Linked`，包含公开文件、契约摘要、必需符号、实际二进制及库哈希、宿主构建凭证和链接记录的路径/哈希，供 MDT 进一步汇总。记录的真实性和锚点保留事实依赖可信适配器；MBT 不从任意 JSON 或二进制字符串推断链接成功，也不把 `Linked` 当作运行时绑定就绪。
 
 ## UE 5.6 集成
 
@@ -156,7 +156,7 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，生成 JSON 契约�
 5. 在真实所属 `UEBuildBinary` 的私有最终链接环境中加入库和注册锚点的保留要求，不沿通用 Runtime 公共依赖传播。库作为最终链接动作的 `PrerequisiteItems`，形成明确生产依赖。
 6. 每个参与模块预留稳定库路径与动作。无导出时生成空注册单元，首次新增导出和删除最后一项均无需改变动作图结构。变体区分引擎、工具链、Target、配置、平台和架构。
 7. Windows/Linux/Mac 分别实现最终链接的符号保留。不得把宿主静态库标记为导入库，或错误加入仅生成 UE 导入库的动作。模块输出、Clean、receipt 与插件裁剪也要包含宿主产物。
-8. 成功链接完成后导出当前目标的可信链接记录，调用 `finalize-host`。按模块汇总所有必需关联结果后，MST 才能组织完整 SDK 发布。
+8. 成功链接完成后导出当前目标的可信链接记录，调用 `finalize-host`。按模块汇总所有必需关联结果后，MDT 才能组织完整 SDK 发布。
 
 `GenerateHeaderFuncs` 在这份 UE 5.6 的 Makefile 重建路径位于 UHT 后，但缓存路径不会重新执行它，因此不能作为唯一触发点。现有 `.ubtplugin.csproj` 的 UHT Exporter 入口也不等同于完整 UBT 动作扩展。
 

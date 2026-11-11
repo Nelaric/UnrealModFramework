@@ -27,7 +27,7 @@ struct SdkRequest
 	fs::path ContractFile;
 	/// Game project used for identity and editor diagnostics.
 	fs::path Project;
-	/// Versioned bundle directory owned by MST.
+	/// Versioned bundle directory owned by MDT.
 	fs::path Output;
 	/// Native MBT executable, never a shell command.
 	fs::path Mbt;

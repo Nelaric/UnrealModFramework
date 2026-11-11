@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 MBT independently compiles generated host binding sources into one native static archive per owning module. The game build links that archive into the owning binary without adding MHT sources to UBT's C++ compilation list. The intended authoring interface remains an export marker followed by the original function declaration.
 
-This implementation provides archive builds, required-symbol verification, explicit public artifacts for MST, and association with trusted successful final-link records. The [UHT adapter](../../Source/ModRuntimeUht/README.md) now invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets, and private External module rules attach each host archive to its owner. A general UBT action extension and trusted final-link record production remain future work. An MHT `scan` report is not a generated-artifact manifest. `Built` proves archive construction; `Linked` proves the checked association with a trusted record and actual image bytes. Neither proves gameplay behavior.
+This implementation provides archive builds, required-symbol verification, explicit public artifacts for ModSDKTool (MDT), and association with trusted successful final-link records. The [UHT adapter](../../Source/ModRuntimeUht/README.md) now invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets, and private External module rules attach each host archive to its owner. A general UBT action extension and trusted final-link record production remain future work. An MHT `scan` report is not a generated-artifact manifest. `Built` proves archive construction; `Linked` proves the checked association with a trusted record and actual image bytes. Neither proves gameplay behavior.
 
 ## Build and commands
 
@@ -69,7 +69,7 @@ Archive validation checks native objects, target architecture, and every require
 
 ## Two-API producer example
 
-MHT emits a v3 manifest with four host units (bridge, C ABI endpoints, verification, and UE views) plus one independent client unit owned by `<game>ModClient`. The context anchors are `UMF_ModHost_<owner>` and `UMF_ModClient_<game>`. The [MHT ABI protocol](../ModHeaderTool/README.md) supplies the concrete public header, Host/Client symbol records, and MST contract.
+MHT emits a v3 manifest with four host units (bridge, C ABI endpoints, verification, and UE views) plus one independent client unit owned by `<game>ModClient`. The context anchors are `UMF_ModHost_<owner>` and `UMF_ModClient_<game>`. The [MHT ABI protocol](../ModHeaderTool/README.md) supplies the concrete public header, Host/Client symbol records, and MDT contract.
 
 The local-character and add-health APIs are ordinary manifest data, not special MBT behavior. A simplified v3 symbol fragment for `ExportTest` can declare; the actual MHT names are read from its generated descriptor:
 
@@ -82,7 +82,7 @@ The local-character and add-health APIs are ordinary manifest data, not special 
 }
 ```
 
-MBT also requires `UMF_ModHost_ExportTest` from the context. MHT marks `SDK/Public/<game>.modabi.h` as `SdkHeader`, generated JSON contracts as `Contract`, and implementations as private compilation units. Host and Client records associate each ExportId with matching signature/projection hashes; internal UE-view headers have the private `HostHeader` role. This is a fragment; a complete input still needs all hashes and compilation units. MST receives the public file list and verifies hashes again when copying. MBT does not publish private host sources or build the final authoring plugin.
+MBT also requires `UMF_ModHost_ExportTest` from the context. MHT marks `SDK/Public/<game>.modabi.h` as `SdkHeader`, generated JSON contracts as `Contract`, and implementations as private compilation units. Host and Client records associate each ExportId with matching signature/projection hashes; internal UE-view headers have the private `HostHeader` role. This is a fragment; a complete input still needs all hashes and compilation units. MDT receives the public file list and verifies hashes again when copying. MBT does not publish private host sources or build the final authoring plugin.
 
 ## Final-link association
 
@@ -92,7 +92,7 @@ The record requires `UMF.ModHostLinkReceipt` v1, `status: "Succeeded"`, an exact
 
 MBT requires a current host build, exact owning binary identity, correct module membership, matching library/receipt hashes and batch/context identities, anchor retention declaration, actual image hash, and native image kind/architecture. Supported images are PE, ELF, and thin Mach-O; ELF distinguishes PIE executables from shared libraries. Fat Mach-O is unsupported. Input changes during verification fail.
 
-The `UMF.ModHostLinkedArtifacts` / `Linked` output includes public files, contract hashes, required symbols, binary/archive identities, and hashes/paths of both receipts for MST aggregation. Link success and retention are assertions of the trusted adapter: MBT verifies associations and bytes, not JSON authorship or actual runtime registration. It does not infer successful linkage from arbitrary strings in a binary.
+The `UMF.ModHostLinkedArtifacts` / `Linked` output includes public files, contract hashes, required symbols, binary/archive identities, and hashes/paths of both receipts for MDT aggregation. Link success and retention are assertions of the trusted adapter: MBT verifies associations and bytes, not JSON authorship or actual runtime registration. It does not infer successful linkage from arbitrary strings in a binary.
 
 ## UE 5.6 integration
 
@@ -107,6 +107,6 @@ The following broader action-graph integration is still a future contract:
 5. Attach the archive and anchor retention to the real owning binary's private final link environment. Add the archive as a link prerequisite and do not propagate all host libraries through Runtime public dependencies.
 6. Reserve stable per-module archive paths/actions, including generated empty batches. Isolate engine/toolchain, Target, configuration, platform, and architecture variants.
 7. Implement platform-specific symbol retention only on the appropriate final link. Include host products in module outputs, receipts, Clean, and plugin output filtering.
-8. After successful final linkage, export the trusted current-target link record and invoke `finalize-host`. MST aggregates all required module/target associations before publishing a complete SDK.
+8. After successful final linkage, export the trusted current-target link record and invoke `finalize-host`. MDT aggregates all required module/target associations before publishing a complete SDK.
 
 In this UE 5.6 source, `GenerateHeaderFuncs` runs after UHT during Makefile creation but not on Makefile reuse, so it cannot be the sole trigger. UHT exporter `.ubtplugin.csproj` support is not a general action-graph hook. Missing Editor-derived option snapshots require an explicit non-publishable top-level bootstrap before the formal build. Do not recursively build the current Target from a callback. Live Coding, Hot Reload, precompiled distribution, and remote Mac require separate integration.

@@ -4,9 +4,9 @@
 
 # ModSDKTool
 
-MST 将已经解析的导出结果构建为可独立安装的制作 SDK。玩家上下文和对象视图可以调用按签名生成的方法，方法接受标量和公开 UE 对象入参。API ID、公开类型、名称与原生符号来自契约。
+ModSDKTool（MDT）将已经解析的导出结果构建为可独立安装的制作 SDK。玩家上下文和对象视图可以调用按签名生成的方法，方法接受标量和公开 UE 对象入参。API ID、公开类型、名称与原生符号来自契约。
 
-MHT 负责 C++ 分析和投影，ExportCodeGenerator 负责蓝图导出。MST 消费完整结果，调用 MBT 构建库，生成 UE 适配层，通过 AutomationTool 构建插件，最后发布带完整文件哈希的 SDK。MHT 的 scan 报告不能代替完整生成清单。
+MHT 负责 C++ 分析和投影，ExportCodeGenerator 负责蓝图导出。MDT 消费完整结果，调用 MBT 构建库，生成 UE 适配层，通过 AutomationTool 构建插件，最后发布带完整文件哈希的 SDK。MHT 的 scan 报告不能代替完整生成清单。
 
 ## 构建与命令
 
@@ -24,11 +24,11 @@ ModSDKTool inspect --bundle <发布目录>
 
 已发布目录不可变。相同输入核对全部文件后返回 `UpToDate`；输入变化须选择新的版本化输出目录。发布先在同级独占目录中准备并验证，再重命名到原先不存在的目标。失败不会替换已有 SDK。
 
-使用 `ModSDKTool build-editor` 构建独立制作插件。传入插件描述文件、尚不存在的 `--package` 目录、已安装 Editor 的 .NET 宿主、AutomationTool 程序集、模块清单、架构以及 MBT 可执行文件。MST 校验 Editor BuildId 和二进制后，将插件与原生工具一并发布。 [CircleCI 调用方式](../../../../../.circleci/build-editor-plugin.sh)
+使用 `ModSDKTool build-editor` 构建独立制作插件。传入插件描述文件、尚不存在的 `--package` 目录、已安装 Editor 的 .NET 宿主、AutomationTool 程序集、模块清单、架构以及 MBT 可执行文件。MDT 校验 Editor BuildId 和二进制后，将插件与原生工具一并发布。 [CircleCI 调用方式](../../../../../.circleci/build-editor-plugin.sh)
 
 ## 生产者契约
 
-[sdk-contract.schema.json](Protocol/sdk-contract.schema.json) 定义 `UMF.SdkContract` v2。MST 仍可读取使用旧 ABI 字段名的 v1 契约。契约必须为 `Complete`、未解析类型数为零，契约、投影和原生 ABI 的 SHA-256 与库批次一致。契约文件本身须为经过哈希校验的 `Contract` 产物，公开头须为 MBT 返回的 `SdkHeader`。宿主实现、注册、验证和私有头不进入作者 SDK。
+[sdk-contract.schema.json](Protocol/sdk-contract.schema.json) 定义 `UMF.SdkContract` v2。MDT 仍可读取使用旧 ABI 字段名的 v1 契约。契约必须为 `Complete`、未解析类型数为零，契约、投影和原生 ABI 的 SHA-256 与库批次一致。契约文件本身须为经过哈希校验的 `Contract` 产物，公开头须为 MBT 返回的 `SdkHeader`。宿主实现、注册、验证和私有头不进入作者 SDK。
 
 首版 ABI 为 `ContextHandlesV1`，函数名取自 `api.native.symbol`：
 
@@ -43,7 +43,7 @@ uint32_t FloatMethod(uint64_t ModContext, uint64_t Object, float Amount, float* 
 
 生成的 Runtime SDK 包含不透明 `USTRUCT` 引用与 `MinimalAPI` 蓝图函数库。标准 UE 节点通过 `ExpandEnumAsExecs` 展示成功/失败分支，无需额外空 Editor 模块。函数指针 `static_assert` 在 UE 编译时核对 ABI。令牌不开放蓝图编辑，宿主用 `FromNative` 提供上下文。适配层错误为负数，原生状态以非负蓝图 `int64` 错误码保留。
 
-MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 SDK 契约的 `modLifecycle` 中绑定摘要。MBT 验证该产物并完成库编译后，MST 生成 `ModInstance.h` 和 `ModInstanceSubSystem.h`，随后用 UAT 编译作者 SDK 和制作编辑器插件。生成模块保留宿主的 `/Script/ModLoader` 类型路径。游戏会话负责实例化及事件分发。
+MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 SDK 契约的 `modLifecycle` 中绑定摘要。MBT 验证该产物并完成库编译后，MDT 生成 `ModInstance.h` 和 `ModInstanceSubSystem.h`，随后用 UAT 编译作者 SDK 和制作编辑器插件。生成模块保留宿主的 `/Script/ModLoader` 类型路径。游戏会话负责实例化及事件分发。
 
 [sdk-build-request.schema.json](Protocol/sdk-build-request.schema.json) 定义 `UMF.SdkBuildRequest` v1：
 
@@ -67,9 +67,9 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 
 ## 编辑器入口与交付
 
-启用 `ModDevelopmentSDKEditor`，在 **Tools → Mod SDK** 选择 **Plan Mod SDK...** 或 **Build Mod SDK...**，再选请求 JSON。编辑器可使用随插件打包的 MST 或ModRuntime 插件 `Tools/build/ModSDKTool` 中的本地构建，也可手动选择并保存可执行文件路径。日志异步进入 Output Log，结果 JSON 写入 `Intermediate/ModTools/ModSDKTool/Results`。**Cancel Mod SDK task** 终止进程树。
+启用 `ModDevelopmentSDKEditor`，在 **Tools → Mod SDK** 选择 **Plan Mod SDK...** 或 **Build Mod SDK...**，再选请求 JSON。编辑器可使用随插件打包的 MDT 或ModRuntime 插件 `Tools/build/ModSDKTool` 中的本地构建，也可手动选择并保存可执行文件路径。日志异步进入 Output Log，结果 JSON 写入 `Intermediate/ModTools/ModSDKTool/Results`。**Cancel Mod SDK task** 终止进程树。
 
-通用开发插件不依赖游戏 Runtime 模块。发布包在其 `Binaries/ThirdParty/ModSDKTool/<平台>` 中携带 MST、MBT 与许可证说明。
+通用开发插件不依赖游戏 Runtime 模块。发布包在其 `Binaries/ThirdParty/ModSDKTool/<平台>` 中携带 MDT、MBT 与许可证说明。
 
 ```text
 <SDK>/
@@ -85,4 +85,4 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 
 `Built` 表示原生库与作者 Editor 插件实际构建并检查，不代表最终游戏链接、Game Target 的 SDK Runtime 或运行时 API 绑定已验证；结果明确将这些能力记为 false。Cook 后调用要求游戏中有匹配的 SDK Runtime。蓝图导出、可信宿主链接回执和玩家上下文交付仍是上游依赖。公开模块、类型和函数/参数名形成反射身份，兼容发布须保持稳定。
 
-MHT 已生成匹配的 `.sdkcontract.json`、纯 C `.modabi.h`、独立客户端入口和 v3 清单，见 [MHT 连接协议](../ModHeaderTool/README.zh-CN.md)。分别使用 Host 和 `<game>ModClient` 上下文作为库任务；连接描述明确列出宿主查询及客户端 Connect/Disconnect 符号。MST 要求描述文件是经过哈希检查的公共 Contract 产物，核对身份与 API 签名后按声明路径复制到 Bundle 和 SDK 插件；`inspect` 检查两份文件及契约身份。装载器仍需执行连接并交付宿主批准的 token。超出现有 MST 适配形状的 API 图会使 SDK 契约标记 `Unsupported`；内部 UE 视图的 `.modcontract.json` 仍是另一契约，不能作为 MST 的 SDK 契约。
+MHT 已生成匹配的 `.sdkcontract.json`、纯 C `.modabi.h`、独立客户端入口和 v3 清单，见 [MHT 连接协议](../ModHeaderTool/README.zh-CN.md)。分别使用 Host 和 `<game>ModClient` 上下文作为库任务；连接描述明确列出宿主查询及客户端 Connect/Disconnect 符号。MDT 要求描述文件是经过哈希检查的公共 Contract 产物，核对身份与 API 签名后按声明路径复制到 Bundle 和 SDK 插件；`inspect` 检查两份文件及契约身份。装载器仍需执行连接并交付宿主批准的 token。超出现有 MDT 适配形状的 API 图会使 SDK 契约标记 `Unsupported`；内部 UE 视图的 `.modcontract.json` 仍是另一契约，不能作为 MDT 的 SDK 契约。

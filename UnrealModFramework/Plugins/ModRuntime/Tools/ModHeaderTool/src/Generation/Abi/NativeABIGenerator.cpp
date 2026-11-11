@@ -551,7 +551,7 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 		{
 			bMethod = true;
 			Entry["targetTypeId"] = Model.Types.at(API.Owner).Identity.Id;
-			// Names and IDs are derived once by MHT; MST does not infer them.
+			// Names and IDs are derived once by MHT; MDT does not infer them.
 			Entry["parameterName"] = "Arg0";
 			Entry["parameterId"] = API.Id + ":parameter:0";
 		}
