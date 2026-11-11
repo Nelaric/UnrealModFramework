@@ -54,7 +54,7 @@ void ErrorBindings::MatchClassifications(const Json& Failure, Json& Classificati
 		{
 			if (!bUpdate)
 			{
-				FailGuard(Failure, "Recognized " + Key + ". Run with --update-catalog to assign its code.");
+				FailGuard(Failure, "Recognized " + Key + ". Run update-catalog to assign its code.");
 			}
 			Json Reason = Classification;
 			Reason.erase("key");

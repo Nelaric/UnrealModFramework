@@ -24,8 +24,6 @@ public:
 	Json Build(std::string_view ExpectedInput) const;
 	/// Verifies the current archive against a trusted successful link record.
 	Json Finalize(const fs::path& LinkReceipt) const;
-	/// Checks whether a result destination would replace an input or artifact.
-	void ValidateResultOutput(const fs::path& Output, const fs::path& LinkReceipt) const;
 
 private:
 	fs::path Context;

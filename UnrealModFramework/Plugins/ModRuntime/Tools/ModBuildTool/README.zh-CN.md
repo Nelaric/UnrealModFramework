@@ -20,16 +20,17 @@ MBT 独立编译 MHT 或 ExportCodeGenerator 已生成的宿主连接代码，�
 
 ```text
 ModBuildTool plan --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
-ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --expected-input <plan.inputFingerprint> --output BuildResult.json
+ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
+ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
 ModBuildTool verify-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
-ModBuildTool finalize-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --link-receipt Target.link.json --output LinkedArtifacts.json
+ModBuildTool finalize-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --link-receipt Target.link.json
 ModBuildTool hash-context --file HostCompileContext.json
 ModBuildTool hash-file --file <path>
-ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol> --symbol <api-symbol-1> --symbol <api-symbol-2>
+ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol>
 ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 --kind Executable
 ```
 
-`plan` 不执行编译或创建输出目录，返回当前输入指纹、所属模块、目标、宿主库位置及缓存状态。`build-host` 获取输出锁后重新校验计划，命中完整缓存时返回 `UpToDate`，否则独立编译并归档后返回 `Built`。`verify-host` 在缓存或产物过期时返回非零。退出码 `0` 为成功，`1` 为参数、输入、编译、I/O 或验证失败。JSON 结果写入 stdout 或 `--output`；工具链诊断写入 stderr。
+`plan` 返回当前输入指纹、所属模块、目标、宿主库位置及缓存状态。`build-host` 获取输出锁后检查缓存，命中时返回 `UpToDate`，否则独立编译并归档后返回 `Built`。`build-planned-host` 还会在持锁期间校验调用方传入的计划指纹。`verify-host` 在缓存或产物过期时返回非零。退出码 `0` 为成功，`1` 为参数、输入、编译、I/O 或验证失败。JSON 结果写入 stdout，工具链诊断写入 stderr。
 
 ## 宿主编译上下文
 
@@ -152,7 +153,7 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，生成 JSON 契约�
 1. 创建 Makefile 时，从真实模块图生成每模块计划与所属二进制映射，在标准 UHT 后取得可用的生成头及真实编译上下文，再调用 MHT 完整生成。
 2. 缓存 Makefile 时，也必须在 UHT 检查后、动作失效判断前检查源码集合与依赖。普通非反射头的新增、删除和改动不能只依赖 UHT 重跑。
 3. 调用 `plan`，将当前 `inputFingerprint` 写入 MBT 动作的有效命令或 `CommandVersion`。`upToDate=false` 还须使该动作明确失效，包括库损坏但输入未变的情况。
-4. 动作执行 `build-host --expected-input ...`。其 `ProducedItems` 包含库和凭证，`bProducesImportLibrary=false`，首版禁止远程和 UBA 执行。
+4. 动作执行 `build-planned-host --input-fingerprint ...`。其 `ProducedItems` 包含库和凭证，`bProducesImportLibrary=false`，首版禁止远程和 UBA 执行。
 5. 在真实所属 `UEBuildBinary` 的私有最终链接环境中加入库和注册锚点的保留要求，不沿通用 Runtime 公共依赖传播。库作为最终链接动作的 `PrerequisiteItems`，形成明确生产依赖。
 6. 每个参与模块预留稳定库路径与动作。无导出时生成空注册单元，首次新增导出和删除最后一项均无需改变动作图结构。变体区分引擎、工具链、Target、配置、平台和架构。
 7. Windows/Linux/Mac 分别实现最终链接的符号保留。不得把宿主静态库标记为导入库，或错误加入仅生成 UE 导入库的动作。模块输出、Clean、receipt 与插件裁剪也要包含宿主产物。

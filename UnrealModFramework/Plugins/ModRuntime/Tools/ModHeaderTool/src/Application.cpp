@@ -1,7 +1,6 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "Application.h"
 
-#include "ModHeaderTool/src/Cli/CommandExecution.h"
 #include "ModHeaderTool/src/Cli/CommandLine.h"
 #include "ModHeaderTool/src/Files/Path.h"
 
@@ -31,7 +30,7 @@ int Application::Run() const
 {
 	try
 	{
-		return CommandExecution::ExecuteCommand(CommandLine::ParseArguments(Arguments));
+		return CommandLine::RunCommandLine(Arguments);
 	}
 	catch (const std::exception& Error)
 	{

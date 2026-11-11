@@ -43,12 +43,8 @@ add_library(ModHeaderToolCore STATIC
     src/Analysis/TypeResolution.h
     src/Application.cpp
     src/Application.h
-    src/Cli/CommandExecution.cpp
-    src/Cli/CommandExecution.h
     src/Cli/CommandLine.cpp
     src/Cli/CommandLine.h
-    src/Cli/CommandLineOptions.cpp
-    src/Cli/CommandLineOptions.h
     src/Cli/OptionsCheck.cpp
     src/Cli/OptionsCheck.h
     src/Cli/ScanCommand.cpp
@@ -187,8 +183,6 @@ add_library(ModHeaderToolCore STATIC
     src/Scan/ProjectScan.h
     src/Scan/ProjectScanner.cpp
     src/Scan/ProjectScanner.h
-    src/Scan/ScanDocument.cpp
-    src/Scan/ScanDocument.h
     src/Scan/ScanReport.cpp
     src/Scan/ScanReport.h
     src/Scan/ScanResult.cpp

@@ -31,7 +31,7 @@ internal static class MetadataSnapshot
 			MhtProcess.Run(
 				logger,
 				mht,
-				new[] { "check-options", "--project", project, "--options", path },
+				new[] { "check-options", project, path },
 				projectRoot,
 				timeout,
 				allowedExitCode: refreshRequired

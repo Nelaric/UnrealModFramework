@@ -5,8 +5,7 @@
 #include "ModHeaderTool/src/Generation/GenerationModel.h"
 
 #include <filesystem>
-#include <string>
-#include <vector>
+#include <nlohmann/json.hpp>
 
 namespace Mod::HeaderTool
 {
@@ -16,7 +15,7 @@ class SourceToolInvocation
 {
 public:
 	static fs::path ResolveSourceTool(const fs::path& Configured);
-	static std::vector<std::string> SourceArguments(const GenerationModel& Model, const fs::path& Database,
-	                                                const fs::path& ClangLibrary);
+	static nlohmann::json SourceRequest(const GenerationModel& Model, const fs::path& Database,
+	                                    const fs::path& ClangLibrary);
 };
 } // namespace Mod::HeaderTool

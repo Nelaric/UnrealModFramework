@@ -15,6 +15,6 @@ class ToolProcess
 public:
 	/// Runs a native child with a deadline and process-tree cancellation.
 	static int RunTool(const fs::path& Executable, const std::vector<std::string>& Arguments,
-	                   const fs::path& WorkingDirectory, unsigned TimeoutSeconds);
+	                   const fs::path& WorkingDirectory, unsigned TimeoutSeconds, const fs::path& StandardOutput = {});
 };
 } // namespace Mod::SdkTool

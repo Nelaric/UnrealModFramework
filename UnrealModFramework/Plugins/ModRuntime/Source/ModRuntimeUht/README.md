@@ -30,10 +30,10 @@ The native tool must already be built. Discovery uses, in order:
 
 Without configuration the default mode is `scan`. The development project's
 `Config/ModHeaderTool.json` selects `generate`. In scan mode a normal UHT
-invocation runs:
+invocation runs the following command.
 
 ```text
-ModHeaderTool scan --project <actual.uproject> --output <owned-temporary.json>
+ModHeaderTool scan <actual.uproject> <metadata-options.json>
 ```
 
 The authoritative metadata catalog defaults to
@@ -49,7 +49,7 @@ On Win64, `metadataEditorTarget` names the Development Editor target that UBT
 builds in bootstrap mode when the commandlet needs project binaries. Projects
 that leave this setting out can prepare the Editor with `-MhtBootstrap`.
 
-The UHT output factory commits successful scan reports to
+UHT reads the JSON report from stdout. Its output factory commits successful reports to
 `Intermediate/ModTools/ModHeaderTool/Scan/<Target>/<Platform>/<Configuration>/Scan.json`
 under the project. Scan validates marker parameters.
 
@@ -64,8 +64,10 @@ its makefile, the adapter reads the saved compile arguments.
 
 The adapter checks the input's project, target, platform, and configuration
 against the UHT session and uses the x64 architecture enforced by the rules. It
-exports owner-specific MBT contexts and starts
-`generate --build-input ... --output-dir <MHT> --host-contexts <contexts.json>`.
+exports owner-specific MBT contexts and writes `GenerationRequest.json` in the
+variant's `HostTargets` directory. The request supplies the build input,
+output directory, host contexts, and any resolved snapshot, libclang, and
+lifecycle source paths. UHT runs `ModHeaderTool generate <GenerationRequest.json>`.
 It then runs `ModBuildTool build-host` for every owner before returning from UHT.
 The project generation root is
 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`.
@@ -171,7 +173,7 @@ The client library has its own build receipt.
 
 ## Build behavior and limits
 
-Native stdout/stderr are forwarded to UHT. Nonzero exit codes, invalid results,
+Native diagnostics are forwarded to UHT. Nonzero exit codes, invalid results,
 and timeouts fail UHT. UE's managed process group owns the child process lifetime.
 The adapter does not enable `CompileOutput` or register C++ output filters;
 MHT sources remain outside UBT's compilation list.

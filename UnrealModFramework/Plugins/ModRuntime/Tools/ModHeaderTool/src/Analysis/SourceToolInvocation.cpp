@@ -8,9 +8,11 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Mod::HeaderTool
@@ -42,23 +44,15 @@ fs::path SourceToolInvocation::ResolveSourceTool(const fs::path& Configured)
 	return fs::canonical(Path);
 }
 
-std::vector<std::string> SourceToolInvocation::SourceArguments(const GenerationModel& Model, const fs::path& Database,
-                                                               const fs::path& ClangLibrary)
+nlohmann::json SourceToolInvocation::SourceRequest(const GenerationModel& Model, const fs::path& Database,
+                                                   const fs::path& ClangLibrary)
 {
 	if (ClangLibrary.empty())
 	{
-		throw std::runtime_error("Source error analysis requires MHT --libclang.");
+		throw std::runtime_error("Source error analysis requires libclang in the generation request.");
 	}
-	std::vector<std::string> Result{"analyze-errors",
-	                                "--compdb",
-	                                Path::PathToUtf8(Database),
-	                                "--target",
-	                                Model.Input.Target,
-	                                "--catalog",
-	                                Path::PathToUtf8(Model.SourceErrorCatalog),
-	                                "--libclang",
-	                                Path::PathToUtf8(fs::canonical(ClangLibrary))};
 	const auto& Arguments = Model.Input.AnalysisArguments;
+	std::vector<std::string> AnalysisArguments;
 	constexpr std::string_view ResourceOption = "-resource-dir";
 	fs::path ResourceDirectory;
 	for (std::size_t I = 0; I < Arguments.size(); ++I)
@@ -74,14 +68,20 @@ std::vector<std::string> SourceToolInvocation::SourceArguments(const GenerationM
 		}
 		else
 		{
-			Result.insert(Result.end(), {"--analysis-arg", Arguments[I]});
+			AnalysisArguments.push_back(Arguments[I]);
 		}
 	}
 	if (!ResourceDirectory.is_absolute())
 	{
 		throw std::runtime_error("Source error analysis requires an absolute -resource-dir in analysisArguments.");
 	}
-	Result.insert(Result.end(), {"--resource-dir", Path::PathToUtf8(fs::canonical(ResourceDirectory))});
-	return Result;
+	return {{"format", "UMF.SourceAnalysisRequest"},
+	        {"schemaVersion", 1},
+	        {"compilationDatabase", Path::PathToUtf8(Database)},
+	        {"target", Model.Input.Target},
+	        {"catalog", Path::PathToUtf8(Model.SourceErrorCatalog)},
+	        {"libclang", Path::PathToUtf8(fs::canonical(ClangLibrary))},
+	        {"resourceDirectory", Path::PathToUtf8(fs::canonical(ResourceDirectory))},
+	        {"analysisArguments", std::move(AnalysisArguments)}};
 }
 } // namespace Mod::HeaderTool

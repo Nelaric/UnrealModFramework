@@ -142,7 +142,6 @@ internal static class ModRuntimeExporter
 				AddDependency(factory, header);
 			}
 		}
-		List<string> arguments = new() { mode };
 		if (mode == "generate")
 		{
 			// Its manifest has no architecture; ConfigureHost restricts this adapter to the actual x64 target.
@@ -217,14 +216,29 @@ internal static class ModRuntimeExporter
 				context,
 				config
 			);
-			arguments.AddRange(new[] { "--build-input", buildInput, "--output-dir", output });
-			arguments.AddRange(new[] { "--host-contexts", hostBuild.ContextSet });
 			string lifecycleSource = Path.Combine(pluginRoot, "Source", "Runtime", "ModLoader", "Public");
 			string lifecycleHeader = Path.Combine(lifecycleSource, "ModInstance.h");
-			if (manifest.Modules.Any(module => module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))))
-			{
-				arguments.AddRange(new[] { "--lifecycle-source", lifecycleSource });
-			}
+			bool exportLifecycle = manifest.Modules.Any(module =>
+				module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))
+			);
+			string request = Path.Combine(variantDirectory, "GenerationRequest.json");
+			WriteFileIfChanged(
+				request,
+				JsonSerializer.SerializeToUtf8Bytes(
+					new
+					{
+						format = "UMF.ModHeaderGenerationRequest",
+						schemaVersion = 1,
+						buildInput,
+						outputDirectory = output,
+						hostContexts = hostBuild.ContextSet,
+						metadataOptions = File.Exists(options) ? options : "",
+						libclang = clang ?? "",
+						lifecycleSource = exportLifecycle ? lifecycleSource : "",
+					}
+				)
+			);
+			AddDependency(factory, request);
 			AddDependency(factory, buildInput);
 			foreach (string key in new[] { "compilationDatabase", "typeIdentities" })
 			{
@@ -235,19 +249,14 @@ internal static class ModRuntimeExporter
 			}
 			if (clang != null)
 			{
-				arguments.AddRange(new[] { "--libclang", clang });
 				AddDependency(factory, clang);
-			}
-			if (File.Exists(options))
-			{
-				arguments.AddRange(new[] { "--options", options });
 			}
 			factory.Session.Logger.LogInformation(
 				"ModRuntime MHT: generate for {Target}; output {Output}",
 				targetName,
 				output
 			);
-			MhtProcess.Run(factory.Session.Logger, executable, arguments, projectRoot, timeout);
+			MhtProcess.Run(factory.Session.Logger, executable, new[] { "generate", request }, projectRoot, timeout);
 			RegisterGeneratedDependencies(factory, output, context, hostBuild.PluginGeneratedDirectories);
 			hostBuild.Build(
 				factory,
@@ -260,35 +269,31 @@ internal static class ModRuntimeExporter
 		{
 			string output = Path.Combine(mht, "Scan", targetName, platform, configuration);
 			Directory.CreateDirectory(output);
-			string temporary = Path.Combine(output, ".scan-" + Guid.NewGuid().ToString("N") + ".json");
-			try
+			using MemoryStream result = new();
+			factory.Session.Logger.LogInformation("ModRuntime MHT: scan for {Target}", targetName);
+			MhtProcess.Run(
+				factory.Session.Logger,
+				executable,
+				new[] { "scan", project, options },
+				projectRoot,
+				timeout,
+				standardOutput: result
+			);
+			string content = Encoding.UTF8.GetString(result.ToArray());
+			using JsonDocument report = JsonDocument.Parse(content);
+			if (!report.RootElement.GetProperty("ParametersValidated").GetBoolean())
 			{
-				arguments.AddRange(new[] { "--project", project, "--output", temporary });
-				if (File.Exists(options))
-				{
-					arguments.AddRange(new[] { "--options", options });
-				}
-				factory.Session.Logger.LogInformation("ModRuntime MHT: scan for {Target}", targetName);
-				MhtProcess.Run(factory.Session.Logger, executable, arguments, projectRoot, timeout);
-				using JsonDocument report = ReadJson(temporary);
-				if (!report.RootElement.GetProperty("ParametersValidated").GetBoolean())
-				{
-					throw new UhtException("ModRuntime MHT: scan did not validate export parameters.");
-				}
-				if (report.RootElement.GetProperty("MetadataOptions").GetString() is string scannedOptions)
-				{
-					using JsonDocument catalog = ReadJson(scannedOptions);
-					foreach (JsonProperty input in catalog.RootElement.GetProperty("Inputs").EnumerateObject())
-					{
-						AddDependency(factory, input.Name);
-					}
-				}
-				factory.CommitOutput(Path.Combine(output, "Scan.json"), new StringBuilder(File.ReadAllText(temporary)));
+				throw new UhtException("ModRuntime MHT: scan did not validate export parameters.");
 			}
-			finally
+			if (report.RootElement.GetProperty("MetadataOptions").GetString() is string scannedOptions)
 			{
-				File.Delete(temporary);
+				using JsonDocument catalog = ReadJson(scannedOptions);
+				foreach (JsonProperty input in catalog.RootElement.GetProperty("Inputs").EnumerateObject())
+				{
+					AddDependency(factory, input.Name);
+				}
 			}
+			factory.CommitOutput(Path.Combine(output, "Scan.json"), new StringBuilder(content));
 		}
 	}
 

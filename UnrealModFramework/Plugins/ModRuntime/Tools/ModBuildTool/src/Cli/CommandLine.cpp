@@ -25,20 +25,18 @@ void CommandLine::PrintHelp()
 
 Usage:
   ModBuildTool plan --context <context.json> --generated-manifest <manifest.json>
-                   [--output <plan.json>]
   ModBuildTool build-host --context <context.json> --generated-manifest <manifest.json>
-                         [--expected-input <sha256>] [--output <result.json>]
+  ModBuildTool build-planned-host --context <context.json> --generated-manifest <manifest.json>
+                                 --input-fingerprint <sha256>
   ModBuildTool verify-host --context <context.json> --generated-manifest <manifest.json>
-                          [--output <verification.json>]
   ModBuildTool finalize-host --context <context.json> --generated-manifest <manifest.json>
-                            --link-receipt <link.json> [--output <linked.json>]
+                            --link-receipt <link.json>
   ModBuildTool finalize-ue-target --contexts <contexts.json> --ue-target-receipt <target.target>
   ModBuildTool refresh-ue-watches --contexts <contexts.json>
   ModBuildTool hash-file --file <path>
   ModBuildTool hash-context --file <context.json>
   ModBuildTool inspect-archive --file <archive> --platform <Win64|Linux|Mac>
                               --architecture <x64|arm64> --anchor <symbol>
-                              [--symbol <required-symbol>]...
   ModBuildTool inspect-binary --file <image> --platform <Win64|Linux|Mac>
                              --architecture <x64|arm64> --kind <Executable|DynamicLibrary>
   ModBuildTool --help | --version
@@ -57,7 +55,7 @@ Library creation does not prove successful final game linkage or runtime binding
 finalize-host requires a v2 or v3 manifest, owningBinary, and a trusted successful link
 record. It verifies identities and actual image bytes, not runtime behavior.
 
-JSON results use stdout or --output; compiler diagnostics use stderr.
+JSON results use stdout. Compiler diagnostics use stderr.
 Exit codes: 0 = success, 1 = invalid input/build failure/stale verification.
 )";
 }
@@ -65,28 +63,25 @@ Exit codes: 0 = success, 1 = invalid input/build failure/stale verification.
 struct CommandLine::Command
 {
 	std::string_view Name;
-	std::initializer_list<std::string_view> Options;
+	std::initializer_list<std::string_view> Required;
 	int (*Execute)(const CommandArguments&);
 };
 
 const CommandLine::Command& CommandLine::FindCommand(const std::string& Name)
 {
 	static const Command Commands[] = {
-	    {"plan", {"--context", "--generated-manifest", "--output"}, HostCommands::RunHostCommand},
-	    {"build-host",
-	     {"--context", "--generated-manifest", "--expected-input", "--output"},
+	    {"plan", {"--context", "--generated-manifest"}, HostCommands::RunHostCommand},
+	    {"build-host", {"--context", "--generated-manifest"}, HostCommands::RunHostCommand},
+	    {"build-planned-host",
+	     {"--context", "--generated-manifest", "--input-fingerprint"},
 	     HostCommands::RunHostCommand},
-	    {"verify-host", {"--context", "--generated-manifest", "--output"}, HostCommands::RunHostCommand},
-	    {"finalize-host",
-	     {"--context", "--generated-manifest", "--link-receipt", "--output"},
-	     HostCommands::RunHostCommand},
+	    {"verify-host", {"--context", "--generated-manifest"}, HostCommands::RunHostCommand},
+	    {"finalize-host", {"--context", "--generated-manifest", "--link-receipt"}, HostCommands::RunHostCommand},
 	    {"finalize-ue-target", {"--contexts", "--ue-target-receipt"}, UeCommands::FinalizeTarget},
 	    {"refresh-ue-watches", {"--contexts"}, UeCommands::RefreshWatches},
 	    {"hash-file", {"--file"}, HashCommand::HashInput},
 	    {"hash-context", {"--file"}, HashCommand::HashInput},
-	    {"inspect-archive",
-	     {"--file", "--platform", "--architecture", "--anchor", "--symbol"},
-	     InspectionCommands::InspectArchive},
+	    {"inspect-archive", {"--file", "--platform", "--architecture", "--anchor"}, InspectionCommands::InspectArchive},
 	    {"inspect-binary", {"--file", "--platform", "--architecture", "--kind"}, InspectionCommands::InspectBinary},
 	};
 
@@ -101,27 +96,25 @@ const CommandLine::Command& CommandLine::FindCommand(const std::string& Name)
 CommandArguments CommandLine::ParseOptions(const std::vector<std::string>& Arguments, const Command& Route)
 {
 	const auto& Name = Arguments.at(1);
-	CommandArguments Command{Name, {}, {}};
+	CommandArguments Command{Name, {}};
 	for (std::size_t Index = 2; Index < Arguments.size(); ++Index)
 	{
 		const std::string& Option = Arguments[Index];
-		const bool bAllowed = std::ranges::find(Route.Options, std::string_view(Option)) != Route.Options.end();
+		const bool bAllowed = std::ranges::find(Route.Required, std::string_view(Option)) != Route.Required.end();
 		const bool bHasValue =
 		    Index + 1 < Arguments.size() && !Arguments[Index + 1].empty() && !Arguments[Index + 1].starts_with("--");
-		if (bAllowed && Option == "--symbol")
-		{
-			if (!bHasValue)
-			{
-				throw std::runtime_error("--symbol requires a symbol name.");
-			}
-			Command.Symbols.push_back(Arguments[++Index]);
-			continue;
-		}
 		if (!bAllowed || !bHasValue || Command.Options.contains(Option))
 		{
 			throw std::runtime_error("Unknown, duplicate, or missing-value option: " + Option);
 		}
 		Command.Options.emplace(Option, Arguments[++Index]);
+	}
+	for (const auto Required : Route.Required)
+	{
+		if (!Command.Options.contains(std::string(Required)))
+		{
+			throw std::runtime_error(Name + " requires " + std::string(Required) + ".");
+		}
 	}
 	return Command;
 }

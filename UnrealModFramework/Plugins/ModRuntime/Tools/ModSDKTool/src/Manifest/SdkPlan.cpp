@@ -22,9 +22,9 @@ Json SdkPlan::ReadLibraryPlan(const SdkRequest& Request, const Library& Job, con
 {
 	if (ToolProcess::RunTool(Request.Mbt,
 	                         {"plan", "--context", Mod::BuildTool::Path::PathToUtf8(Job.Context),
-	                          "--generated-manifest", Mod::BuildTool::Path::PathToUtf8(Job.Manifest), "--output",
-	                          Mod::BuildTool::Path::PathToUtf8(ResultFile)},
-	                         Request.Project.parent_path(), Request.Document.value("timeoutSeconds", 1800u)) != 0)
+	                          "--generated-manifest", Mod::BuildTool::Path::PathToUtf8(Job.Manifest)},
+	                         Request.Project.parent_path(), Request.Document.value("timeoutSeconds", 1800u),
+	                         ResultFile) != 0)
 	{
 		throw std::runtime_error("MBT rejected the library plan: " + Mod::BuildTool::Path::PathToUtf8(Job.Context));
 	}

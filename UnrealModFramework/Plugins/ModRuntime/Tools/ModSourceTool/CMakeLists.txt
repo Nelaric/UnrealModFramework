@@ -76,8 +76,6 @@ add_executable(ModSourceTool
     src/Cli/CommandLine.h
     src/Cli/HostLinkHeader.cpp
     src/Cli/HostLinkHeader.h
-    src/Cli/ReportOutput.cpp
-    src/Cli/ReportOutput.h
     src/Errors/CatalogText.cpp
     src/Errors/CatalogText.h
     src/Errors/ErrorBindings.cpp

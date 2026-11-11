@@ -14,6 +14,7 @@ struct SourceReport
 {
 	const fs::path File =
 	    fs::temp_directory_path() / ("umf-mht-source-" + Mod::BuildTool::TemporaryName::UniqueSuffix() + ".json");
+	const fs::path Request = fs::path(File).replace_extension(".request.json");
 
 	~SourceReport();
 };

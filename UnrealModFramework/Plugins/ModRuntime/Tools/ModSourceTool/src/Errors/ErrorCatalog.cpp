@@ -131,7 +131,7 @@ bool ErrorCatalog::BindCodes(Json& Failures)
 	{
 		if (!bUpdate)
 		{
-			throw std::runtime_error("Unassigned error key " + Key + ". Run with --update-catalog.");
+			throw std::runtime_error("Unassigned error key " + Key + ". Run the update-catalog command.");
 		}
 		auto& Reason = (bClassified ? ClassifiedReasons : Reasons).at(Key);
 		Reason["code"] = ErrorCodePolicy::AllocateCode(Counters, Reason, Key, bStructured);

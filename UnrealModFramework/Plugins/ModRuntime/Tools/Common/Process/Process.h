@@ -14,8 +14,9 @@ namespace fs = std::filesystem;
 class Process
 {
 public:
-	/// Executes an argument vector without a shell; child output goes to stderr.
+	/// Runs an argument vector and optionally captures stdout in a fresh file.
 	static int RunProcess(const fs::path& Executable, const std::vector<std::string>& Arguments,
-	                      const fs::path& WorkingDirectory, const std::map<std::string, std::string>& Environment);
+	                      const fs::path& WorkingDirectory, const std::map<std::string, std::string>& Environment,
+	                      const fs::path& StandardOutput = {});
 };
 } // namespace Mod::BuildTool

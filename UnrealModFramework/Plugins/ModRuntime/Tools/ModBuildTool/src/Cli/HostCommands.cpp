@@ -4,45 +4,45 @@
 #include "Common/Files/Path.h"
 #include "Common/Hash/Hash.h"
 #include "ModBuildTool/src/Build/HostBuild.h"
-#include "ModBuildTool/src/Cli/HostCommandResult.h"
 
-#include <filesystem>
+#include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
-#include <string>
-#include <utility>
 
 namespace Mod::BuildTool
 {
-namespace fs = std::filesystem;
 using Json = nlohmann::json;
 
 int HostCommands::RunHostCommand(const CommandArguments& Command)
 {
 	const auto& Options = Command.Options;
 	const auto& Name = Command.Name;
-	if (!Options.contains("--context") || !Options.contains("--generated-manifest"))
+	const HostBuild Host(Path::PathFromUtf8(Options.at("--context")),
+	                     Path::PathFromUtf8(Options.at("--generated-manifest")));
+	Json Result;
+	if (Name == "build-host")
 	{
-		throw std::runtime_error("Both --context and --generated-manifest are required.");
+		Result = Host.Build({});
 	}
-	fs::path Context = Path::PathFromUtf8(Options.at("--context"));
-	fs::path Manifest = Path::PathFromUtf8(Options.at("--generated-manifest"));
-	const fs::path Output = Options.contains("--output") ? Path::PathFromUtf8(Options.at("--output")) : fs::path();
-	const std::string Expected = Options.contains("--expected-input") ? Options.at("--expected-input") : "";
-	if (Name == "finalize-host" && !Options.contains("--link-receipt"))
+	else if (Name == "build-planned-host")
 	{
-		throw std::runtime_error("finalize-host requires --link-receipt.");
+		const auto& Fingerprint = Options.at("--input-fingerprint");
+		Hash::RequireDigest(Fingerprint, "--input-fingerprint");
+		Result = Host.Build(Fingerprint);
 	}
-	const fs::path LinkReceipt =
-	    Options.contains("--link-receipt") ? Path::PathFromUtf8(Options.at("--link-receipt")) : fs::path();
-	if (!Expected.empty())
+	else if (Name == "finalize-host")
 	{
-		Hash::RequireDigest(Expected, "--expected-input");
+		Result = Host.Finalize(Path::PathFromUtf8(Options.at("--link-receipt")));
 	}
-	const HostBuild Host(std::move(Context), std::move(Manifest));
-	Host.ValidateResultOutput(Output, LinkReceipt);
-	const Json Result = HostCommandResult::ExecuteHostAction(Host, Name, Expected, LinkReceipt);
-	HostCommandResult::WriteHostResult(Host, Output, LinkReceipt, Result);
+	else
+	{
+		Result = Host.Plan();
+	}
+	std::cout << Result.dump(2) << '\n' << std::flush;
+	if (!std::cout)
+	{
+		throw std::runtime_error("Cannot write the JSON result.");
+	}
 	return Name == "verify-host" && !Result.at("upToDate").get<bool>() ? 1 : 0;
 }
 } // namespace Mod::BuildTool

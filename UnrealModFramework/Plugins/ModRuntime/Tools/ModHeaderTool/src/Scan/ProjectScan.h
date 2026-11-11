@@ -14,6 +14,6 @@ class ProjectScan
 {
 public:
 	/// Loads the project and collects export macros from every source file.
-	static ScanResult ScanProject(const fs::path& Input, const fs::path& Options = {});
+	static ScanResult ScanProject(const fs::path& Input, const fs::path& Options);
 };
 } // namespace Mod::HeaderTool

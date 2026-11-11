@@ -9,8 +9,8 @@
 #include <filesystem>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace Mod::BuildTool
 {
@@ -20,22 +20,14 @@ using Json = nlohmann::json;
 int InspectionCommands::InspectArchive(const CommandArguments& Command)
 {
 	const auto& Options = Command.Options;
-	for (const char* Required : {"--file", "--platform", "--architecture", "--anchor"})
-	{
-		if (!Options.contains(Required))
-		{
-			throw std::runtime_error(std::string("inspect-archive requires ") + Required);
-		}
-	}
 	const fs::path Archive = Path::PathFromUtf8(Options.at("--file"));
-	auto ExtraSymbols = Command.Symbols;
-	ExtraSymbols.insert(ExtraSymbols.begin(), Options.at("--anchor"));
+	const std::vector<std::string> RequiredSymbols{Options.at("--anchor")};
 	ArchiveInspector::ValidateHostArchive(Archive, Options.at("--platform"), Options.at("--architecture"),
-	                                      ExtraSymbols);
+	                                      RequiredSymbols);
 	std::cout << Json({{"format", "UMF.ArchiveInspection"},
 	                   {"schemaVersion", 1},
 	                   {"valid", true},
-	                   {"requiredSymbols", ExtraSymbols},
+	                   {"requiredSymbols", RequiredSymbols},
 	                   {"library", Path::PathToUtf8(fs::canonical(Archive))},
 	                   {"libraryHash", Hash::HashFile(Archive)}})
 	                 .dump(2)
@@ -46,13 +38,6 @@ int InspectionCommands::InspectArchive(const CommandArguments& Command)
 int InspectionCommands::InspectBinary(const CommandArguments& Command)
 {
 	const auto& Options = Command.Options;
-	for (const char* Required : {"--file", "--platform", "--architecture", "--kind"})
-	{
-		if (!Options.contains(Required))
-		{
-			throw std::runtime_error(std::string("inspect-binary requires ") + Required);
-		}
-	}
 	const fs::path Binary = Path::PathFromUtf8(Options.at("--file"));
 	BinaryInspector::ValidateHostBinary(Binary, Options.at("--platform"), Options.at("--architecture"),
 	                                    Options.at("--kind"));

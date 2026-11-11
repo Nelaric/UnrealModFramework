@@ -29,7 +29,7 @@ APIGenerator::APIGenerator(const fs::path& BuildInput, const fs::path& HostConte
 {
 	if (HostContexts.empty())
 	{
-		throw std::runtime_error("Complete generation requires --host-contexts for all Host and Client producers.");
+		throw std::runtime_error("Complete generation requires a context set for all Host and Client producers.");
 	}
 	ContextFile = fs::canonical(HostContexts);
 	ContextSet = Json::parse(TextFile::ReadTextFile(ContextFile));

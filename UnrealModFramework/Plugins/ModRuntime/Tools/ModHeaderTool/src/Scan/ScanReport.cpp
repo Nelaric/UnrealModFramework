@@ -6,11 +6,12 @@
 #include "ModHeaderTool/src/Metadata/MetadataValue.h"
 #include "ModHeaderTool/src/Project/Project.h"
 #include "ModHeaderTool/src/Scan/ExportMacro.h"
-#include "ModHeaderTool/src/Scan/ScanDocument.h"
 
 #include <filesystem>
+#include <iostream>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace Mod::HeaderTool
@@ -18,13 +19,21 @@ namespace Mod::HeaderTool
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 
-void ScanReport::WriteScanReport(const ScanResult& Result, const fs::path& Output)
+namespace
+{
+std::string DisplaySourcePath(const fs::path& File, const fs::path& Root)
+{
+	const fs::path Relative = File.lexically_relative(Root);
+	return Path::PathToUtf8(!Relative.empty() && *Relative.begin() != ".." ? Relative : File);
+}
+} // namespace
+
+void ScanReport::WriteScanReport(const ScanResult& Result)
 {
 	if (!Result.Diagnostics.empty())
 	{
 		throw std::runtime_error("Cannot write a successful report for a scan containing errors.");
 	}
-	using Json = nlohmann::json;
 	Json Directories = Json::array();
 	for (const fs::path& Directory : Result.Project.Directories)
 	{
@@ -51,7 +60,7 @@ void ScanReport::WriteScanReport(const ScanResult& Result, const fs::path& Outpu
 			}
 		}
 		Exports.push_back({{"Macro", Macro.Name},
-		                   {"File", ScanDocument::DisplaySourcePath(Macro.File, Result.Project.Root)},
+		                   {"File", DisplaySourcePath(Macro.File, Result.Project.Root)},
 		                   {"Line", Macro.Line},
 		                   {"Column", Macro.Column},
 		                   {"Offset", Macro.Offset},
@@ -71,6 +80,10 @@ void ScanReport::WriteScanReport(const ScanResult& Result, const fs::path& Outpu
 	    {"MetadataOptions",
 	     Result.MetadataOptions.empty() ? Json(nullptr) : Json(Path::PathToUtf8(Result.MetadataOptions))},
 	    {"Exports", Exports}};
-	ScanDocument::WriteDocument(Report.dump(2), Output, Result);
+	std::cout << Report.dump(2) << '\n' << std::flush;
+	if (!std::cout)
+	{
+		throw std::runtime_error("Cannot write scan result to stdout.");
+	}
 }
 } // namespace Mod::HeaderTool

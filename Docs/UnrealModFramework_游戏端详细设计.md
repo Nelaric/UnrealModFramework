@@ -617,7 +617,7 @@ ModBuildTool finalize --build-input <build-input.json> --generated-manifest <MyG
 ModBuildTool publish-sdk --artifacts <game-artifacts.json> --artifacts <editor-artifacts.json> --output <release-dir>
 ```
 
-MHT 的语义生成入口属于 MHT，由 UHT Exporter 或经验证的完整分析阶段调用，例如 `ModHeaderTool generate --build-input <build-input.json> --uht-input <uht-input> --output <generated-dir>`；当前已实现的 `scan` 报告不等价于生成清单。命令参数和阶段接入须随 Profile 一并冻结。
+UHT Exporter 通过 `ModHeaderTool generate <GenerationRequest.json>` 启动语义生成。请求记录本次构建输入、生成目录和真实生产者上下文。词法扫描入口 `scan` 生成供 UHT 校验标记和参数的 JSON 报告。
 
 插件打包由外层原生流程使用 UAT BuildPlugin，调用前准备 SDK 与 Runtime 依赖，临时工程不能依赖只存在于原游戏目录的模块。MBT 从成功结果收集和整理产物；Windows 使用短暂存目录。
 

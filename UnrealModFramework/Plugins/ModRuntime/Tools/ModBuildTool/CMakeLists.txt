@@ -60,8 +60,6 @@ add_executable(ModBuildTool
     src/Cli/CommandLine.h
     src/Cli/HashCommand.cpp
     src/Cli/HashCommand.h
-    src/Cli/HostCommandResult.cpp
-    src/Cli/HostCommandResult.h
     src/Cli/HostCommands.cpp
     src/Cli/HostCommands.h
     src/Cli/InspectionCommands.cpp

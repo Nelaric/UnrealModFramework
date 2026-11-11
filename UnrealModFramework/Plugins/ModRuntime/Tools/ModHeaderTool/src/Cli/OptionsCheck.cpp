@@ -6,8 +6,6 @@
 #include "ModHeaderTool/src/Project/Project.h"
 #include "ModHeaderTool/src/Project/ProjectReader.h"
 
-#include "ModExportMetadataSchema.h"
-
 #include <filesystem>
 #include <iostream>
 
@@ -15,14 +13,12 @@ namespace Mod::HeaderTool
 {
 namespace fs = std::filesystem;
 
-int OptionsCheck::CheckOptions(const CommandLineOptions& Options)
+int OptionsCheck::CheckOptions(const fs::path& ProjectFile, const fs::path& Snapshot)
 {
-	const Project Project = ProjectReader::LoadProject(Options.Project);
-	const fs::path Catalog =
-	    Options.Options.empty() ? Project.Root / Mod::ExportMetadata::Schema::SnapshotPath : Options.Options;
+	const Project Project = ProjectReader::LoadProject(ProjectFile);
 	try
 	{
-		MetadataOptionsReader::LoadMetadataOptions(Project, Catalog);
+		MetadataOptionsReader::LoadMetadataOptions(Project, Snapshot);
 	}
 	catch (const MetadataOptionsRefreshRequired& Error)
 	{

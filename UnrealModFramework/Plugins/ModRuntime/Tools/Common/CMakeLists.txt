@@ -37,6 +37,8 @@ add_library(ModToolSupport STATIC
     Process/ProcessCancellation.h
     Process/ProcessEnvironment.cpp
     Process/ProcessEnvironment.h
+    Process/ProcessOutput.cpp
+    Process/ProcessOutput.h
     Process/ResponseFile.cpp
     Process/ResponseFile.h
 )

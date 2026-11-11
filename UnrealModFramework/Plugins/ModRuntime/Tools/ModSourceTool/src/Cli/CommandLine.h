@@ -2,8 +2,6 @@
 /** @file CommandLine.h */
 #pragma once
 
-#include "ModSourceTool/src/Cli/AnalysisOptions.h"
-
 #include <string>
 #include <vector>
 
@@ -16,7 +14,6 @@ public:
 
 private:
 	static int PrintHelp();
-	static AnalysisOptions ParseAnalysisOptions(const std::vector<std::string>& Arguments);
 	static int RunHostLinkCommand(const std::vector<std::string>& Arguments);
 };
 } // namespace Mod::SourceTool
