@@ -11,6 +11,12 @@
 	"EnabledByDefault": false,
 	"Modules": [
 		{
+			"Name": "HAL",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [ "Win64", "Linux", "Mac" ]
+		},
+		{
 			"Name": "ExportMetadata",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
