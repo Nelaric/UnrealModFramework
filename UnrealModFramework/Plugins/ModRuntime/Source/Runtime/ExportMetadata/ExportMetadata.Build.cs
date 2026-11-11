@@ -15,20 +15,38 @@ public class ExportMetadata : ModuleRules
 		PublicDependencyModuleNames.Add("Core");
 	}
 
-	/// <summary>Tracks MHT inputs and verifies the host archives in UBT's linked images.</summary>
+	/// <summary>Builds the native tools, tracks MHT inputs, and verifies the linked host archives.</summary>
 	public static void ConfigureTarget(TargetRules target)
 	{
+		bool useGeneratedHost = IsAutomaticHostPlatform(target.Platform);
+		bool buildUnixTools =
+			(target.HostPlatform == UnrealTargetPlatform.Linux || target.HostPlatform == UnrealTargetPlatform.Mac)
+			&& (target.Platform == UnrealTargetPlatform.Linux || target.Platform == UnrealTargetPlatform.Mac);
 		if (
-			!IsAutomaticHostPlatform(target.Platform)
+			(!useGeneratedHost && !buildUnixTools)
 			|| HasArgument("-MhtBootstrap")
 			|| HasArgument("-Mode=GenerateClangDatabase")
 		)
 		{
 			return;
 		}
-		RequireAutomaticArchitecture(target.Architectures);
-		var project = target.ProjectFile ?? throw new BuildException("ModRuntime MBT requires a project target.");
+		var project = target.ProjectFile ?? throw new BuildException("ModRuntime tools require a project target.");
 		string root = project.Directory.FullName;
+		string tools = Path.Combine(root, "Plugins", "ModRuntime", "Tools");
+		string buildScript = Path.Combine(tools, useGeneratedHost ? "Build.bat" : "Build.sh");
+		if (File.Exists(buildScript))
+		{
+			// CALL expands percent escapes a second time.
+			string command = useGeneratedHost
+				? $"call {QuoteCommandPath(buildScript.Replace("%", "%%"))} --target ModRuntimeUhtTools || exit /b 1"
+				: GetUnixToolsBuildCommand(root, buildScript);
+			target.PreBuildSteps.Add(command);
+		}
+		if (!useGeneratedHost)
+		{
+			return;
+		}
+		RequireAutomaticArchitecture(target.Architectures);
 		string config = Path.Combine(root, "Config", "ModHeaderTool.json");
 		string configured = Environment.GetEnvironmentVariable("UMF_MBT_EXECUTABLE");
 		if (configured == null && File.Exists(config))
@@ -36,7 +54,7 @@ public class ExportMetadata : ModuleRules
 			JsonObject.Read(new FileReference(config)).TryGetStringField("mbt", out configured);
 		}
 		string mbt = Path.GetFullPath(
-			configured ?? "Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe",
+			configured ?? Path.Combine(tools, "build", "ModBuildTool", "ModBuildTool.exe"),
 			root
 		);
 		string contexts = Path.Combine(
@@ -299,4 +317,15 @@ public class ExportMetadata : ModuleRules
 		Environment.GetCommandLineArgs().Contains(argument, StringComparer.OrdinalIgnoreCase);
 
 	private static string QuoteCommandPath(string path) => "\"" + path.Replace("%", "%%") + "\"";
+
+	private static string GetUnixToolsBuildCommand(string projectDirectory, string buildScript)
+	{
+		string finder = Path.GetFullPath(Path.Combine(projectDirectory, "..", "Setup", "FindCMake.sh"));
+		return $"if [ -n \"$UMF_CMAKE_EXECUTABLE\" ] || [ -f {QuotePosixPath(finder)} ] || command -v cmake >/dev/null 2>&1; then "
+			+ $"sh {QuotePosixPath(buildScript)} --target ModRuntimeUhtTools || exit $?; "
+			+ "else echo 'ModRuntime: skipping native tool build because CMake is unavailable.'; fi";
+	}
+
+	// Split literal $(...) so UBT leaves it alone when it expands build-step variables.
+	private static string QuotePosixPath(string path) => "'" + path.Replace("'", "'\\''").Replace("$(", "$''(") + "'";
 }
