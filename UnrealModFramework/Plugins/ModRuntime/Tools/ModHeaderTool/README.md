@@ -18,7 +18,7 @@ Paths are relative to the fixed MHT output root:
 | `Host/<owner>/<owner>.modabi.cpp` | Host C endpoints, exact member calls, checks, and exported table query |
 | `Client/<game>ModClient/<game>ModClient.modclient.cpp` | Independent client endpoints, checked Connect, Disconnect, and ReleaseObject |
 | `Contract/<game>.clientabi.json` | `UMF.ClientABI` v2 connection descriptor with owner modules, table/query/connection symbols, slots, signatures, hashes, and lifecycle rules |
-| `Contract/<game>.sdkcontract.json` | Resolved `UMF.SdkContract` v2 for MST's supported adapter graph |
+| `Contract/<game>.sdkcontract.json` | Resolved `UMF.SdkContract` v2 for the adapter graph supported by ModSDKTool (MDT) |
 | `<game>.generated-artifacts.json` | v3 inventory with explicit host/client compilation units and required symbol bindings |
 
 The descriptor follows [client-abi.schema.json](Protocol/client-abi.schema.json).
@@ -28,7 +28,7 @@ game-private or UE code. The Win64 adapter derives its recipe from the actual
 selected toolchain and removes game include paths and forced UE definitions.
 
 The existing `.modviews.h`/`.modcalls.h` headers are internal UE host headers,
-classified as `HostHeader`. Only `.modabi.h` is published as `SdkHeader`, so MST
+classified as `HostHeader`. Only `.modabi.h` is published as `SdkHeader`, so MDT
 does not copy a header that requires the game's C++ types or ModAPI module.
 
 ## Connection and lifetime
@@ -106,7 +106,7 @@ resolves an already loaded object, checks its class and world, and borrows it
 for the synchronous call. Object results use host-owned view tokens. Public
 engine classes use headers under the `Engine` path root in the build input.
 
-## MBT and MST handoff
+## MBT and MDT handoff
 
 MHT emits four units per host owner: bridge, ABI endpoints, verification, and UE
 view implementations; the independent client has its own compilation unit.
@@ -120,7 +120,7 @@ The UHT adapter supplies both actual contexts through `--host-contexts` and runs
 MBT for both libraries. Standalone `generate` requires a matching context set for every host module
 and the standalone client before it can publish a Complete manifest.
 
-MST consumes `.sdkcontract.json`, the Host and Client contexts, and the same v3
+MDT consumes `.sdkcontract.json`, the Host and Client contexts, and the same v3
 generated manifest. It keeps the existing object getter and float method
 adapters and also emits typed methods with scalar and public UE object inputs.
 The SDK contract records `Unsupported` when it cannot represent the whole API set.

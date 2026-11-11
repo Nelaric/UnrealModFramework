@@ -7,7 +7,7 @@
 
 namespace Mod::SdkTool
 {
-/// Runs one invocation of ModSDKTool.
+/// Runs one invocation of MDT.
 class Application
 {
 public:

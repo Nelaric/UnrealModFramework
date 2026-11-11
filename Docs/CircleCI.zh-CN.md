@@ -4,9 +4,9 @@
 
 # CircleCI Linux 构建
 
-Push 和可信 PR 配置各定义了两个并行的 Unreal Engine 5.6.1 Linux Job。`build_game_linux` 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。`build_editor_linux` 编译 `UnrealModFrameworkDevEditor`，再在 UE 容器中构建 MST 和 MBT，通过 `ModSDKTool build-editor` 编译并校验独立的 `ModDevelopmentSDKEditor` 插件。 [Push 配置](../.circleci/config.yml) · [可信 PR 配置](../.circleci/pr-build.yml)
+Push 和可信 PR 配置各定义了两个并行的 Unreal Engine 5.6.1 Linux Job。`build_game_linux` 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。`build_editor_linux` 编译 `UnrealModFrameworkDevEditor`，再在 UE 容器中构建 `ModSDKTool`（MDT）和 MBT，通过 `ModSDKTool build-editor` 编译并校验独立的 `ModDevelopmentSDKEditor` 插件。 [Push 配置](../.circleci/config.yml) · [可信 PR 配置](../.circleci/pr-build.yml)
 
-共享构建脚本使用引擎自带的 .NET 宿主和 Editor BuildId，将校验后的插件放到 Job 暂存目录下的 `Dist`。如果较早的 PR 提交缺少共享脚本，Job 会从可信配置提交构建 MST 和 MBT，并使用 PR 提交中的插件源码。 [编辑器插件构建脚本](../.circleci/build-editor-plugin.sh)
+共享构建脚本使用引擎自带的 .NET 宿主和 Editor BuildId，将校验后的插件放到 Job 暂存目录下的 `Dist`。如果较早的 PR 提交缺少共享脚本，Job 会从可信配置提交构建 MDT 和 MBT，并使用 PR 提交中的插件源码。 [编辑器插件构建脚本](../.circleci/build-editor-plugin.sh)
 
 ## 已启用的 PR 接入
 

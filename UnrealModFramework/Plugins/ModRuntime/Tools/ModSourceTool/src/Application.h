@@ -7,7 +7,7 @@
 
 namespace Mod::SourceTool
 {
-/// Runs one invocation of ModSourceTool.
+/// Runs one invocation of MST.
 class Application
 {
 public:
