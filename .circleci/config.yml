@@ -78,7 +78,7 @@ jobs:
       - compile_target:
           target: UnrealModFrameworkDevEditor
       - run:
-          name: Compile the authoring editor with MST for Linux
+          name: Compile the authoring editor with MDT for Linux
           no_output_timeout: 30m
           command: |
             set -euo pipefail

@@ -4,13 +4,14 @@ English | [简体中文](README.zh-CN.md)
 
 # ModSDKTool
 
-MST builds an independently installable authoring SDK from resolved exports.
+ModSDKTool (MDT) builds an independently installable authoring SDK from
+resolved exports.
 It connects player context and object views to generated methods with typed
 scalar and public UE object inputs. API IDs, public types, names, and native
 symbols come from the producer's contract.
 
 MHT owns C++ analysis and projection. ExportCodeGenerator owns Blueprint export.
-MST consumes completed results, asks MBT to compile generated libraries, creates
+MDT consumes completed results, asks MBT to compile generated libraries, creates
 UE adapters, builds plugins through AutomationTool, and publishes a file-hashed
 bundle. MHT scan reports are not complete contracts.
 
@@ -41,13 +42,13 @@ Failures do not replace existing SDKs.
 Use `ModSDKTool build-editor` to package the independent authoring plugin from
 its descriptor and an installed Editor. Pass a new directory with `--package`,
 the Editor's .NET host, AutomationTool assembly, module manifest and
-architecture, and the MBT executable. MST verifies the Editor BuildId and
+architecture, and the MBT executable. MDT verifies the Editor BuildId and
 binary before publishing the plugin with the native tools. [CircleCI invocation](../../../../../.circleci/build-editor-plugin.sh)
 
 ## Input contracts
 
 [sdk-contract.schema.json](Protocol/sdk-contract.schema.json) defines
-`UMF.SdkContract` v2. MST also reads v1 contracts with the original ABI field names.
+`UMF.SdkContract` v2. MDT also reads v1 contracts with the original ABI field names.
 The contract must be `Complete` with zero unresolved types.
 Its contract, projection, and native ABI SHA-256 identities must agree with all
 library batches. The JSON file itself must be a hash-checked `Contract` artifact
@@ -88,7 +89,7 @@ contexts using `FromNative`. Adapter errors are negative; nonnegative Blueprint
 
 MHT exports global lifecycle declarations as `Contract/ModLifecycle.json` and
 records the digest in `modLifecycle`. Once MBT verifies the export and builds the
-libraries, MST generates `ModInstance.h` and `ModInstanceSubSystem.h` and uses
+libraries, MDT generates `ModInstance.h` and `ModInstanceSubSystem.h` and uses
 UAT to build the author SDK and the development editor plugin. The generated
 reflection module preserves the game's `/Script/ModLoader` type paths. The game
 session owns the instances and delivers lifecycle events.
@@ -116,20 +117,20 @@ import context for game-private code. At least one Client profile must match the
 author Editor. Jobs must write distinct outputs.
 
 Plugin compilation uses `BuildPlugin -NoTargetPlatforms` for the author Editor.
-MST checks actual module binaries, architecture, matching BuildId, and the file
+MDT checks actual module binaries, architecture, matching BuildId, and the file
 inventory. Generated Build.cs rejects missing client profiles.
 
 ## Editor entry and output
 
 Enable `ModDevelopmentSDKEditor`. Under **Tools → Mod SDK**, choose **Plan Mod
 SDK...** or **Build Mod SDK...**, then select a request JSON. The editor can
-use the packaged MST or a local executable under the ModRuntime plugin's
+use the packaged MDT or a local executable under the ModRuntime plugin's
 `Tools/build/ModSDKTool`. You can also select an executable and save its path in the editor settings.
 Output is streamed without blocking the editor. Result JSON is saved under
 `Intermediate/ModTools/ModSDKTool/Results`. **Cancel Mod SDK task** terminates the process tree.
 
 The development plugin remains independent of game Runtime modules. Bundles
-carry MST, MBT, and their license notices in its
+carry MDT, MBT, and their license notices in its
 `Binaries/ThirdParty/ModSDKTool/<platform>` directory.
 
 ```text
@@ -156,10 +157,10 @@ MHT now emits a matching `.sdkcontract.json`, pure C `.modabi.h`, independent
 client endpoints, and a v3 manifest. See the [MHT connection protocol](../ModHeaderTool/README.md).
 Use its Host and `<game>ModClient` contexts as separate library jobs. The native
 connection descriptor names host queries and client Connect/Disconnect symbols;
-MST requires it to be a hash-checked public Contract artifact, matches its identities
+MDT requires it to be a hash-checked public Contract artifact, matches its identities
 and API signatures, and copies it into both the bundle and SDK plugin at the
 declared relative path. `inspect` verifies both copies and their contract identity.
 The loader still needs to connect the module and deliver host-approved tokens.
 MHT marks the SDK adapter contract `Unsupported` for API graphs outside this
-MST adapter's shapes. The internal UE-view `.modcontract.json` remains a separate
-contract and is rejected as an MST SDK contract.
+MDT adapter's shapes. The internal UE-view `.modcontract.json` remains a separate
+contract and is rejected as an MDT SDK contract.

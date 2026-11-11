@@ -108,7 +108,7 @@ jobs:
       - compile_target:
           target: UnrealModFrameworkDevEditor
       - run:
-          name: Compile the authoring editor with MST for Linux
+          name: Compile the authoring editor with MDT for Linux
           no_output_timeout: 30m
           command: |
             set -euo pipefail
@@ -119,7 +119,7 @@ jobs:
               cp -a LICENSE NOTICE.md "$UE_PROJECT_DIR/"
               cp -a "$build_script" "$UE_PROJECT_DIR/.circleci/"
             else
-              # Older PRs can build their plugin with the MST entry point from trusted main.
+              # Older PRs can build their plugin with the MDT entry point from trusted main.
               mkdir "$UE_PROJECT_DIR/mst"
               git archive "$UMF_CI_BASE_COMMIT" "$build_script" LICENSE NOTICE.md \
                 UnrealModFramework/Plugins/ModRuntime/Tools | tar -x -C "$UE_PROJECT_DIR/mst"

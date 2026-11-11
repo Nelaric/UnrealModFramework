@@ -51,7 +51,7 @@
 | `BlueprintIntegration` | “蓝图Mod导出”面板、蓝图内的独立 API/Event/Hook 声明、接入节点与编译校验 | 随 ModRuntime 源码插件编译，仅 Editor Target 加载 |
 | `ModHeaderTool`（MHT） | 导出宏、真实类型与成员签名、契约校验、完整类型闭包、投影、调用/转换/ABI/验证代码及生成清单 | 独立 C++ 工具；通过 C# UHT Exporter 适配器接入，完整 C++ 分析可使用 Clang |
 | `ModBuildTool`（MBT） | 实际 Target 与工具链识别、构建准备、生成输入与缓存管理、SDK/二进制兼容核对、产物收集和发布 | 独立构建管理工具；保留仓库现有 CMake/C++ 工具布局，通过 UBT 构建步骤接入 |
-| `ModSDKTool`（MST） | SDK 工具工程骨架；具体 SDK 操作待实现 | 独立 CMake/C++20 可执行工具，接入统一工具构建入口 |
+| `ModSDKTool`（MDT） | SDK 工具工程骨架；具体 SDK 操作待实现 | 独立 CMake/C++20 可执行工具，接入统一工具构建入口 |
 | `DevelopmentEditor` | 模组工程的创作界面、SDK 浏览、Cook/打包、包检查、预览与发布工具 | 单独构建的编辑器二进制插件 |
 | `ModProtocol` | Export Schema、包格式、Manifest、内容注册表、IPC 消息和 C ABI 版本定义 | 单一版本化源定义，构建时复制到各独立交付物 |
 | 游戏 Mod SDK Bundle | 公共 GameModSDK、受限视图、反射类型、契约、链接/模块元数据、Cook Profile 与能力报告 | 同批生成、按 Game/Editor 等目标构建，原子发布 |
