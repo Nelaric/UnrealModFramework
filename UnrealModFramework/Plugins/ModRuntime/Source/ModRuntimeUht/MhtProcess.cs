@@ -20,7 +20,8 @@ internal static class MhtProcess
 		string workingDirectory,
 		int timeoutSeconds,
 		string description = "ModRuntime MHT",
-		int allowedExitCode = 0
+		int allowedExitCode = 0,
+		IReadOnlyDictionary<string, string>? environment = null
 	)
 	{
 		using ManagedProcessGroup group = new();
@@ -29,7 +30,7 @@ internal static class MhtProcess
 			executable,
 			CommandLineArguments.Join(arguments),
 			workingDirectory,
-			null,
+			environment,
 			Array.Empty<byte>(),
 			ProcessPriorityClass.Normal
 		);

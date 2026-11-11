@@ -1,28 +1,21 @@
 {
   "schemaVersion": 1,
   "mode": "generate",
-  "targets": {
-    "UnrealModFrameworkDevEditor": {
-      "variants": {
-        "Win64/Development/x64": {
-          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Editor.json"
-        },
-        "Win64/DebugGame/x64": {
-          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Editor.DebugGame.json"
-        }
-      },
-      "libclang": "../.tools/llvm-21.1.8/bin/libclang.dll"
-    },
-    "UnrealModFrameworkDev": {
-      "variants": {
-        "Win64/Development/x64": {
-          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Game.json"
-        },
-        "Win64/DebugGame/x64": {
-          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Game.DebugGame.json"
-        }
-      },
-      "libclang": "../.tools/llvm-21.1.8/bin/libclang.dll"
-    }
+  "libclang": "../.tools/llvm-21.1.8/bin/libclang.dll",
+  "metadataEditorTarget": "UnrealModFrameworkDevEditor",
+  "generation": {
+    "gameId": "UnrealModFrameworkDev",
+    "typeIdentities": "Config/ModAPITypes.json",
+    "modules": [
+      {
+        "name": "ExportTest",
+        "sourceDirectory": "Source/ExportTest",
+        "translationUnits": [
+          "Source/ExportTest/GameCharacter.cpp",
+          "Source/ExportTest/GameLocalPlayerAPI.cpp"
+        ]
+      }
+    ],
+    "analysisArguments": ["-Wno-invalid-constexpr"]
   }
 }

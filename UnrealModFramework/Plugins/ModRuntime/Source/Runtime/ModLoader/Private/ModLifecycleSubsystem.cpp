@@ -1,14 +1,17 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModLifecycleSubsystem.h"
 
+#include "Engine/LatentActionManager.h"
+#include "Engine/World.h"
 #include "HAL/PlatformProperties.h"
 #include "Misc/Paths.h"
 #include "ModInstance.h"
 #include "Modules/ModuleManager.h"
+#include "TimerManager.h"
+#include "UObject/StrongObjectPtr.h"
 
 #if WITH_EDITOR
 #include "Engine/Engine.h"
-#include "Engine/World.h"
 #include "ModLoaderPIE.h"
 #endif
 
@@ -62,7 +65,13 @@ void UModLifecycleSubsystem::SubscribeToLoader()
 {
 	IModLoaderModule& Loader = IModLoaderModule::Get();
 	CompletionHandle = Loader.OnLoadCompleted().AddUObject(this, &UModLifecycleSubsystem::HandleLoadCompleted);
-	for (const FMountedPackage& Package : Loader.GetMountedPackages())
+	BeforeUnloadHandle = Loader.OnBeforeUnload().AddUObject(this, &UModLifecycleSubsystem::HandleBeforeUnload);
+	ActivateMountedPackages();
+}
+
+void UModLifecycleSubsystem::ActivateMountedPackages()
+{
+	for (const FMountedPackage& Package : IModLoaderModule::Get().GetMountedPackages())
 	{
 		Activate(Package);
 	}
@@ -77,8 +86,13 @@ void UModLifecycleSubsystem::Deinitialize()
 	if (IModLoaderModule* Loader = FModuleManager::GetModulePtr<IModLoaderModule>(TEXT("ModLoader")))
 	{
 		Loader->OnLoadCompleted().Remove(CompletionHandle);
+		Loader->OnBeforeUnload().Remove(BeforeUnloadHandle);
 	}
-	Instances.Reset();
+	while (!Instances.IsEmpty())
+	{
+		const FString ModId = Instances.Last().ModId;
+		Deactivate(ModId);
+	}
 	ActivatedModIds.Reset();
 	Super::Deinitialize();
 }
@@ -122,7 +136,37 @@ void UModLifecycleSubsystem::Activate(const FMountedPackage& Package)
 			       *Path);
 			continue;
 		}
-		Instances.Add(NewObject<UModInstance>(GetGameInstance(), Class));
+		Instances.Add({Package.ModId, NewObject<UModInstance>(GetGameInstance(), Class)});
+	}
+}
+
+void UModLifecycleSubsystem::HandleBeforeUnload(const FMountedPackage& Package)
+{
+	Deactivate(Package.ModId);
+}
+
+void UModLifecycleSubsystem::Deactivate(const FString& ModId)
+{
+	ActivatedModIds.Remove(ModId);
+	TArray<TStrongObjectPtr<UModInstance>> Unloading;
+	Instances.RemoveAll(
+	    [&ModId, &Unloading](const FActiveModInstance& Entry)
+	    {
+		    if (Entry.ModId != ModId)
+		    {
+			    return false;
+		    }
+		    Unloading.Emplace(Entry.Instance.Get());
+		    return true;
+	    });
+	for (const TStrongObjectPtr<UModInstance>& Instance : Unloading)
+	{
+		Instance->OnModBeforeUnload();
+		if (UWorld* World = Instance->GetWorld())
+		{
+			World->GetLatentActionManager().RemoveActionsForObject(Instance.Get());
+			World->GetTimerManager().ClearAllTimersForObject(Instance.Get());
+		}
 	}
 }
 
@@ -140,13 +184,7 @@ void UModLifecycleSubsystem::HandleLoadCompleted(ELoadOrigin Origin, const FStri
 
 void UModLifecycleSubsystem::DispatchResults(ELoadOrigin Origin, TConstArrayView<FLoadResult> Results)
 {
-	for (const FLoadResult& Result : Results)
-	{
-		if (Result.IsSuccess())
-		{
-			Activate(Result.Package);
-		}
-	}
+	ActivateMountedPackages();
 	for (const FLoadResult& Result : Results)
 	{
 		if (!bActive || Instances.IsEmpty())
@@ -164,7 +202,7 @@ void UModLifecycleSubsystem::DispatchResults(ELoadOrigin Origin, TConstArrayView
 		Notification.Reason = Result.Detail;
 		for (int32 Index = 0; bActive && Index < Instances.Num(); ++Index)
 		{
-			Instances[Index]->OnModLoadCompleted(Notification);
+			Instances[Index].Instance->OnModLoadCompleted(Notification);
 		}
 	}
 }

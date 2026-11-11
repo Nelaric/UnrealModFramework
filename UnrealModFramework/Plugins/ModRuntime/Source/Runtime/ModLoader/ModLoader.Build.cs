@@ -8,7 +8,7 @@ public class ModLoader : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine" });
-		PrivateDependencyModuleNames.AddRange(new[] { "AssetRegistry", "Json", "PakFile", "RenderCore" });
+		PrivateDependencyModuleNames.AddRange(new[] { "AssetRegistry", "HAL", "Json", "PakFile", "RenderCore" });
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");

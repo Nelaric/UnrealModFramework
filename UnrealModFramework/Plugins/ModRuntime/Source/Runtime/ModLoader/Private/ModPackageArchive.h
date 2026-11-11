@@ -2,6 +2,7 @@
 #pragma once
 
 #include "ModLoader.h"
+#include "Templates/Atomic.h"
 
 namespace Mod::Loader::Private
 {
@@ -17,10 +18,21 @@ struct FPreparedPackage
 	FString StageRoot;
 	FString ContentRelativePath;
 	TArray<FNativeContainer> Containers;
+	bool bSkipped = false;
+};
+
+struct FPreparationBudget
+{
+	double Deadline;
+	const TAtomic<bool>* Cancellation = nullptr;
+
+	bool IsExpired() const;
 };
 
 bool Fail(FLoadResult& Result, ELoadError Error, FString Detail);
 bool ValidatePolicy(const FLoadPolicy& Policy, FLoadResult& Result);
 bool IsSafeRelativePath(FStringView Path);
-bool PrepareArchive(const FLoadPolicy& Policy, double Deadline, FLoadResult& Result, FPreparedPackage& OutPackage);
+bool FindArchives(FPreparationBudget Budget, TArray<FString>& Paths, FLoadResult& Result);
+bool PrepareArchive(const FLoadPolicy& Policy, FPreparationBudget Budget, FLoadResult& Result,
+                    FPreparedPackage& OutPackage, const TSet<FString>* MountedIds = nullptr);
 } // namespace Mod::Loader::Private

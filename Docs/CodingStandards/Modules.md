@@ -6,10 +6,11 @@ English | [简体中文](Modules.zh-CN.md)
 
 The repository contains a development host project and two framework plugins. Each module has one responsibility, declares only the dependencies it uses, and keeps implementation details in `Private`. Public headers are contracts: they must compile when included on their own, and their `.Build.cs` dependencies must be public only when those headers require them. Circular module dependencies are forbidden.
 
-The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory. The `ModRuntime` plugin contains `ExportMetadata`, `ModAPI`, `ModLoader`, `BlueprintIntegration`, and `ExportCodeGenerator`. The `ModDevelopmentSDKEditor` plugin contains `DevelopmentEditor`.
+The UE project lives in `UnrealModFramework/`. Module and configuration paths in this document are relative to that project directory. The `ModRuntime` plugin contains `HAL`, `ExportMetadata`, `ModAPI`, `ModLoader`, `BlueprintIntegration`, and `ExportCodeGenerator`. The `ModDevelopmentSDKEditor` plugin contains `DevelopmentEditor`.
 
 | Responsibility | Location | UE module type |
 | --- | --- | --- |
+| Native directory notifications | `Plugins/ModRuntime/Source/Runtime/Core/HAL/` | `Runtime` |
 | Export metadata and configuration choices | `Plugins/ModRuntime/Source/Runtime/ExportMetadata/` | `Runtime` |
 | Generated API results, scopes, bindings, permissions, and revocation | `Plugins/ModRuntime/Source/Runtime/ModAPI/` | `Runtime` |
 | Mod package loader | `Plugins/ModRuntime/Source/Runtime/ModLoader/` | `Runtime` |
@@ -48,7 +49,7 @@ The Blueprint extension contributes API, Event, and Hook names and tooltips to F
 
 `DevelopmentEditor` is built independently with UAT `BuildPlugin`. It must not statically depend on the project-side `ExportMetadata` module or a host game's modules. Shared package schemas and SDK contracts belong in versioned `Shared/ModProtocol` definitions when introduced; both plugins compile against those definitions separately. Runtime preview across processes uses a versioned bridge or IPC rather than a UBT dependency on the game project.
 
-`ExportCodeGenerator` is an Editor module with a public `ExportMetadata` dependency and private `Core`, `CoreUObject`, `Engine`, `Json`, and `Projects` dependencies. Its `ModExportOptions` commandlet exports resolved GameMod choices and UE function redirects. Runtime annotations live in `ModExportAnnotations.h`. The old `ModExportMacros.h` forwards to it. Standalone MHT retains lexical scan/metadata validation and adds generation from active API declarations through a real UBT compilation database and libclang AST. The first synchronous UObject backend generates closed SDK views, concrete host bridges, compile verification, contracts, and manifests for GameThread/ReturnError APIs with scalar value arguments and scalar/void/World-object results. Other forms and Event/Hook generation fail explicitly. MHT has no `BlueprintIntegration` dependency.
+`ExportCodeGenerator` is an Editor module with a public `ExportMetadata` dependency and private `Core`, `CoreUObject`, `Engine`, `Json`, and `Projects` dependencies. Its `ModExportOptions` commandlet exports resolved GameMod choices and UE function redirects. The shared annotation macros are defined in `ExportMetadata/Public/ModExportMacros.h`. Standalone MHT retains lexical scan/metadata validation and adds generation from active API declarations through a real UBT compilation database and libclang AST. The first synchronous UObject backend generates closed SDK views, concrete host bridges, compile verification, contracts, and manifests for GameThread/ReturnError APIs with scalar value arguments and scalar/void/World-object results. Other forms and Event/Hook generation fail explicitly. MHT has no `BlueprintIntegration` dependency.
 
 Keep native mod ABI types separate from UE-facing public APIs. UE-facing C++ contracts use UE types. The external C ABI uses fixed-width fields, explicit lengths, opaque handles, and documented ownership because UE object and C++ ABI layouts are not portable across independently built binaries.
 
@@ -62,7 +63,9 @@ After engine initialization, game-thread code can call `Mod::Loader::IModLoaderM
 
 Host C++ can subscribe through `OnLoadCompleted()`. Each startup or manual operation broadcasts its origin, input path, and `FLoadResult` entries. An empty scan has no entries. A scan-level failure returns one entry with `Error` and `Detail`. Callbacks run on the game thread. Reentrant and wrong-thread completions are deferred.
 
-Startup scans top-level `.mod` files in `Saved/Mods` by default. Configure the host release in `Config/DefaultGame.ini`. Set `bLoadAtStartup=False` in `[ModLoader]` to disable the scan.
+Packaged games scan top-level `.mod` files in the `Mods` directory beside the running game executable by default. For a standard Win64 package, use `<Project>/Binaries/Win64/Mods`. Configure the host release in `Config/DefaultGame.ini`. Set `bLoadAtStartup=False` in `[ModLoader]` to disable the scan.
+
+The runtime `HAL` module provides native directory notifications on Win64, Linux, and Mac. With startup loading enabled, the loader watches the same directory by default. Set `bWatchForChanges=False` to use startup and manual loading only. The watch waits for file metadata to settle, prepares new archives on a worker, and commits them on the game thread. An archive declaring an already mounted ModId is skipped without a load notification.
 
 ```ini
 [ModLoader]
@@ -77,13 +80,15 @@ Use the game and base release values supplied to the authoring tool, and select 
 
 The package allowlist is disabled by default. To enable it, add one `+TrustedPackageSha256=<digest>` per approved `.mod` using the `sha256` field in its build result. An explicit `bEnforcePackageAllowlist=False` bypasses a populated list. Setting it to `True` requires a match even when the list is empty. Manual loads use the corresponding `FLoadPolicy` fields.
 
-Payloads live in `Saved/ModCache/<archive SHA-256>` and are rechecked before reuse. A mount retains its cooked package root and admits one version of a mod ID at a time. In a cooked game, containers, package roots, and shader libraries remain active until process exit. This version accepts unencrypted content in its own package root and can append its cooked asset registry when present.
+Payloads live in `Saved/ModCache/<archive SHA-256>` and are rechecked before reuse. A mount retains its cooked package root and admits one version of a mod ID at a time. Moving or deleting its source archive from the watched directory starts an unload while the cached content is still available. The loader releases the containers, shader library, and package root once the packages are safe to release. If references remain, it logs the retained package. This version accepts unencrypted content in its own package root and can append its cooked asset registry when present.
 
-On Windows, the host editor uses the same `[ModLoader]` settings and `Saved/Mods` directory at PIE startup. Enable **Allow Cooked Content in the Editor** under **Project Settings → Engine → Cooker**. Launch with `-UsePaks` for `Backend=Pak` or `-UsePaks -UseIoStore` for `Backend=IoStore`. For unversioned cooked assets, set `s.AllowUnversionedContentInEditor=1` in the `[ConsoleVariables]` section of `Config/DefaultEngine.ini`.
+On Windows, PIE uses the host project's `Binaries/Win64/Mods` directory and the same `[ModLoader]` settings. Enable **Allow Cooked Content in the Editor** under **Project Settings → Engine → Cooker**. With `Backend=Pak`, ModLoader initializes the Pak platform file when the editor starts. For `Backend=IoStore`, launch with `-UsePaks -UseIoStore`. For unversioned cooked assets, set `s.AllowUnversionedContentInEditor=1` in the `[ConsoleVariables]` section of `Config/DefaultEngine.ini`.
 
 PIE worlds in the same process share the mounted packages and own separate Mod instances. Each instance receives the startup results when its PIE map is ready. At the end of PIE, the loader stops delivering session results, releases loaded packages after world teardown, then unmounts the containers and unregisters their package roots. If an editor object still references a package, the loader reports it and retains the mount until cleanup can succeed.
 
-The author SDK generates `ModInstance` and `ModInstanceSubSystem` from the host's lifecycle export and preserves their `/Script/ModLoader` paths. Packaging automatically collects concrete Blueprint subclasses from the content plugin. After the load batch finishes, the game session creates entries for successful mounts and delivers each result to active entries. C++ subclasses override `OnModLoadCompleted` and call `Super::OnModLoadCompleted` to invoke `ReceiveModLoadCompleted`, displayed as **On Mod Load Completed** in Blueprint. Both entry points receive the same result, including the error code and reason for failures.
+`ModSDKTool` (MDT) generates `ModInstance` and `ModInstanceSubSystem` from the host's lifecycle export and preserves their `/Script/ModLoader` paths. Packaging automatically collects concrete Blueprint subclasses from the content plugin. After the load batch finishes, the game session creates entries for successful mounts and delivers each result to active entries. C++ subclasses override `OnModLoadCompleted` and call `Super::OnModLoadCompleted` to invoke `ReceiveModLoadCompleted`, displayed as **On Mod Load Completed** in Blueprint. Both entry points receive the same result, including the error code and reason for failures.
+
+**On Mod Before Unload** runs once for each instance of the departing mod, on the game thread while its content remains mounted. C++ subclasses override `OnModBeforeUnload` and call `Super::OnModBeforeUnload` to dispatch the Blueprint event. Use this callback to restore gameplay state and release references to mod assets. Host C++ can subscribe to `IModLoaderModule::OnBeforeUnload()` for the mounted package record.
 
 ## Framework-only integration
 

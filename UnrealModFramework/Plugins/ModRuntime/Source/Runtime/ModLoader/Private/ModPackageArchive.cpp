@@ -189,15 +189,15 @@ bool ReadSize(const FJsonObject& Object, const TCHAR* Key, uint64& OutSize)
 	return static_cast<double>(OutSize) == Number;
 }
 
-bool Transfer(IFileHandle& Input, uint64 Size, FSha256& Hash, double Deadline, IFileHandle* Output = nullptr)
+bool Transfer(IFileHandle& Input, uint64 Size, FSha256& Hash, FPreparationBudget Budget, IFileHandle* Output = nullptr)
 {
 	TArray<uint8> Buffer;
 	Buffer.SetNumUninitialized(static_cast<int32>(FMath::Min<uint64>(Size, 1024 * 1024)));
 	while (Size > 0)
 	{
 		const int64 Count = static_cast<int64>(FMath::Min<uint64>(Size, Buffer.Num()));
-		if (FPlatformTime::Seconds() >= Deadline || !Input.Read(Buffer.GetData(), Count) ||
-		    !Hash.Update(Buffer.GetData(), Count) || (Output && !Output->Write(Buffer.GetData(), Count)))
+		if (Budget.IsExpired() || !Input.Read(Buffer.GetData(), Count) || !Hash.Update(Buffer.GetData(), Count) ||
+		    (Output && !Output->Write(Buffer.GetData(), Count)))
 		{
 			return false;
 		}
@@ -206,11 +206,10 @@ bool Transfer(IFileHandle& Input, uint64 Size, FSha256& Hash, double Deadline, I
 	return true;
 }
 
-bool FailTransfer(FLoadResult& Result, double Deadline, ELoadError Error, FString Detail)
+bool FailTransfer(FLoadResult& Result, FPreparationBudget Budget, ELoadError Error, FString Detail)
 {
-	return FPlatformTime::Seconds() >= Deadline
-	           ? Fail(Result, ELoadError::TimedOut, TEXT("Mod package preparation timed out."))
-	           : Fail(Result, Error, MoveTemp(Detail));
+	return Budget.IsExpired() ? Fail(Result, ELoadError::TimedOut, TEXT("Mod package preparation timed out."))
+	                          : Fail(Result, Error, MoveTemp(Detail));
 }
 
 bool ReadLifecycleClasses(const FJsonObject& Manifest, FLoadResult& Result)
@@ -451,7 +450,8 @@ bool IsLink(IPlatformFile& Files, const FString& Path)
 	return Files.IsSymlink(*Path) == ESymlinkResult::Symlink;
 }
 
-bool VerifyCache(IPlatformFile& Files, const FString& Directory, const TArray<FEntry>& Entries, double Deadline)
+bool VerifyCache(IPlatformFile& Files, const FString& Directory, const TArray<FEntry>& Entries,
+                 FPreparationBudget Budget)
 {
 	if (IsLink(Files, Directory))
 	{
@@ -464,12 +464,12 @@ bool VerifyCache(IPlatformFile& Files, const FString& Directory, const TArray<FE
 	}
 	int32 Visited = 0;
 	if (!Files.IterateDirectoryRecursively(*Directory,
-	                                       [&Files, &Expected, &Visited, Deadline](const TCHAR* Path, bool bIsDirectory)
+	                                       [&Files, &Expected, &Visited, Budget](const TCHAR* Path, bool bIsDirectory)
 	                                       {
 		                                       FString Normalized(Path);
 		                                       FPaths::NormalizeFilename(Normalized);
-		                                       return FPlatformTime::Seconds() < Deadline &&
-		                                              ++Visited <= MaxEntries * 16 && !IsLink(Files, Normalized) &&
+		                                       return !Budget.IsExpired() && ++Visited <= MaxEntries * 16 &&
+		                                              !IsLink(Files, Normalized) &&
 		                                              (bIsDirectory || Expected.Remove(Normalized) == 1);
 	                                       }) ||
 	    !Expected.IsEmpty())
@@ -481,7 +481,7 @@ bool VerifyCache(IPlatformFile& Files, const FString& Directory, const TArray<FE
 		const FString Path = FPaths::Combine(Directory, Entry.Path);
 		TUniquePtr<IFileHandle> File(Files.OpenRead(*Path));
 		FSha256 Hash;
-		if (!File || File->Size() != static_cast<int64>(Entry.Size) || !Transfer(*File, Entry.Size, Hash, Deadline) ||
+		if (!File || File->Size() != static_cast<int64>(Entry.Size) || !Transfer(*File, Entry.Size, Hash, Budget) ||
 		    !Hash.Finish().Equals(Entry.Digest, ESearchCase::IgnoreCase))
 		{
 			return false;
@@ -490,7 +490,7 @@ bool VerifyCache(IPlatformFile& Files, const FString& Directory, const TArray<FE
 	return true;
 }
 
-bool PrepareCache(IFileHandle& Input, const TArray<FEntry>& Entries, double Deadline, FLoadResult& Result,
+bool PrepareCache(IFileHandle& Input, const TArray<FEntry>& Entries, FPreparationBudget Budget, FLoadResult& Result,
                   FString& OutCacheDirectory)
 {
 	IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
@@ -503,8 +503,8 @@ bool PrepareCache(IFileHandle& Input, const TArray<FEntry>& Entries, double Dead
 	OutCacheDirectory = FPaths::Combine(Root, Result.Package.ArchiveSha256);
 	if (Files.DirectoryExists(*OutCacheDirectory))
 	{
-		return VerifyCache(Files, OutCacheDirectory, Entries, Deadline) ||
-		       FailTransfer(Result, Deadline, ELoadError::CacheFailure,
+		return VerifyCache(Files, OutCacheDirectory, Entries, Budget) ||
+		       FailTransfer(Result, Budget, ELoadError::CacheFailure,
 		                    TEXT("The existing mod cache differs from the verified archive."));
 	}
 	const FString Pending = FPaths::Combine(Root, TEXT(".pending-") + FGuid::NewGuid().ToString(EGuidFormats::Digits));
@@ -529,18 +529,18 @@ bool PrepareCache(IFileHandle& Input, const TArray<FEntry>& Entries, double Dead
 		}
 		TUniquePtr<IFileHandle> Output(Files.OpenWrite(*Path, false, false));
 		FSha256 Hash;
-		if (!Output || !Transfer(Input, Entry.Size, Hash, Deadline, Output.Get()) || !Output->Flush())
+		if (!Output || !Transfer(Input, Entry.Size, Hash, Budget, Output.Get()) || !Output->Flush())
 		{
-			return FailTransfer(Result, Deadline, ELoadError::CacheFailure, TEXT("A payload could not be extracted."));
+			return FailTransfer(Result, Budget, ELoadError::CacheFailure, TEXT("A payload could not be extracted."));
 		}
 		if (!Hash.Finish().Equals(Entry.Digest, ESearchCase::IgnoreCase))
 		{
 			return Fail(Result, ELoadError::IntegrityFailure, TEXT("A payload does not match its SHA-256 digest."));
 		}
 	}
-	if (!Files.MoveFile(*OutCacheDirectory, *Pending) && !VerifyCache(Files, OutCacheDirectory, Entries, Deadline))
+	if (!Files.MoveFile(*OutCacheDirectory, *Pending) && !VerifyCache(Files, OutCacheDirectory, Entries, Budget))
 	{
-		return FailTransfer(Result, Deadline, ELoadError::CacheFailure,
+		return FailTransfer(Result, Budget, ELoadError::CacheFailure,
 		                    TEXT("The verified cache directory could not be committed."));
 	}
 	return true;
@@ -604,7 +604,13 @@ bool IsSafeRelativePath(FStringView Path)
 	                                             });
 }
 
-bool PrepareArchive(const FLoadPolicy& Policy, double Deadline, FLoadResult& Result, FPreparedPackage& OutPackage)
+bool FPreparationBudget::IsExpired() const
+{
+	return (Cancellation && Cancellation->Load()) || FPlatformTime::Seconds() >= Deadline;
+}
+
+bool PrepareArchive(const FLoadPolicy& Policy, FPreparationBudget Budget, FLoadResult& Result,
+                    FPreparedPackage& OutPackage, const TSet<FString>* MountedIds)
 {
 	IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
 	TUniquePtr<IFileHandle> Input;
@@ -626,8 +632,21 @@ bool PrepareArchive(const FLoadPolicy& Policy, double Deadline, FLoadResult& Res
 	TArray<uint8> ManifestBytes;
 	TArray<uint8> IndexBytes;
 	if (FileSize < static_cast<int64>(HeaderSize) || !ReadBytes(*Input, 0, HeaderSize, Header) ||
-	    !ReadLayout(Header, FileSize, Layout) || !ReadBytes(*Input, HeaderSize, Layout.ManifestSize, ManifestBytes) ||
-	    !ReadBytes(*Input, Layout.IndexOffset, Layout.IndexSize, IndexBytes))
+	    !ReadLayout(Header, FileSize, Layout) || !ReadBytes(*Input, HeaderSize, Layout.ManifestSize, ManifestBytes))
+	{
+		return Fail(Result, ELoadError::InvalidArchive, TEXT("The UMFMOD v1 header or metadata bounds are invalid."));
+	}
+	TSharedPtr<FJsonObject> Manifest;
+	FString DeclaredId;
+	if (MountedIds && ReadObject(ManifestBytes, Manifest) && Manifest->TryGetStringField(TEXT("modId"), DeclaredId) &&
+	    MountedIds->Contains(DeclaredId))
+	{
+		// An untrusted identity can only cause a skip, never a mount.
+		Result.Package.ModId = MoveTemp(DeclaredId);
+		OutPackage.bSkipped = true;
+		return true;
+	}
+	if (!ReadBytes(*Input, Layout.IndexOffset, Layout.IndexSize, IndexBytes))
 	{
 		return Fail(Result, ELoadError::InvalidArchive, TEXT("The UMFMOD v1 header or metadata bounds are invalid."));
 	}
@@ -635,10 +654,10 @@ bool PrepareArchive(const FLoadPolicy& Policy, double Deadline, FLoadResult& Res
 	FSha256 Hash;
 	// Hash the exact metadata bytes that will be parsed, including the index.
 	if (!Hash.Update(Header.GetData(), Header.Num()) || !Hash.Update(ManifestBytes.GetData(), ManifestBytes.Num()) ||
-	    !Input->Seek(PayloadOffset) || !Transfer(*Input, Layout.IndexOffset - PayloadOffset, Hash, Deadline) ||
+	    !Input->Seek(PayloadOffset) || !Transfer(*Input, Layout.IndexOffset - PayloadOffset, Hash, Budget) ||
 	    !Hash.Update(IndexBytes.GetData(), IndexBytes.Num()))
 	{
-		return FailTransfer(Result, Deadline, ELoadError::InputUnavailable, TEXT("The archive could not be hashed."));
+		return FailTransfer(Result, Budget, ELoadError::InputUnavailable, TEXT("The archive could not be hashed."));
 	}
 	Result.Package.ArchiveSha256 = Hash.Finish();
 	if (Result.Package.ArchiveSha256.IsEmpty())
@@ -652,9 +671,8 @@ bool PrepareArchive(const FLoadPolicy& Policy, double Deadline, FLoadResult& Res
 	{
 		return Fail(Result, ELoadError::Untrusted, TEXT("The archive SHA-256 is absent from TrustedPackageSha256."));
 	}
-	TSharedPtr<FJsonObject> Manifest;
 	TSharedPtr<FJsonObject> Index;
-	if (!ReadObject(ManifestBytes, Manifest) || !ReadObject(IndexBytes, Index))
+	if ((!Manifest.IsValid() && !ReadObject(ManifestBytes, Manifest)) || !ReadObject(IndexBytes, Index))
 	{
 		return Fail(Result, ELoadError::InvalidArchive, TEXT("The manifest or index is not valid UTF-8 JSON."));
 	}
@@ -666,7 +684,7 @@ bool PrepareArchive(const FLoadPolicy& Policy, double Deadline, FLoadResult& Res
 		return false;
 	}
 	FString CacheDirectory;
-	if (!PrepareCache(*Input, Contents.Entries, Deadline, Result, CacheDirectory))
+	if (!PrepareCache(*Input, Contents.Entries, Budget, Result, CacheDirectory))
 	{
 		return false;
 	}

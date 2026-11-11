@@ -45,8 +45,9 @@ as `DefaultEngine.ini` trigger this check on the next incremental build.
 Scan mode refreshes an existing default snapshot and can still scan a project
 with no snapshot when none of its declarations need it. An `options` override
 that points elsewhere is managed by the caller.
-Build the first Development Editor with `-MhtBootstrap` if the commandlet
-is unavailable. The normal build then exports the default snapshot.
+On Win64, `metadataEditorTarget` names the Development Editor target that UBT
+builds in bootstrap mode when the commandlet needs project binaries. Projects
+that leave this setting out can prepare the Editor with `-MhtBootstrap`.
 
 The UHT output factory commits successful scan reports to
 `Intermediate/ModTools/ModHeaderTool/Scan/<Target>/<Platform>/<Configuration>/Scan.json`
@@ -54,10 +55,16 @@ under the project. Scan validates marker parameters.
 
 ## Complete generation
 
-Set `mode` to `generate` and supply an actual prepared MHT build input for each
-Target variant. The adapter checks its project, Target, platform and configuration
-against the UHT session and uses the x64 architecture enforced by the rules,
-exports owner-specific MBT contexts, and starts
+Set `mode` to `generate` and list the export modules in `generation`. During a
+normal build the adapter runs UBT's `GenerateClangDatabase` with the selected
+target and MSVC toolchain. It expands the export modules' response files before
+the regular action graph is written. The variant's `HostTargets` directory holds
+the resulting `BuildInput.json` and `Ubt/compile_commands.json`. When UBT reuses
+its makefile, the adapter reads the saved compile arguments.
+
+The adapter checks the input's project, target, platform, and configuration
+against the UHT session and uses the x64 architecture enforced by the rules. It
+exports owner-specific MBT contexts and starts
 `generate --build-input ... --output-dir <MHT> --host-contexts <contexts.json>`.
 It then runs `ModBuildTool build-host` for every owner before returning from UHT.
 The project generation root is
@@ -73,7 +80,8 @@ verified generated files at the same relative paths under the plugin's
 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`.
 The project batch contains the shared contract, client ABI and complete manifest.
 
-Example project configuration; replace the native tool and LLVM paths:
+The example uses the development host's module and type identities. Set the
+native tool and LLVM paths for your installation.
 
 ```json
 {
@@ -83,38 +91,37 @@ Example project configuration; replace the native tool and LLVM paths:
   "mode": "generate",
   "timeoutSeconds": 600,
   "options": "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json",
-  "targets": {
-    "UnrealModFrameworkDevEditor": {
-      "variants": {
-        "Win64/Development/x64": {
-          "buildInput": "Intermediate/ModTools/ModHeaderTool/BuildInputs/Editor.json"
-        }
-      },
-      "libclang": "<LLVM>/bin/libclang.dll"
-    }
+  "metadataEditorTarget": "UnrealModFrameworkDevEditor",
+  "libclang": "<LLVM>/bin/libclang.dll",
+  "generation": {
+    "gameId": "UnrealModFrameworkDev",
+    "typeIdentities": "Config/ModAPITypes.json",
+    "modules": [{
+      "name": "ExportTest",
+      "sourceDirectory": "Source/ExportTest",
+      "translationUnits": ["Source/ExportTest/GameCharacter.cpp", "Source/ExportTest/GameLocalPlayerAPI.cpp"]
+    }],
+    "analysisArguments": ["-Wno-invalid-constexpr"]
   }
 }
 ```
 
 Paths in this adapter configuration are relative to the project directory.
 Paths inside a build input retain MHT's own resolution rules. `timeoutSeconds`
-is 1–86400, default 600. `libclang` and `options` are optional overrides.
+is 1–86400, default 600. Automatic preparation requires a configured `libclang`
+with the resource headers in the same LLVM installation. `options` is optional.
 MBT discovery uses `UMF_MBT_EXECUTABLE`, the root `mbt` setting, or the local
 `Tools/build/ModBuildTool/ModBuildTool[.exe]` output under the ModRuntime plugin, in that order.
-ModSourceTool discovery uses `UMF_MOD_SOURCE_TOOL_EXECUTABLE`, the root
+ModSourceTool (MST) discovery uses `UMF_MOD_SOURCE_TOOL_EXECUTABLE`, the root
 `sourceTool` setting, or `Tools/build/ModSourceTool/ModSourceTool[.exe]` under the ModRuntime plugin,
 in that order.
-`UMF_MHT_BUILD_INPUT` selects generate mode and overrides target configuration;
-`UMF_MHT_LIBCLANG` overrides its libclang path. Changing environment settings
+`UMF_MHT_BUILD_INPUT` selects generate mode and overrides target configuration.
+`UMF_MHT_LIBCLANG` overrides the configured library path. Changing environment settings
 requires a new UHT invocation, for example `-ForceHeaderGeneration` through UBT.
 
-No compile environment is inferred from a UHT manifest. Prepare the real UBT
-compilation database and matching MHT build input first. Choose the correct
-platform, configuration, and architecture for that build input; the UHT manifest
-does not supply that complete tuple. Avoid stale response files. The UHT exporter
-API does not expose a cross-exporter dependency barrier; normal CodeGen must
-already have committed the headers needed by Clang. This was exercised with the
-installed UE 5.6 exporter order, not assumed for other engine versions.
+A target or variant `buildInput` selects a caller-managed input. Its compilation
+database and response files must match the active target. Clang also requires
+the headers produced by standard UHT CodeGen.
 
 ## Independent host compilation and linking
 
@@ -136,7 +143,7 @@ and no LTO. It does not guess missing compiler settings.
 MHT emits declarations in public headers and all implementations in explicit
 `.cpp` compilation units. MBT independently compiles those units and publishes
 `Intermediate/ModTools/ModBuildTool/<Target>/<Platform>/<Configuration>/<Architecture>/<owner>.lib`
-and its `.mbt.json` receipt under the owning project or plugin. A separate `<game>ModClient` producer context removes UE/game includes and forced definitions while retaining the real selected toolchain flags. MBT independently compiles the client ABI library into the project's `Intermediate/ModTools/ModBuildTool` variant directory. The v3 manifest lists all five host/client units for the one-owner sample and binds both endpoint sets to ExportIds. MST publishes the C ABI header and, for structured error catalogs, the separate `<game>.moderrors.h` header. See the [MHT connection protocol](../../Tools/ModHeaderTool/README.md). The generated manifest's `hostBuildContexts` map pins
+and its `.mbt.json` receipt under the owning project or plugin. A separate `<game>ModClient` producer context removes UE/game includes and forced definitions while retaining the real selected toolchain flags. MBT independently compiles the client ABI library into the project's `Intermediate/ModTools/ModBuildTool` variant directory. The v3 manifest lists all five host/client units for the one-owner sample and binds both endpoint sets to ExportIds. ModSDKTool (MDT) publishes the C ABI header and, for structured error catalogs, the separate `<game>.moderrors.h` header. See the [MHT connection protocol](../../Tools/ModHeaderTool/README.md). The generated manifest's `hostBuildContexts` map pins
 each actual producer context. An unchanged MBT fingerprint reuses the library.
 
 The private External module uses UE 5.6 `PublicPreBuildLibraries` to declare a
@@ -169,9 +176,8 @@ and timeouts fail UHT. UE's managed process group owns the child process lifetim
 The adapter does not enable `CompileOutput` or register C++ output filters;
 MHT sources remain outside UBT's compilation list.
 
-UHT no-output/reference and `-Mode=GenerateClangDatabase` preparation invocations
-skip native side effects. Bootstrap and database preparation defer MHT until
-the next normal build. Complete generation
+UHT no-output/reference, bootstrap, and `-Mode=GenerateClangDatabase` invocations
+skip native generation. The normal build runs MHT after preparation. Complete generation
 is rejected with `-FailIfGeneratedCodeChanges` because MHT has no matching dry-run
 contract. Scan outputs retain UHT's normal change-checking behavior.
 
@@ -179,8 +185,8 @@ Existing tool, configuration, metadata, reflected headers, build inputs, and
 generated-manifest inputs, metadata configuration inputs, compiler recipes, libraries, MBT receipts, and their
 compiler dependencies are registered using `AddExternalDependency`. UHT
 regenerates the affected variant when a registered file or the watch stamp
-changes. A clean checkout requires a runnable Development Editor and an actual
-compilation database for that variant.
+changes. With the native tools and LLVM installed, a normal Win64 build prepares
+the default project's inputs from a clean checkout.
 The automatic link verification covers standard Win64 x64 project DLLs and
 monolithic EXEs. Live Coding and Hot Reload require separate integration.
 

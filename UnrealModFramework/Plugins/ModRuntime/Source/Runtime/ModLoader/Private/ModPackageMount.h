@@ -19,11 +19,11 @@ struct FMountedResources
 	TArray<FMountedContainer> Containers;
 };
 
-bool CheckBackend(EBackend Backend, bool bPIE, FLoadResult& Result);
-bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMountedResources* Resources);
-
-#if WITH_EDITOR
-bool ReleasePIEPackages(TConstArrayView<FName> PackageNames, FString& Reason);
-bool UnmountPIE(const FMountedPackage& Package, const FMountedResources& Resources);
+#if WITH_EDITOR && PLATFORM_WINDOWS
+void InitializePIEPakPlatform();
 #endif
+bool CheckBackend(EBackend Backend, bool bPIE, FLoadResult& Result);
+bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMountedResources& Resources);
+bool ReleaseModPackages(TConstArrayView<FName> PackageNames, FString& Reason);
+bool UnmountPackage(const FMountedPackage& Package, const FMountedResources& Resources);
 } // namespace Mod::Loader::Private
