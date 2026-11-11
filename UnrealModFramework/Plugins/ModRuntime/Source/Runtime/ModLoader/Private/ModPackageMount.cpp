@@ -25,7 +25,8 @@
 
 #if WITH_EDITOR
 #include "Engine/World.h"
-#include "PackageTools.h"
+#include "UObject/GarbageCollection.h"
+#include "UObject/UObjectHash.h"
 #endif
 
 #if WITH_EDITOR && PLATFORM_WINDOWS
@@ -539,13 +540,29 @@ bool ReleaseModPackages(TConstArrayView<FName> PackageNames, FString& Reason)
 				return false;
 			}
 		}
-		UPackageTools::FUnloadPackageParams Params(LoadedPackages);
-		Params.bResetTransBuffer = false;
-		UPackageTools::UnloadPackages(Params);
-		if (!Params.OutErrorMessage.IsEmpty())
+
+		// Cooked packages can have split exports. The editor's package unload path tries to fully load them.
+		TArray<TWeakObjectPtr<UObject>> StandaloneObjects;
+		auto ClearStandalone = [&StandaloneObjects](UObject* Object)
 		{
-			Reason = Params.OutErrorMessage.ToString();
-			return false;
+			if (Object->HasAnyFlags(RF_Standalone))
+			{
+				StandaloneObjects.Add(Object);
+				Object->ClearFlags(RF_Standalone);
+			}
+		};
+		for (UPackage* Package : LoadedPackages)
+		{
+			ClearStandalone(Package);
+			ForEachObjectWithOuter(Package, ClearStandalone);
+		}
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS, true);
+		for (const TWeakObjectPtr<UObject>& Reference : StandaloneObjects)
+		{
+			if (UObject* Object = Reference.Get())
+			{
+				Object->SetFlags(RF_Standalone);
+			}
 		}
 #else
 		CollectGarbage(RF_NoFlags, true);

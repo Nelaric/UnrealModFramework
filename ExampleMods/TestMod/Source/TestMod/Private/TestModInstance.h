@@ -8,6 +8,7 @@
 
 class ATestModPreviewPawn;
 class USkeletalMesh;
+class UTestModShooterComponent;
 
 UCLASS(MinimalAPI, Blueprintable)
 class UTestModInstance : public UModInstance
@@ -21,7 +22,8 @@ public:
 
 	/** @brief Replaces the local character's mesh with UE's Manny mannequin.
 	 * @param PlayerContext The authorized
-	 * context used when running in a host.
+
+	 * * context used when running in a host.
 	 * @return Whether the replacement succeeded.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Test Mod")
@@ -33,6 +35,7 @@ public:
 
 protected:
 	void OnModLoadCompleted(const FModLoadNotification& Result) override;
+	void OnModBeforeUnload() override;
 
 private:
 	friend class ATestModPreviewPawn;
@@ -40,6 +43,12 @@ private:
 	static bool HasStandalonePreviewContent();
 	static FString ContentPath(const TCHAR* RelativePath);
 
+	void UpdateShooter(UWorld* World, ELevelTick TickType, float DeltaSeconds);
+	void RemoveShooter();
+
 	UPROPERTY()
 	TObjectPtr<USkeletalMesh> PreviewReplacementMesh;
+
+	TWeakObjectPtr<UTestModShooterComponent> Shooter;
+	FDelegateHandle WorldTickHandle;
 };

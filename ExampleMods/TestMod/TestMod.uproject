@@ -5,9 +5,14 @@
 	"Category": "Development",
 	"Description": "Standalone test project for UnrealModFramework.",
 	"AdditionalPluginDirectories": [
-		"../../Dist/TestModEditorPlugins/0.5.0"
+		"../../UnrealModFramework/SourcePlugins"
 	],
 	"Modules": [
+		{
+			"Name": "TP_FirstPerson",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
 		{
 			"Name": "TestMod",
 			"Type": "Runtime",
@@ -15,6 +20,21 @@
 		}
 	],
 	"Plugins": [
+		{
+			"Name": "ACLPlugin",
+			"Enabled": true
+		},
+		{
+			"Name": "AnimationData",
+			"Enabled": true,
+			"TargetAllowList": [
+				"Editor"
+			]
+		},
+		{
+			"Name": "EnhancedInput",
+			"Enabled": true
+		},
 		{
 			"Name": "ControlRig",
 			"Enabled": true
