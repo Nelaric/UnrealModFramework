@@ -81,6 +81,10 @@ public class ExportMetadata : ModuleRules
 		owner.PrivateDefinitions.Add("MOD_API_BOOTSTRAP=" + (useGeneratedHost ? "0" : "1"));
 		owner.PCHUsage = PCHUsageMode.NoPCHs;
 		owner.bUseUnity = false;
+		if (bootstrap)
+		{
+			owner.ShortName = (owner.ShortName ?? owner.Name) + "MhtBootstrap";
+		}
 		if (!useGeneratedHost)
 		{
 			return;
@@ -138,6 +142,14 @@ public class ExportMetadata : ModuleRules
 				ownerGeneratedDirectory = ownerGenerated,
 				hostLinkHeader = hostLink,
 				outputLibrary = LibraryPath(ownerTools, target, owner.Name),
+				toolchain = new
+				{
+					compiler = target.WindowsPlatform.Compiler.ToString(),
+					compilerVersion = target.WindowsPlatform.CompilerVersion,
+					windowsSdkVersion = target.WindowsPlatform.WindowsSdkVersion,
+					msvcDirectory = target.WindowsPlatform.ToolChainDir,
+					windowsSdkDirectory = target.WindowsPlatform.WindowsSdkDir,
+				},
 				owningBinary = new
 				{
 					id = binaryName,
@@ -169,6 +181,13 @@ public class ExportMetadata : ModuleRules
 		if (File.Exists(config))
 		{
 			owner.ExternalDependencies.Add(config);
+			if (!HasArgument("-Mode=GenerateClangDatabase") && UsesAutomaticBuildInput(config, target))
+			{
+				string database = Path.Combine(variant, "Ubt", "compile_commands.json");
+				// A new action graph can refresh the database. A reused makefile must keep its response files.
+				AppDomain.CurrentDomain.SetData(database.ToUpperInvariant(), true);
+				owner.ExternalDependencies.Add(database);
+			}
 		}
 		// UBT resolves include directories before running UHT on a clean build.
 		string hostHeaders = Path.Combine(ownerGenerated, "Host", owner.Name);
@@ -235,6 +254,38 @@ public class ExportMetadata : ModuleRules
 
 	private static bool IsAutomaticHostPlatform(UnrealTargetPlatform platform) =>
 		platform == UnrealTargetPlatform.Win64 && OperatingSystem.IsWindows();
+
+	private static bool UsesAutomaticBuildInput(string configPath, ReadOnlyTargetRules target)
+	{
+		JsonObject config = JsonObject.Read(new FileReference(configPath));
+		if (
+			!config.TryGetStringField("mode", out string mode)
+			|| mode != "generate"
+			|| !config.TryGetObjectField("generation", out _)
+			|| Environment.GetEnvironmentVariable("UMF_MHT_BUILD_INPUT") != null
+		)
+		{
+			return false;
+		}
+		if (
+			!config.TryGetObjectField("targets", out JsonObject targets)
+			|| !targets.TryGetObjectField(target.Name, out JsonObject variant)
+		)
+		{
+			return true;
+		}
+		if (
+			variant.TryGetObjectField("variants", out JsonObject variants)
+			&& !variants.TryGetObjectField(
+				$"{target.Platform}/{target.Configuration}/{target.Architectures}",
+				out variant
+			)
+		)
+		{
+			return true;
+		}
+		return !variant.TryGetStringField("buildInput", out _);
+	}
 
 	private static void RequireAutomaticArchitecture(UnrealArchitectures architectures)
 	{

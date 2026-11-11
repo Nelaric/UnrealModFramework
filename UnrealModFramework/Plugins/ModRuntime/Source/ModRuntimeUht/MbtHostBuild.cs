@@ -128,7 +128,9 @@ internal sealed class MbtHostBuild
 				}
 				JsonElement entry = entries[0];
 				string directory = entry.GetProperty("directory").GetString()!;
-				string[] command = CommandLineArguments.Split(entry.GetProperty("command").GetString()!);
+				string[] command = entry.TryGetProperty("arguments", out JsonElement tokens)
+					? tokens.EnumerateArray().Select(argument => argument.GetString()!).ToArray()
+					: CommandLineArguments.Split(entry.GetProperty("command").GetString()!);
 				string tool = Path.GetFullPath(command[0], directory);
 				if (
 					!string.Equals(Path.GetFileName(tool), "cl.exe", StringComparison.OrdinalIgnoreCase)
@@ -337,7 +339,7 @@ internal sealed class MbtHostBuild
 		factory.AddExternalDependency(stamp);
 	}
 
-	private static void Expand(IEnumerable<string> arguments, string directory, List<string> result, int depth)
+	internal static void Expand(IEnumerable<string> arguments, string directory, List<string> result, int depth)
 	{
 		if (depth > 16)
 		{
@@ -348,8 +350,19 @@ internal sealed class MbtHostBuild
 			if (argument.StartsWith('@'))
 			{
 				string path = Path.GetFullPath(argument[1..].Trim('"'), directory);
+				string contents;
+				try
+				{
+					contents = File.ReadAllText(path);
+				}
+				catch (IOException exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+				{
+					throw new UhtException(
+						$"ModRuntime MBT: missing UBT response file \"{path}\". Refresh the supplied compilation database."
+					);
+				}
 				Expand(
-					CommandLineArguments.Split(File.ReadAllText(path).Replace('\r', ' ').Replace('\n', ' ')),
+					CommandLineArguments.Split(contents.Replace('\r', ' ').Replace('\n', ' ')),
 					directory,
 					result,
 					depth + 1
@@ -455,7 +468,7 @@ internal sealed class MbtHostBuild
 
 	private static string Digest(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-	private static string Identifier(JsonElement value, string key)
+	internal static string Identifier(JsonElement value, string key)
 	{
 		string name = value.GetProperty(key).GetString()!;
 		if (!Regex.IsMatch(name, "\\A[A-Za-z_][A-Za-z0-9_]*\\z"))
