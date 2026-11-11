@@ -1,9 +1,14 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "TestModInstance.h"
 
+#include "Engine/LocalPlayer.h"
 #include "Engine/SkeletalMesh.h"
+#include "Engine/World.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/PlayerController.h"
 #include "Misc/PackageName.h"
 #include "TestModPreview.h"
+#include "TestModShooterComponent.h"
 #include "UMFDevSDKAPI.h"
 #include "UObject/ConstructorHelpers.h"
 #include "UObject/UObjectGlobals.h"
@@ -91,4 +96,50 @@ void UTestModInstance::OnModLoadCompleted(const FModLoadNotification& Result)
 	       Result.bStartup ? TEXT("startup") : TEXT("manual"), *Result.ModId, *Result.Version, Result.bSucceeded,
 	       Result.bAlreadyMounted, Result.ErrorCode, *Result.Reason);
 	Super::OnModLoadCompleted(Result);
+	if (Result.bSucceeded && Result.ModId == TEXT("testmod") && GetTypedOuter<UGameInstance>() &&
+	    !WorldTickHandle.IsValid())
+	{
+		WorldTickHandle = FWorldDelegates::OnWorldPostActorTick.AddUObject(this, &UTestModInstance::UpdateShooter);
+	}
+}
+
+void UTestModInstance::OnModBeforeUnload()
+{
+	FWorldDelegates::OnWorldPostActorTick.Remove(WorldTickHandle);
+	WorldTickHandle.Reset();
+	RemoveShooter();
+	Super::OnModBeforeUnload();
+}
+
+void UTestModInstance::UpdateShooter(UWorld* World, ELevelTick, float)
+{
+	if (World != GetWorld() || !World->HasBegunPlay())
+	{
+		return;
+	}
+	const UGameInstance* Game = GetTypedOuter<UGameInstance>();
+	const ULocalPlayer* Player = Game->GetFirstGamePlayer();
+	APlayerController* Controller = Player ? Player->GetPlayerController(World) : nullptr;
+	ACharacter* Character = Controller ? Cast<ACharacter>(Controller->GetPawn()) : nullptr;
+	if (Shooter.IsValid() && Shooter->GetOwner() == Character && Shooter->GetPlayerController() == Controller)
+	{
+		return;
+	}
+	RemoveShooter();
+	if (IsValid(Character) && Character->HasActorBegunPlay())
+	{
+		auto* Component = NewObject<UTestModShooterComponent>(Character, NAME_None, RF_Transient);
+		Shooter = Component;
+		Component->RegisterComponent();
+		Component->GrantTo(*Controller);
+	}
+}
+
+void UTestModInstance::RemoveShooter()
+{
+	if (UTestModShooterComponent* Component = Shooter.Get())
+	{
+		Component->DestroyComponent();
+	}
+	Shooter.Reset();
 }
