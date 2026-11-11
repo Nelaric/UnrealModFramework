@@ -350,20 +350,18 @@ void FModPackageEditor::Finish(const FText& Message, bool bSuccess)
 
 void FModPackageEditor::OpenOutputDirectory() const
 {
-	FString Directory = FPaths::GetPath(OutputFile);
-	if (Directory.IsEmpty())
+	const FString Directory = OutputFile.IsEmpty() ? GetDefault<UModPackagingSettings>()->ResolveOutputDirectory()
+	                                               : FPaths::ConvertRelativePathToFull(FPaths::GetPath(OutputFile));
+	if (!IFileManager::Get().MakeDirectory(*Directory, true))
 	{
-		Directory = GetDefault<UModPackagingSettings>()->OutputDirectory.Path;
+		UE_LOG(LogModPackageEditor, Warning, TEXT("Could not create the Mod output directory: %s"), *Directory);
+		FNotificationInfo Info(FText::Format(LOCTEXT("CreateOutputDirectoryFailed", "无法创建 Mod 输出目录：{0}"),
+		                                     FText::FromString(Directory)));
+		FSlateNotificationManager::Get().AddNotification(Info);
+		return;
 	}
-	if (Directory.IsEmpty())
-	{
-		Directory = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("PackagedMods"));
-	}
-	Directory = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir(), Directory);
-	if (IFileManager::Get().MakeDirectory(*Directory, true))
-	{
-		FPlatformProcess::ExploreFolder(*Directory);
-	}
+
+	FPlatformProcess::ExploreFolder(*Directory);
 }
 } // namespace Mod::Editor
 

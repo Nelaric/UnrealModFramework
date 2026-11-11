@@ -84,6 +84,9 @@ public:
 	int32 TimeoutMinutes = 120;
 
 public:
+	/// Resolves the output folder to an absolute filesystem path.
+	FString ResolveOutputDirectory() const;
+
 	FName GetContainerName() const override;
 	FName GetCategoryName() const override;
 	FName GetSectionName() const override;
