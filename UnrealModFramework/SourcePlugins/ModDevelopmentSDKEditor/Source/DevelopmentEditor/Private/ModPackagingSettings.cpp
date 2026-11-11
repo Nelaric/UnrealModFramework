@@ -2,8 +2,20 @@
 #include "ModPackagingSettings.h"
 
 #include "Interfaces/IPluginManager.h"
+#include "Misc/Paths.h"
 
 #define LOCTEXT_NAMESPACE "ModPackagingSettings"
+
+FString UModPackagingSettings::ResolveOutputDirectory() const
+{
+	if (OutputDirectory.Path.IsEmpty())
+	{
+		return FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("PackagedMods")));
+	}
+
+	const FString ProjectDirectory = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir());
+	return FPaths::ConvertRelativePathToFull(ProjectDirectory, OutputDirectory.Path);
+}
 
 FName UModPackagingSettings::GetContainerName() const
 {

@@ -459,9 +459,7 @@ bool FModPackageRequest::FromSettings(const UModPackagingSettings& Settings, FMo
 	OutRequest.bUseIoStore = Settings.bUseIoStore;
 	OutRequest.bIncludeEngineContent = Settings.bIncludeEngineContent;
 	OutRequest.TimeoutMinutes = Settings.TimeoutMinutes;
-	const FString OutputDirectory = FullPath(Settings.OutputDirectory.Path.IsEmpty()
-	                                             ? FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("PackagedMods"))
-	                                             : Settings.OutputDirectory.Path);
+	const FString OutputDirectory = Settings.ResolveOutputDirectory();
 	OutRequest.OutputFile = FPaths::Combine(OutputDirectory, OutRequest.PluginName + TEXT("-") + Settings.ModVersion +
 	                                                             TEXT("-") + Settings.TargetPlatform + TEXT(".mod"));
 	return OutRequest.Validate(OutError);
