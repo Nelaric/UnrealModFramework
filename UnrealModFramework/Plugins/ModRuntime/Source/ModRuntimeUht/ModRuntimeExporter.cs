@@ -123,6 +123,7 @@ internal static class ModRuntimeExporter
 				project,
 				executable,
 				options,
+				mode == "generate" ? OptionalText(config, "metadataEditorTarget") : null,
 				timeout
 			);
 		}
@@ -157,12 +158,39 @@ internal static class ModRuntimeExporter
 			{
 				variant = variants.TryGetProperty(variantKey, out JsonElement choice) ? choice : default;
 			}
-			string buildInput = Resolve(
-				projectRoot,
-				inputOverride
-					?? OptionalText(variant, "buildInput")
-					?? throw new UhtException($"ModRuntime MHT: no build input for {targetName}/{variantKey}.")
+			string targetVariant = Path.Combine(targetName, platform, configuration, architecture);
+			string output = Path.Combine(mht, "Generated", targetVariant);
+			string variantDirectory = Path.Combine(mht, "HostTargets", targetVariant);
+			Directory.CreateDirectory(variantDirectory);
+			using FileStream pipeline = new(
+				Path.Combine(variantDirectory, ".pipeline.lock"),
+				FileMode.OpenOrCreate,
+				FileAccess.ReadWrite,
+				FileShare.None,
+				1,
+				FileOptions.DeleteOnClose
 			);
+			string? configuredClang =
+				Environment.GetEnvironmentVariable("UMF_MHT_LIBCLANG")
+				?? OptionalText(variant, "libclang")
+				?? OptionalText(target, "libclang")
+				?? OptionalText(config, "libclang");
+			string? clang = configuredClang == null ? null : Resolve(projectRoot, configuredClang);
+			string? configuredInput = inputOverride ?? OptionalText(variant, "buildInput");
+			string buildInput =
+				configuredInput != null ? Resolve(projectRoot, configuredInput)
+				: config.TryGetProperty("generation", out JsonElement generation)
+					? UbtPreparation.PrepareInput(
+						factory.Session.Logger,
+						factory.Session.EngineDirectory!,
+						project,
+						variantDirectory,
+						(targetName, platform, configuration, architecture),
+						generation,
+						clang,
+						timeout
+					)
+				: throw new UhtException($"ModRuntime MHT: no build input for {targetName}/{variantKey}.");
 			using JsonDocument input = ReadJson(buildInput);
 			JsonElement context = input.RootElement;
 			string inputProject = Resolve(Path.GetDirectoryName(buildInput)!, RequiredText(context, "project"));
@@ -178,18 +206,6 @@ internal static class ModRuntimeExporter
 					$"ModRuntime MHT: build input does not match {targetName}/{variantKey}: \"{buildInput}\""
 				);
 			}
-			string targetVariant = Path.Combine(targetName, platform, configuration, architecture);
-			string output = Path.Combine(mht, "Generated", targetVariant);
-			string variantDirectory = Path.Combine(mht, "HostTargets", targetVariant);
-			Directory.CreateDirectory(variantDirectory);
-			using FileStream pipeline = new(
-				Path.Combine(variantDirectory, ".pipeline.lock"),
-				FileMode.OpenOrCreate,
-				FileAccess.ReadWrite,
-				FileShare.None,
-				1,
-				FileOptions.DeleteOnClose
-			);
 			MbtHostBuild hostBuild = MbtHostBuild.Prepare(
 				factory,
 				projectRoot,
@@ -217,18 +233,10 @@ internal static class ModRuntimeExporter
 					AddDependency(factory, Resolve(projectRoot, path));
 				}
 			}
-			if (
-				(
-					Environment.GetEnvironmentVariable("UMF_MHT_LIBCLANG")
-					?? OptionalText(variant, "libclang")
-					?? OptionalText(target, "libclang")
-				)
-				is string clang
-			)
+			if (clang != null)
 			{
-				string library = Resolve(projectRoot, clang);
-				arguments.AddRange(new[] { "--libclang", library });
-				AddDependency(factory, library);
+				arguments.AddRange(new[] { "--libclang", clang });
+				AddDependency(factory, clang);
 			}
 			if (File.Exists(options))
 			{
@@ -346,7 +354,7 @@ internal static class ModRuntimeExporter
 		// Keep the shared manifest rooted at the project for MBT and SDK consumers.
 		foreach ((string path, byte[] contents) in pluginFiles)
 		{
-			PublishPluginFile(path, contents);
+			WriteFileIfChanged(path, contents);
 			AddDependency(factory, path);
 			FileItem.ResetCachedInfo(path);
 		}
@@ -360,7 +368,7 @@ internal static class ModRuntimeExporter
 		);
 	}
 
-	private static void PublishPluginFile(string path, byte[] contents)
+	internal static void WriteFileIfChanged(string path, byte[] contents)
 	{
 		if (File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(contents))
 		{

@@ -27,6 +27,8 @@ enum class ELoadOrigin : uint8
 	Startup,
 	/// An explicit LoadPackage or LoadDirectory call.
 	Manual,
+	/// A package found by the mod directory watch.
+	DirectoryWatch,
 };
 
 /// Stable results for package preparation and mounting.
@@ -130,9 +132,11 @@ struct FLoadResult
 };
 
 /** @brief Loads approved cooked content in a game or editor PIE session.
- * @details Use from a game-thread startup gate. Loading performs synchronous
- * I/O and engine mounts. Game mounts live for the process. PIE mounts
- * are released after the editor tears down its play worlds.
+ * @details Use from a game-thread startup
+ * gate. Loading performs synchronous
+ * I/O and engine mounts. Removing a watched source starts the unload
+ * of its
+ * package. PIE also releases mounts at the end of play.
  */
 class MODLOADER_API IModLoaderModule : public IModuleInterface
 {
@@ -140,41 +144,64 @@ public:
 	/// Receives the origin, input path, and results of a finished load.
 	DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnLoadCompleted, ELoadOrigin, const FString&, TConstArrayView<FLoadResult>);
 
+	/// Receives a mounted package while its content is still available.
+	DECLARE_MULTICAST_DELEGATE_OneParam(FOnBeforeUnload, const FMountedPackage&);
+
 	/** @brief Returns the service owned by the enabled ModLoader module.
-	 * @return The service, valid until module shutdown.
+	 * @return The service, valid until module
+	 * shutdown.
 	 */
 	static IModLoaderModule& Get();
 
 	/** @brief Verifies and mounts one archive on the game thread.
-	 * @param Path Path to the .mod file on the physical filesystem.
+	 * @param Path Path to the .mod file on the physical
+	 * filesystem.
 	 * @param Policy Trusted release policy for the current game.
-	 * @return Mounted content or a recoverable failure.
+	 * @return Mounted content or a
+	 * recoverable failure.
 	 */
 	virtual FLoadResult LoadPackage(const FString& Path, const FLoadPolicy& Policy) = 0;
 
 	/** @brief Mounts eligible .mod files directly inside a directory.
-	 * @param Directory Directory on the physical filesystem.
+	 * @param Directory Directory on the physical
+	 * filesystem.
 	 * @param Policy Trusted release policy for the current game.
-	 * @return One result per candidate, or a scan-level failure.
+	 * @return One result per candidate,
+	 * or a scan-level failure.
 	 * @details Call on the game thread. Different archives with the same mod
-	 * ID in one scan are rejected before any version of that mod is mounted.
+	 * ID in
+	 * one scan are rejected before any version of that mod is mounted.
 	 */
 	virtual TArray<FLoadResult> LoadDirectory(const FString& Directory, const FLoadPolicy& Policy) = 0;
 
-	/** @brief Copies the mounted package records on the game thread.
+	/** @brief Copies mounted packages that can be activated.
 	 * @return A snapshot sorted by mod ID.
+	 * @details
+	 * Call on the game thread.
 	 */
 	virtual TArray<FMountedPackage> GetMountedPackages() const = 0;
 
 	/** @brief Gets the startup and manual completion event.
-	 * @return The event. Add and remove listeners on the game thread.
+	 * @return The event. Add and remove listeners on the
+	 * game thread.
 	 * @details One broadcast per operation. A directory result has one entry per
-	 * candidate, one scan error, or no entries if empty. Callback references
-	 * are temporary. Reentrant and wrong-thread completions are deferred.
+	 * candidate,
+	 * one scan error, or no entries if empty. Callback references
+	 * are temporary. Reentrant and wrong-thread
+	 * completions are deferred.
 	 */
 	FOnLoadCompleted& OnLoadCompleted()
 	{
 		return LoadCompleted;
+	}
+
+	/** @brief Gets the game-thread event for a package beginning unload.
+	 * @return The event. The package reference
+	 * is valid during the callback.
+	 */
+	FOnBeforeUnload& OnBeforeUnload()
+	{
+		return BeforeUnload;
 	}
 
 protected:
@@ -183,7 +210,13 @@ protected:
 		LoadCompleted.Broadcast(Origin, Path, Results);
 	}
 
+	void BroadcastBeforeUnload(const FMountedPackage& Package)
+	{
+		BeforeUnload.Broadcast(Package);
+	}
+
 private:
 	FOnLoadCompleted LoadCompleted;
+	FOnBeforeUnload BeforeUnload;
 };
 } // namespace Mod::Loader

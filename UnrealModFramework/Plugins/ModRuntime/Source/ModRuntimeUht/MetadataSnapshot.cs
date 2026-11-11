@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using EpicGames.Core;
 using EpicGames.UHT.Utils;
@@ -20,6 +21,7 @@ internal static class MetadataSnapshot
 		string project,
 		string mht,
 		string options,
+		string? editorTarget,
 		int timeout
 	)
 	{
@@ -69,6 +71,10 @@ internal static class MetadataSnapshot
 				throw new UhtException(
 					$"ModRuntime ModExportOptions: Editor executable not found: \"{editor}\". {bootstrap}"
 				);
+			}
+			if (OperatingSystem.IsWindows() && editorTarget != null && !HasDevelopmentEditor(projectRoot, editorTarget))
+			{
+				UbtPreparation.BuildEditor(logger, engine, project, editorTarget, timeout);
 			}
 			string directory = Path.GetDirectoryName(options)!;
 			Directory.CreateDirectory(directory);
@@ -123,5 +129,32 @@ internal static class MetadataSnapshot
 		{
 			refreshLock.ReleaseMutex();
 		}
+	}
+
+	private static bool HasDevelopmentEditor(string projectRoot, string target)
+	{
+		const string projectPrefix = "$(ProjectDir)/";
+		string receipt = Path.Combine(projectRoot, "Binaries", "Win64", target + ".target");
+		if (!File.Exists(receipt))
+		{
+			return false;
+		}
+		using JsonDocument document = JsonDocument.Parse(File.ReadAllText(receipt));
+		foreach (JsonElement product in document.RootElement.GetProperty("BuildProducts").EnumerateArray())
+		{
+			string path = product.GetProperty("Path").GetString()!;
+			if (
+				path.StartsWith(projectPrefix, StringComparison.Ordinal)
+				&& (
+					path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+					|| path.EndsWith(".modules", StringComparison.OrdinalIgnoreCase)
+				)
+				&& !File.Exists(Path.Combine(projectRoot, path[projectPrefix.Length..]))
+			)
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 }

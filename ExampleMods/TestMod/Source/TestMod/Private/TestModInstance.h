@@ -20,13 +20,14 @@ public:
 	UWorld* GetWorld() const override;
 
 	/** @brief Replaces the local character's mesh with UE's Manny mannequin.
-	 * @param PlayerContext The authorized context used when running in a host.
+	 * @param PlayerContext The authorized
+	 * context used when running in a host.
 	 * @return Whether the replacement succeeded.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Test Mod")
 	bool ReplaceCharacterMeshWithManny(const FUMFDevSDKPlayerContext& PlayerContext);
 
-	/// The context supplied by the host for the delayed Blueprint callback.
+	/// The context supplied by the host for the Blueprint callback.
 	UPROPERTY(Transient, BlueprintReadWrite, Category = "Test Mod")
 	FUMFDevSDKPlayerContext HostPlayerContext;
 

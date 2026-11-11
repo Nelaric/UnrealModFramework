@@ -3,11 +3,14 @@
 
 #include "Containers/Queue.h"
 #include "Containers/Ticker.h"
+#include "Engine/World.h"
 #include "GenericPlatform/GenericPlatformFile.h"
+#include "HAL/PlatformProcess.h"
 #include "HAL/PlatformProperties.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/Paths.h"
+#include "ModDirectoryWatch.h"
 #include "ModPackageArchive.h"
 #include "ModPackageMount.h"
 #include "Modules/ModuleManager.h"
@@ -31,7 +34,6 @@ using Private::PrepareArchive;
 
 constexpr TCHAR ConfigSection[] = TEXT("ModLoader");
 constexpr int32 MaxCandidates = 128;
-constexpr int32 MaxDirectoryEntries = 4096;
 
 struct FDeferredCompletion
 {
@@ -44,9 +46,9 @@ struct FDeferredCompletion
 struct FMountedRecord
 {
 	FMountedPackage Package;
-#if WITH_EDITOR
-	Private::FMountedResources PIEResources;
-#endif
+	Private::FMountedResources Resources;
+	FString SourcePath;
+	bool bUnloadNotified = false;
 };
 } // namespace
 
@@ -65,11 +67,22 @@ public:
 		if (FPlatformProperties::RequiresCookedData() && !IsRunningCommandlet())
 		{
 			StartupHandle = FCoreDelegates::OnPostEngineInit.AddRaw(this, &FModLoaderModule::LoadAtStartup);
+			WorldTearDownHandle =
+			    FWorldDelegates::OnWorldBeginTearDown.AddRaw(this, &FModLoaderModule::BeginGameShutdown);
 		}
 #if WITH_EDITOR
 		else if (GIsEditor && !IsRunningCommandlet())
 		{
+#if PLATFORM_WINDOWS
+			FString Backend;
+			if (GConfig && GConfig->GetString(ConfigSection, TEXT("Backend"), Backend, GGameIni) &&
+			    Backend == TEXT("Pak"))
+			{
+				Private::InitializePIEPakPlatform();
+			}
+#endif
 			BeginPIEHandle = FEditorDelegates::BeginPIE.AddRaw(this, &FModLoaderModule::BeginPIE);
+			PrePIEEndedHandle = FEditorDelegates::PrePIEEnded.AddRaw(this, &FModLoaderModule::PrePIEEnded);
 			EndPIEHandle = FEditorDelegates::EndPIE.AddRaw(this, &FModLoaderModule::EndPIE);
 			ShutdownPIEHandle = FEditorDelegates::ShutdownPIE.AddRaw(this, &FModLoaderModule::ShutdownPIE);
 		}
@@ -79,12 +92,15 @@ public:
 	void ShutdownModule() override
 	{
 		FCoreDelegates::OnPostEngineInit.Remove(StartupHandle);
+		FWorldDelegates::OnWorldBeginTearDown.Remove(WorldTearDownHandle);
 #if WITH_EDITOR
 		FEditorDelegates::BeginPIE.Remove(BeginPIEHandle);
+		FEditorDelegates::PrePIEEnded.Remove(PrePIEEndedHandle);
 		FEditorDelegates::EndPIE.Remove(EndPIEHandle);
 		FEditorDelegates::ShutdownPIE.Remove(ShutdownPIEHandle);
 #endif
 		FTSTicker::RemoveTicker(CompletionTicker);
+		DirectoryWatch.Shutdown();
 		// Engine-owned mounts and shaders live until process exit.
 		Mounted.Reset();
 	}
@@ -117,7 +133,10 @@ public:
 			Result.Reserve(Mounted.Num());
 			for (const TPair<FString, FMountedRecord>& Entry : Mounted)
 			{
-				Result.Add(Entry.Value.Package);
+				if (!Entry.Value.bUnloadNotified)
+				{
+					Result.Add(Entry.Value.Package);
+				}
 			}
 			Result.Sort([](const FMountedPackage& Left, const FMountedPackage& Right)
 			            { return Left.ModId < Right.ModId; });
@@ -152,7 +171,7 @@ private:
 			TGuardValue<bool> Loading(bLoading, true);
 			FPreparedPackage Prepared;
 			const double Deadline = FPlatformTime::Seconds() + Policy.PreparationTimeoutSeconds;
-			if (PrepareArchive(Policy, Deadline, Result, Prepared))
+			if (PrepareArchive(Policy, {Deadline}, Result, Prepared))
 			{
 				if (FPlatformTime::Seconds() >= Deadline)
 				{
@@ -167,7 +186,7 @@ private:
 		return Result;
 	}
 
-	TArray<FLoadResult> LoadDirectoryImpl(const FString& Directory, const FLoadPolicy& Policy)
+	TArray<FLoadResult> LoadDirectoryImpl(const FString& Directory, const FLoadPolicy& Policy, bool bStartup = false)
 	{
 		FLoadResult ScanResult;
 		ScanResult.Path = Directory;
@@ -178,9 +197,13 @@ private:
 		TGuardValue<bool> Loading(bLoading, true);
 		TArray<FString> Paths;
 		const double Deadline = FPlatformTime::Seconds() + Policy.PreparationTimeoutSeconds;
-		if (!FindArchives(Deadline, Paths, ScanResult))
+		if (!Private::FindArchives({Deadline}, Paths, ScanResult))
 		{
 			return {MoveTemp(ScanResult)};
+		}
+		if (bStartup)
+		{
+			DirectoryWatch.RecordStartupPaths(Paths);
 		}
 		TArray<FLoadResult> Results;
 		TArray<FPreparedPackage> Prepared;
@@ -195,7 +218,7 @@ private:
 			{
 				Fail(Result, ELoadError::TimedOut, TEXT("Mod package preparation timed out."));
 			}
-			else if (PrepareArchive(Policy, Deadline, Result, Prepared[Index]))
+			else if (PrepareArchive(Policy, {Deadline}, Result, Prepared[Index]))
 			{
 				const FString& ModId = Result.Package.ModId;
 				const FString& Digest = Result.Package.ArchiveSha256;
@@ -265,10 +288,11 @@ private:
 			CleanupPIE();
 		}
 #endif
-		if (bLoading || bBroadcasting || DeferredCompletions.IsEmpty())
+		if (bLoading || bBroadcasting)
 		{
 			return true;
 		}
+		TickWatchedDirectory();
 		TArray<FDeferredCompletion> Pending;
 		FDeferredCompletion Completion;
 		while (Pending.Num() < MaxCandidates && DeferredCompletions.Dequeue(Completion))
@@ -280,6 +304,124 @@ private:
 			DispatchCompletion(Item.Origin, Item.Path, Item.Results, Item.PIESession);
 		}
 		return true;
+	}
+
+	void TickWatchedDirectory()
+	{
+		if (bNeedsRestart)
+		{
+			DirectoryWatch.Stop();
+			return;
+		}
+		Private::FWatchedChanges Changes = DirectoryWatch.Tick(
+		    [this]
+		    {
+			    TMap<FString, FString> Sources;
+			    for (const TPair<FString, FMountedRecord>& Entry : Mounted)
+			    {
+				    Sources.Add(Entry.Key, Entry.Value.SourcePath);
+			    }
+			    return Sources;
+		    });
+		TArray<FLoadResult> Results;
+		{
+			TGuardValue<bool> Loading(bLoading, true);
+			UnloadRemovedSources(Changes.RemovedSources);
+			for (Private::FWatchedPackage& Item : Changes.Packages)
+			{
+				if (DirectoryWatch.GetDirectory().IsEmpty())
+				{
+					break;
+				}
+				FLoadResult& Result = Item.Result;
+				if (Item.Prepared.bSkipped || Mounted.Contains(Result.Package.ModId))
+				{
+					UE_LOG(LogModLoader, Verbose, TEXT("Skipped watched package '%s' for mounted mod %s."),
+					       *FPaths::GetCleanFilename(Result.Path), *Result.Package.ModId);
+					continue;
+				}
+				if (Result.IsSuccess())
+				{
+					Commit(Item.Prepared, Result);
+				}
+				Results.Add(MoveTemp(Result));
+			}
+		}
+		if (!Results.IsEmpty())
+		{
+			LogLoadResults(Results);
+			const FString Directory = DirectoryWatch.GetDirectory();
+			PublishCompletion(ELoadOrigin::DirectoryWatch, Directory, Results);
+		}
+	}
+
+	void NotifyBeforeUnload(FMountedRecord& Record)
+	{
+		if (!Record.bUnloadNotified)
+		{
+			Record.bUnloadNotified = true;
+			BroadcastBeforeUnload(Record.Package);
+		}
+	}
+
+	bool Unmount(FMountedRecord& Record)
+	{
+		if (Private::UnmountPackage(Record.Package, Record.Resources))
+		{
+			UE_LOG(LogModLoader, Display, TEXT("Unmounted mod %s %s."), *Record.Package.ModId, *Record.Package.Version);
+			return true;
+		}
+		bNeedsRestart = true;
+		UE_LOG(LogModLoader, Error, TEXT("Could not unmount mod %s. Restart before loading more mods."),
+		       *Record.Package.ModId);
+		return false;
+	}
+
+	void UnloadRemovedSources(const TMap<FString, FString>& RemovedSources)
+	{
+		IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
+		TArray<FString> Unloading;
+		for (const TPair<FString, FString>& Entry : RemovedSources)
+		{
+			FMountedRecord* Record = Mounted.Find(Entry.Key);
+			if (Record && FPaths::IsSamePath(Record->SourcePath, Entry.Value) && !Files.FileExists(*Entry.Value))
+			{
+				NotifyBeforeUnload(*Record);
+				Unloading.Add(Entry.Key);
+			}
+		}
+		for (const FString& ModId : Unloading)
+		{
+			FMountedRecord& Record = Mounted.FindChecked(ModId);
+			FString Reason;
+			if (!Private::ReleaseModPackages(Record.Package.PackageNames, Reason))
+			{
+				UE_LOG(LogModLoader, Warning, TEXT("Mod %s is still mounted. %s"), *ModId, *Reason);
+			}
+			else if (Unmount(Record))
+			{
+				Mounted.Remove(ModId);
+				DirectoryWatch.RequestRescan();
+			}
+		}
+	}
+
+	void NotifySessionEnding()
+	{
+		DirectoryWatch.Stop();
+		TGuardValue<bool> Loading(bLoading, true);
+		for (TPair<FString, FMountedRecord>& Entry : Mounted)
+		{
+			NotifyBeforeUnload(Entry.Value);
+		}
+	}
+
+	void BeginGameShutdown(UWorld* World)
+	{
+		if (IsEngineExitRequested() && World->IsGameWorld())
+		{
+			NotifySessionEnding();
+		}
 	}
 
 	bool CanLoad(const FLoadPolicy& Policy, FLoadResult& Result) const
@@ -303,46 +445,6 @@ private:
 		return Private::ValidatePolicy(Policy, Result) && Private::CheckBackend(Policy.Backend, bPIE, Result);
 	}
 
-	static bool FindArchives(double Deadline, TArray<FString>& Paths, FLoadResult& Result)
-	{
-		IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
-		int32 Visited = 0;
-		bool bLimitReached = false;
-		const bool bScanned =
-		    Files.IsSymlink(*Result.Path) != ESymlinkResult::Symlink &&
-		    Files.IterateDirectory(*Result.Path,
-		                           [&Paths, &Visited, &bLimitReached, Deadline](const TCHAR* Path, bool bIsDirectory)
-		                           {
-			                           if (++Visited > MaxDirectoryEntries || FPlatformTime::Seconds() >= Deadline)
-			                           {
-				                           bLimitReached = Visited > MaxDirectoryEntries;
-				                           return false;
-			                           }
-			                           if (!bIsDirectory &&
-			                               FPaths::GetExtension(Path).Equals(TEXT("mod"), ESearchCase::IgnoreCase))
-			                           {
-				                           Paths.Add(Path);
-				                           bLimitReached = Paths.Num() > MaxCandidates;
-			                           }
-			                           return !bLimitReached;
-		                           });
-		if (!bScanned)
-		{
-			if (bLimitReached)
-			{
-				return Fail(Result, ELoadError::LimitExceeded, TEXT("The mod directory exceeds the scan limit."));
-			}
-			if (FPlatformTime::Seconds() >= Deadline)
-			{
-				return Fail(Result, ELoadError::TimedOut, TEXT("The mod directory scan timed out."));
-			}
-			return Fail(Result, ELoadError::InputUnavailable, TEXT("The physical mod directory could not be scanned."));
-		}
-		Paths.Sort([](const FString& Left, const FString& Right)
-		           { return Left.Compare(Right, ESearchCase::CaseSensitive) < 0; });
-		return true;
-	}
-
 	void Commit(const FPreparedPackage& Prepared, FLoadResult& Result)
 	{
 		if (bNeedsRestart)
@@ -352,7 +454,11 @@ private:
 		}
 		if (const FMountedRecord* Existing = Mounted.Find(Result.Package.ModId))
 		{
-			if (Existing->Package.ArchiveSha256 == Result.Package.ArchiveSha256)
+			if (Existing->bUnloadNotified)
+			{
+				Fail(Result, ELoadError::Busy, TEXT("This mod is awaiting unload."));
+			}
+			else if (Existing->Package.ArchiveSha256 == Result.Package.ArchiveSha256)
 			{
 				Result.Package = Existing->Package;
 				Result.bAlreadyMounted = true;
@@ -364,21 +470,17 @@ private:
 			return;
 		}
 		FMountedRecord Record;
-		Private::FMountedResources* Resources = nullptr;
 #if WITH_EDITOR
-		if (!FPlatformProperties::RequiresCookedData())
+		if (!FPlatformProperties::RequiresCookedData() && !IsPIEActive())
 		{
-			if (!IsPIEActive())
-			{
-				Fail(Result, ELoadError::BackendUnavailable, TEXT("The PIE session ended before the mod could mount."));
-				return;
-			}
-			Resources = &Record.PIEResources;
+			Fail(Result, ELoadError::BackendUnavailable, TEXT("The PIE session ended before the mod could mount."));
+			return;
 		}
 #endif
-		if (Private::MountPrepared(Prepared, Result, Resources))
+		if (Private::MountPrepared(Prepared, Result, Record.Resources))
 		{
 			Record.Package = Result.Package;
+			Record.SourcePath = Result.Path;
 			Mounted.Add(Result.Package.ModId, MoveTemp(Record));
 		}
 		else if (Result.Error == ELoadError::RestartRequired)
@@ -404,8 +506,11 @@ private:
 			Policy.bEnforcePackageAllowlist = bEnforcePackageAllowlist;
 		}
 		GConfig->GetFloat(ConfigSection, TEXT("PreparationTimeoutSeconds"), Policy.PreparationTimeoutSeconds, GGameIni);
-		const FString Directory =
-		    FPaths::ConvertRelativePathToFull(FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("Mods")));
+		const FString BinariesDirectory =
+		    FPlatformProperties::RequiresCookedData()
+		        ? FPaths::GetPath(FPlatformProcess::ExecutablePath())
+		        : FPaths::Combine(FPaths::ProjectDir(), TEXT("Binaries"), FPlatformProcess::GetBinariesSubdirectory());
+		const FString Directory = FPaths::ConvertRelativePathToFull(FPaths::Combine(BinariesDirectory, TEXT("Mods")));
 		TArray<FLoadResult> Results;
 		FString Backend;
 		if (GConfig->GetString(ConfigSection, TEXT("Backend"), Backend, GGameIni))
@@ -421,10 +526,34 @@ private:
 				Fail(Result, ELoadError::InvalidPolicy, TEXT("ModLoader.Backend must be Pak or IoStore."));
 			}
 		}
+		if (Results.IsEmpty() && GConfig->GetBoolOrDefault(ConfigSection, TEXT("bWatchForChanges"), true, GGameIni))
+		{
+			FLoadResult WatchResult;
+			if (CanLoad(Policy, WatchResult))
+			{
+				DirectoryWatch.Start(Directory, Policy);
+			}
+		}
 		if (Results.IsEmpty() && IPlatformFile::GetPlatformPhysical().DirectoryExists(*Directory))
 		{
-			Results = LoadDirectoryImpl(Directory, Policy);
+			Results = LoadDirectoryImpl(Directory, Policy, true);
 		}
+		LogLoadResults(Results);
+#if WITH_EDITOR
+		if (IsPIEActive())
+		{
+			PIEStartupResults = Results;
+		}
+#endif
+		PublishCompletion(ELoadOrigin::Startup, Directory, Results);
+		if (bNeedsRestart && FPlatformProperties::RequiresCookedData())
+		{
+			FPlatformMisc::RequestExitWithStatus(false, 1, TEXT("ModLoader"));
+		}
+	}
+
+	static void LogLoadResults(TConstArrayView<FLoadResult> Results)
+	{
 		for (const FLoadResult& Result : Results)
 		{
 			if (Result.IsSuccess())
@@ -437,17 +566,6 @@ private:
 				UE_LOG(LogModLoader, Warning, TEXT("Mod load failed for '%s' (%d). %s"),
 				       *FPaths::GetCleanFilename(Result.Path), static_cast<int32>(Result.Error), *Result.Detail);
 			}
-		}
-#if WITH_EDITOR
-		if (IsPIEActive())
-		{
-			PIEStartupResults = Results;
-		}
-#endif
-		PublishCompletion(ELoadOrigin::Startup, Directory, Results);
-		if (bNeedsRestart && FPlatformProperties::RequiresCookedData())
-		{
-			FPlatformMisc::RequestExitWithStatus(false, 1, TEXT("ModLoader"));
 		}
 	}
 
@@ -475,8 +593,17 @@ private:
 	{
 		if (ActivePIESession.Exchange(0) != 0)
 		{
+			DirectoryWatch.Stop();
 			PIEStartupResults.Reset();
 			bPIECleanupQueued = true;
+		}
+	}
+
+	void PrePIEEnded(bool)
+	{
+		if (IsPIEActive())
+		{
+			NotifySessionEnding();
 		}
 	}
 
@@ -501,36 +628,29 @@ private:
 		}
 		TGuardValue<bool> Loading(bLoading, true);
 		TArray<FName> PackageNames;
-		for (const TPair<FString, FMountedRecord>& Entry : Mounted)
+		for (TPair<FString, FMountedRecord>& Entry : Mounted)
 		{
+			NotifyBeforeUnload(Entry.Value);
 			PackageNames.Append(Entry.Value.Package.PackageNames);
 		}
 		FString Reason;
-		if (!Private::ReleasePIEPackages(PackageNames, Reason))
+		if (!Private::ReleaseModPackages(PackageNames, Reason))
 		{
 			UE_LOG(LogModLoader, Error, TEXT("Could not unload PIE mods. %s"), *Reason);
 			return false;
 		}
 		for (auto Entry = Mounted.CreateIterator(); Entry; ++Entry)
 		{
-			const FMountedRecord& Record = Entry.Value();
-			if (Private::UnmountPIE(Record.Package, Record.PIEResources))
+			if (Unmount(Entry.Value()))
 			{
-				UE_LOG(LogModLoader, Display, TEXT("Unmounted PIE mod %s %s."), *Record.Package.ModId,
-				       *Record.Package.Version);
 				Entry.RemoveCurrent();
-			}
-			else
-			{
-				bNeedsRestart = true;
-				UE_LOG(LogModLoader, Error, TEXT("Could not unmount PIE mod %s. Restart the editor."),
-				       *Record.Package.ModId);
 			}
 		}
 		return !bNeedsRestart;
 	}
 
 	FDelegateHandle BeginPIEHandle;
+	FDelegateHandle PrePIEEndedHandle;
 	FDelegateHandle EndPIEHandle;
 	FDelegateHandle ShutdownPIEHandle;
 	TArray<FLoadResult> PIEStartupResults;
@@ -541,7 +661,9 @@ private:
 #endif
 
 	FDelegateHandle StartupHandle;
+	FDelegateHandle WorldTearDownHandle;
 	FTSTicker::FDelegateHandle CompletionTicker;
+	Private::FModDirectoryWatch DirectoryWatch;
 	TMap<FString, FMountedRecord> Mounted;
 	TQueue<FDeferredCompletion, EQueueMode::Mpsc> DeferredCompletions;
 	bool bLoading = false;

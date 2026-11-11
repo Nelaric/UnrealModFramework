@@ -17,14 +17,20 @@
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
 #include "Modules/ModuleManager.h"
+#include "RenderingThread.h"
 #include "Serialization/MemoryReader.h"
 #include "ShaderCodeLibrary.h"
-
-#if WITH_EDITOR
-#include "PackageTools.h"
-#include "RenderingThread.h"
 #include "UObject/Package.h"
 #include "UObject/UObjectGlobals.h"
+
+#if WITH_EDITOR
+#include "Engine/World.h"
+#include "PackageTools.h"
+#endif
+
+#if WITH_EDITOR && PLATFORM_WINDOWS
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 #endif
 
 namespace Mod::Loader::Private
@@ -330,6 +336,25 @@ bool VerifyMountedPackages(const FMountPlan& Plan, FLoadResult& Result)
 }
 } // namespace
 
+#if WITH_EDITOR && PLATFORM_WINDOWS
+void InitializePIEPakPlatform()
+{
+	const TCHAR* CommandLine = FCommandLine::Get();
+	if (!GAllowCookedDataInEditorBuilds || GetPakPlatform() || FParse::Param(CommandLine, TEXT("NoPak")))
+	{
+		return;
+	}
+
+	FPlatformFileManager& Files = FPlatformFileManager::Get();
+	IPlatformFile* PakFile = Files.GetPlatformFile(FPakPlatformFile::GetTypeName());
+	if (PakFile && PakFile->Initialize(&Files.GetPlatformFile(), CommandLine))
+	{
+		PakFile->InitializeNewAsyncIO();
+		Files.SetPlatformFile(*PakFile);
+	}
+}
+#endif
+
 bool CheckBackend(EBackend Backend, bool bPIE, FLoadResult& Result)
 {
 #if WITH_EDITOR
@@ -364,7 +389,7 @@ bool CheckBackend(EBackend Backend, bool bPIE, FLoadResult& Result)
 	return true;
 }
 
-bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMountedResources* Resources)
+bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMountedResources& Resources)
 {
 	if (FPackageName::MountPointExists(Result.Package.PackageRoot))
 	{
@@ -389,20 +414,14 @@ bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMounte
 	{
 		return Fail(Result, ELoadError::InvalidContainer, TEXT("The mod contains no cooked packages."));
 	}
-#if WITH_EDITOR
-	if (Resources)
+	for (FName Name : Plan.Packages)
 	{
-		for (FName Name : Plan.Packages)
+		if (FindPackage(nullptr, *Name.ToString()))
 		{
-			if (FindPackage(nullptr, *Name.ToString()))
-			{
-				return Fail(
-				    Result, ELoadError::Conflict,
-				    FString::Printf(TEXT("A package with the mod's name is already loaded: %s"), *Name.ToString()));
-			}
+			return Fail(Result, ELoadError::Conflict,
+			            FString::Printf(TEXT("A package with the mod's name is already loaded: %s"), *Name.ToString()));
 		}
 	}
-#endif
 	for (const FString& ClassPath : Result.Package.LifecycleClasses)
 	{
 		if (!Plan.Packages.Contains(FName(*FPackageName::ObjectPathToPackageName(ClassPath))))
@@ -475,24 +494,20 @@ bool MountPrepared(const FPreparedPackage& Package, FLoadResult& Result, FMounte
 	}
 	Result.Package.PackageNames = Plan.Packages.Array();
 	Result.Package.PackageNames.Sort(FNameLexicalLess());
-	if (Resources)
+	Resources.ContentDirectory = ContentDirectory;
+	if (bShaderOpened)
 	{
-		Resources->ContentDirectory = ContentDirectory;
-		if (bShaderOpened)
-		{
-			Resources->ShaderLibrary = Package.PluginName;
-		}
-		for (const FContainerMount& Container : Plan.Containers)
-		{
-			Resources->Containers.Add({Container.PakPath, Container.HeaderChunk});
-		}
+		Resources.ShaderLibrary = Package.PluginName;
+	}
+	for (const FContainerMount& Container : Plan.Containers)
+	{
+		Resources.Containers.Add({Container.PakPath, Container.HeaderChunk});
 	}
 	bCommitted = true;
 	return true;
 }
 
-#if WITH_EDITOR
-bool ReleasePIEPackages(TConstArrayView<FName> PackageNames, FString& Reason)
+bool ReleaseModPackages(TConstArrayView<FName> PackageNames, FString& Reason)
 {
 	FlushAsyncLoading();
 	TArray<UPackage*> LoadedPackages;
@@ -505,6 +520,15 @@ bool ReleasePIEPackages(TConstArrayView<FName> PackageNames, FString& Reason)
 	}
 	if (!LoadedPackages.IsEmpty())
 	{
+#if WITH_EDITOR
+		for (UPackage* Package : LoadedPackages)
+		{
+			if (const UWorld* World = UWorld::FindWorldInPackage(Package); World && World->bIsWorldInitialized)
+			{
+				Reason = FString::Printf(TEXT("A mod world is still active: %s"), *Package->GetName());
+				return false;
+			}
+		}
 		UPackageTools::FUnloadPackageParams Params(LoadedPackages);
 		Params.bResetTransBuffer = false;
 		UPackageTools::UnloadPackages(Params);
@@ -513,6 +537,9 @@ bool ReleasePIEPackages(TConstArrayView<FName> PackageNames, FString& Reason)
 			Reason = Params.OutErrorMessage.ToString();
 			return false;
 		}
+#else
+		CollectGarbage(RF_NoFlags, true);
+#endif
 		for (FName Name : PackageNames)
 		{
 			if (FindPackage(nullptr, *Name.ToString()))
@@ -526,7 +553,7 @@ bool ReleasePIEPackages(TConstArrayView<FName> PackageNames, FString& Reason)
 	return true;
 }
 
-bool UnmountPIE(const FMountedPackage& Package, const FMountedResources& Resources)
+bool UnmountPackage(const FMountedPackage& Package, const FMountedResources& Resources)
 {
 	FPakPlatformFile* Platform = GetPakPlatform();
 	if (!Platform)
@@ -549,5 +576,4 @@ bool UnmountPIE(const FMountedPackage& Package, const FMountedResources& Resourc
 	}
 	return bUnmounted;
 }
-#endif
 } // namespace Mod::Loader::Private

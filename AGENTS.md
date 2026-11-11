@@ -2,7 +2,7 @@
 
 ## Pull Requests
 
-The total number of added and deleted lines in each pull request must not exceed 1,000. Split larger changes into smaller pull requests that can be reviewed independently.
+Prefer fewer pull requests by keeping related changes for the same feature or fix together. Split work when the resulting pull requests cover distinct units that can be reviewed and verified independently.
 
 When submitting multiple pull requests together, base each PR directly on the same target branch. Each PR must be self-contained and verifiable without changes from any other PR in the batch. The PRs must touch disjoint sets of files, counting both the old and new paths of any renamed file.
 

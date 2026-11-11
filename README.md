@@ -30,7 +30,7 @@ See the [coding standards](Docs/CodingStandards/README.md), [contribution guide]
 
 Each Release tool executable is built into its own `Plugins/ModRuntime/Tools/build/<tool>` directory in the Unreal project.
 
-`ModSDKTool` (MST) provides `plan`, `build`, and `inspect` for game-specific SDK bundles. Build it with `Tools/Build.bat --target ModSDKTool`. See the [MST guide](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.md) for the request and artifact formats.
+`ModSDKTool` (MDT) provides `plan`, `build`, and `inspect` for game-specific SDK bundles. Build it with `Tools/Build.bat --target ModSDKTool`. See the [MDT guide](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.md) for the request and artifact formats.
 
 ## MHT C++ export parameter validation
 
@@ -85,30 +85,28 @@ MHT generates each API ID from its type ID and public function name. `Compatible
 
 `FullView = ("USkeletalMesh")` selects a UObject pointer class from the signature. MHT checks the public instance members visible in the target build, including public bases. Generated members require the permissions specified by the declarations that select the class. An unresolved member projection fails the generation batch and names the class and member. See [FullView and object inputs](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.md#fullview-and-object-inputs).
 
-Runtime annotations now live in `ExportMetadata/Public/ModExportAnnotations.h`; the Editor module's existing `ModExportMacros.h` forwards to that header. The `ModAPI` Runtime module owns results, cached typed tables, World/Player scopes, explicit providers, permissions, and revocation. Views do not own or expose their UObject. Gameplay lifetime, world cleanup, controller changes, provider removal, and caller revocation invalidate affected calls. A read grant does not implicitly grant mutation.
+`ExportMetadata/Public/ModExportMacros.h` defines the annotation macros for Game and Editor targets. The `ModAPI` Runtime module owns results, cached typed tables, World/Player scopes, explicit providers, permissions, and revocation. Views do not own or expose their UObject. Gameplay lifetime, world cleanup, controller changes, provider removal, and caller revocation invalidate affected calls. A read grant does not implicitly grant mutation.
 
 The development host exposes the current character through `UGameLocalPlayerAPI::GetLocalCharacter`. On that view, `AddHealth` returns updated health and `SetMesh` accepts a loaded skeletal mesh with a compatible skeleton.
 
 Generation workflow:
 
-1. Build MHT, MBT, and ModSourceTool through `Tools/Build.bat` and supply a matching libclang and resource headers. LLVM 21.1.8, UE 5.6, and MSVC 14.51 were verified here. Only LLVM 18.1.8's stable C API headers and license are vendored.
-2. On a clean checkout, build Development Editor with `-MhtBootstrap` if the options exporter is unavailable. The normal build exports the default metadata snapshot when needed. Bootstrap omits generated registrations and is restricted to Development Editor.
-3. Use UBT `-Mode=GenerateClangDatabase -NoPCH` with the actual Target and `-Compiler=VisualStudio2022`. For the Editor example below, create `<project>/Intermediate/ModTools/ModHeaderTool/Clang/Editor` and pass it as `-OutputDir`. Prepare the matching build input again after changing the Target or toolchain configuration.
-4. Run the normal UE build. UHT passes the owner compiler recipe to MBT, runs MHT for the sources, and invokes ModSourceTool to generate the owner link header before UBT links. Editor and Game use separate output roots and host archives. Use the direct MHT command below for standalone source generation.
+1. Build MHT, MBT, and `ModSourceTool` (MST) through `Tools/Build.bat` and supply a matching libclang and resource headers. LLVM 21.1.8, UE 5.6, and MSVC 14.51 were verified here. Only LLVM 18.1.8's stable C API headers and license are vendored.
+2. Build the UE target normally. The UHT adapter prepares the UBT compilation database and build input from `Config/ModHeaderTool.json`. On a clean project it also builds the Development Editor needed to export metadata. MHT generates the sources, MBT builds the libraries, and MST generates the owner link header before UBT links. Editor and Game use separate output roots and host archives.
 
 A build input identifies `schemaVersion: 1`, `project`, `gameId`, `target`, `platform`, `configuration`, `architecture`, `objectReturnPolicy: "ErrorIfNull"`, `compilationDatabase`, and `modules`. Each module supplies `name`, `sourceDirectory`, and explicit `translationUnits`. `project` resolves from the input file; other source paths resolve from the project. `typeIdentities` references the versioned `Config/ModAPITypes.json`; alternatively provide an inline `types` map. `analysisArguments` pins toolchain adapters/resource headers; `pathRoots` names machine-specific roots for normalized diagnostics and hashes. The database uses the [standard Clang format](https://clang.llvm.org/docs/JSONCompilationDatabase.html); every selected TU must have exactly one actual command, and UBT Target/platform/configuration/module macros are checked.
 
 ```json
 {
   "schemaVersion": 1,
-  "project": "../../../../UnrealModFrameworkDev.uproject",
+  "project": "<project>/UnrealModFrameworkDev.uproject",
   "gameId": "UnrealModFrameworkDev",
   "target": "UnrealModFrameworkDevEditor",
   "platform": "Win64",
   "configuration": "Development",
   "architecture": "x64",
   "objectReturnPolicy": "ErrorIfNull",
-  "compilationDatabase": "Intermediate/ModTools/ModHeaderTool/Clang/Editor/compile_commands.json",
+  "compilationDatabase": "Intermediate/ModTools/ModHeaderTool/HostTargets/UnrealModFrameworkDevEditor/Win64/Development/x64/Ubt/compile_commands.json",
   "typeIdentities": "Config/ModAPITypes.json",
   "modules": [{
     "name": "ExportTest",
@@ -127,20 +125,20 @@ A build input identifies `schemaVersion: 1`, `project`, `gameId`, `target`, `pla
 }
 ```
 
-Standalone generation uses the complete producer context set from a UHT build of the same variant.
+Standalone generation can use the build input and producer contexts from a normal UHT build of the same variant.
 
 ```powershell
 $mht = ".\UnrealModFramework\Plugins\ModRuntime\Tools\build\ModHeaderTool\ModHeaderTool.exe"
 $output = "UnrealModFramework/Intermediate/ModTools/ModHeaderTool/Generated/UnrealModFrameworkDevEditor/Win64/Development/x64"
-$contexts = "UnrealModFramework/Intermediate/ModTools/ModHeaderTool/HostTargets/UnrealModFrameworkDevEditor/Win64/Development/x64/contexts.json"
-& $mht generate --build-input UnrealModFramework/Intermediate/ModTools/ModHeaderTool/BuildInputs/Editor.json --output-dir $output --host-contexts $contexts --libclang "<LLVM>/bin/libclang.dll"
+$hostTarget = "UnrealModFramework/Intermediate/ModTools/ModHeaderTool/HostTargets/UnrealModFrameworkDevEditor/Win64/Development/x64"
+& $mht generate --build-input "$hostTarget/BuildInput.json" --output-dir $output --host-contexts "$hostTarget/contexts.json" --libclang "<LLVM>/bin/libclang.dll"
 ```
 
 Generation directly replaces fixed paths below MHT: `SDK`, `Host`, `Client`, `Contract`, `Diagnostics`, and `<gameId>.generated-artifacts.json`. There are no profile/batch directories or `current.json`. Removed outputs are cleaned and unchanged files keep their timestamps. The complete manifest is committed last; interrupted replacement cannot be consumed as a complete result. `generationId` remains a content fingerprint.
 
 MBT compiles `Host/<owner>/<owner>.modhost.cpp`, `<owner>.modabi.cpp`, `<owner>.modverify.cpp`, `SDK/Private/<owner>.modviews.cpp`, and the independent `Client/<game>ModClient/<game>ModClient.modclient.cpp`. The generated `<owner>.modlink.h` retains the owner registration entry point from the host archive. `UModAPIHostSubsystem` registers the generated types for each game instance. `ExportTest` privately depends on the External `ExportTestHost` rules, which declare the stable library path through `PublicPreBuildLibraries`. Libraries and receipts live in `Intermediate/ModTools/ModBuildTool/<Target>/<Platform>/<Configuration>/<Architecture>` under the owning project or plugin. The client library belongs to the project.
 
-MHT publishes `.modabi.h`, `.clientabi.json`, and `.sdkcontract.json` with an artifact manifest, explicit compilation units, and checked Host/Client API symbols. The [client ABI documentation](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.md) defines query, Connect/Disconnect, token delivery, and lifecycle rules. MST consumes the resolved SDK contract; internal UE-view headers are private host artifacts.
+MHT publishes `.modabi.h`, `.clientabi.json`, and `.sdkcontract.json` with an artifact manifest, explicit compilation units, and checked Host/Client API symbols. The [client ABI documentation](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.md) defines query, Connect/Disconnect, token delivery, and lifecycle rules. MDT consumes the resolved SDK contract; internal UE-view headers are private host artifacts.
 
 The automatic adapter supports Win64 x64 MSVC and preserves the real UBT producer flags. The pre-build watch invalidates UHT on directory changes, and the post-build step verifies the archive's witness export in the actual owning binary before publishing its link receipt. See the [UHT integration](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md).
 
