@@ -145,13 +145,21 @@ Projection ProjectionWriter::BuildProjection(GenerationModel& Model)
 			Export["sourceErrorCodes"] = *API.SourceErrorCodes;
 		}
 		Exports.push_back(std::move(Export));
-		Projection.Sources.push_back(
-		    {{"exportId", API.Id},
-		     {"module", API.Module},
-		     {"sourceSignature", API.SourceSignature},
-		     {"file", GenerationPaths::NormalizeInput(Model.Input, Path::PathToUtf8(API.Macro.File))},
-		     {"line", API.Macro.Line},
-		     {"column", API.Macro.Column}});
+		Json Source{{"exportId", API.Id},
+		            {"module", API.Module},
+		            {"sourceSignature", API.SourceSignature},
+		            {"file", GenerationPaths::NormalizeInput(Model.Input, Path::PathToUtf8(API.Macro.File))}};
+		if (API.Blueprint)
+		{
+			Source["class"] = Model.Types.at(API.Owner).BlueprintClass;
+			Source["function"] = API.Name;
+		}
+		else
+		{
+			Source["line"] = API.Macro.Line;
+			Source["column"] = API.Macro.Column;
+		}
+		Projection.Sources.push_back(std::move(Source));
 	}
 	Projection.Contract = Json{{"schemaVersion", 1},
 	                           {"projectionVersion", 1},

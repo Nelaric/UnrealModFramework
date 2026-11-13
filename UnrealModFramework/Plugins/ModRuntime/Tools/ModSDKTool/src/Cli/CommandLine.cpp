@@ -38,9 +38,9 @@ Accepts UMF.SdkBuildRequest v2 and UMF.SdkContract v1 or v2.
 Contracts must already contain complete, resolved projections. MHT scan reports
 are rejected. Blueprint export belongs to ExportCodeGenerator.
 
-The first SDK adapter supports Player/GameThread object getters and one-float
-instance methods returning float. IDs, names, types and native symbols come
-from the contract. No game private source is copied into the public SDK.
+The SDK adapter supports player object getters and typed instance methods,
+including world-scoped host Blueprint APIs with scalar parameters and results.
+IDs, names, types and native symbols come from the contract.
 
 plan asks MBT to validate its inputs but does not compile or publish.
 build calls MBT and UE AutomationTool, builds the SDK and independent developer

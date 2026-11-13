@@ -14,6 +14,19 @@
 
 namespace Mod::HeaderTool
 {
+struct BlueprintParameter
+{
+	std::string Name;
+	std::string PropertyClass;
+	std::string Role;
+};
+
+struct BlueprintFunction
+{
+	std::vector<BlueprintParameter> Parameters;
+	std::size_t Index = 0;
+};
+
 struct API
 {
 	ExportMacro Macro;
@@ -33,6 +46,7 @@ struct API
 	std::string DeclarationUsr;
 	std::optional<std::map<std::string, std::uint32_t>> SourceErrorCodes;
 	std::string Symbol;
+	std::optional<BlueprintFunction> Blueprint;
 	bool bConst = false;
 	bool bNoexcept = false;
 	bool bFullViewMember = false;

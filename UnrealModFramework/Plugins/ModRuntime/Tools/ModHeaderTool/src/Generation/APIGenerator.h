@@ -17,7 +17,7 @@ class APIGenerator
 public:
 	APIGenerator(const fs::path& BuildInput, const fs::path& HostContexts);
 	void Generate(const fs::path& OutputDirectory, const fs::path& Options, const fs::path& ClangLibrary,
-	              const fs::path& LifecycleSource) &&;
+	              const fs::path& LifecycleSource, const fs::path& BlueprintSnapshot) &&;
 
 private:
 	fs::path ResolveAnalysisDatabase() const;

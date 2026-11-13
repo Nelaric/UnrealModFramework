@@ -63,6 +63,8 @@ add_library(ModHeaderToolCore STATIC
     src/Generation/Abi/NativeSignature.h
     src/Generation/API.cpp
     src/Generation/API.h
+    src/Generation/BlueprintExports.cpp
+    src/Generation/BlueprintExports.h
     src/Generation/APIGenerator.cpp
     src/Generation/APIGenerator.h
     src/Generation/APIParameter.cpp

@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "APIGenerator.h"
 
+#include "ModHeaderTool/src/Generation/BlueprintExports.h"
 #include "ModHeaderTool/src/Analysis/DeclarationAnalyzer.h"
 #include "ModHeaderTool/src/Analysis/SourceErrorAnalyzer.h"
 #include "ModHeaderTool/src/Files/Path.h"
@@ -89,7 +90,7 @@ fs::path APIGenerator::ResolveAnalysisDatabase() const
 }
 
 void APIGenerator::Generate(const fs::path& OutputDirectory, const fs::path& Options, const fs::path& ClangLibrary,
-                            const fs::path& LifecycleSource) &&
+                            const fs::path& LifecycleSource, const fs::path& BlueprintSnapshot) &&
 {
 	const fs::path AnalysisDatabase = ResolveAnalysisDatabase();
 	auto Model = DeclarationAnalyzer::Analyze(std::move(Input), Options, ClangLibrary, AnalysisDatabase);
@@ -97,6 +98,7 @@ void APIGenerator::Generate(const fs::path& OutputDirectory, const fs::path& Opt
 	SourceErrorAnalyzer::AnalyzeSourceErrors(
 	    Model, AnalysisDatabase, ClangLibrary,
 	    SourceToolPath.empty() ? fs::path{} : ContextFile.parent_path() / Path::PathFromUtf8(SourceToolPath));
+	BlueprintExports::Merge(Model, BlueprintSnapshot);
 	if (!LifecycleSource.empty())
 	{
 		Model.LifecycleSource = fs::canonical(LifecycleSource);

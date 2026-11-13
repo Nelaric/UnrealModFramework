@@ -3,6 +3,13 @@
   "mode": "generate",
   "libclang": "../.tools/llvm-21.1.8/bin/libclang.dll",
   "metadataEditorTarget": "UnrealModFrameworkDevEditor",
+  "blueprintExports": [
+    {
+      "asset": "/Game/Blueprints/BP_ModBlueprintAPIExportTest.BP_ModBlueprintAPIExportTest",
+      "typeId": "game.blueprint_test",
+      "module": "ExportTest"
+    }
+  ],
   "generation": {
     "gameId": "UnrealModFrameworkDev",
     "typeIdentities": "Config/ModAPITypes.json",

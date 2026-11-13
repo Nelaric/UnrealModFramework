@@ -28,6 +28,7 @@ public:
 	bool ShouldCreateSubsystem(UObject* Outer) const override;
 	void Initialize(FSubsystemCollectionBase& Collection) override;
 	void Deinitialize() override;
+	const FString* FindModId(const UModInstance& Instance) const;
 
 private:
 	void SubscribeToLoader();

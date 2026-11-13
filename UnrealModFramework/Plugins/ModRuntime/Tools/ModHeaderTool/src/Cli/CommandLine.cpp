@@ -74,7 +74,8 @@ The backend supports public UObject instance methods on GameThread, scalar
 and UObject pointer inputs, and scalar/void or World-scoped UObject pointer returns.
 FullView selects parameter classes for public instance method generation.
 Object returns use the explicitly selected ErrorIfNull projection. Other forms,
-Event and Hook generation are rejected. No Blueprint assets are processed.
+Event and Hook generation are rejected. An optional Blueprint export snapshot
+adds synchronous scalar instance APIs extracted by the Editor commandlet.
 
 When a project directory is supplied, it must contain exactly one .uproject.
 Scans Plugins, Source, and Directories from the optional <project>.modexpot JSON.

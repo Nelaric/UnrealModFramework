@@ -2,7 +2,9 @@
 /** @file ModAPIRegistry.h */
 #pragma once
 
+#include "ModAPIBlueprint.h"
 #include "ModAPIObject.h"
+#include "UObject/SoftObjectPath.h"
 
 class ULocalPlayer;
 class UModAPIHostSubsystem;
@@ -56,6 +58,10 @@ struct FTypeDescriptor
 	bool bFullView = false;
 	/// Resolves this player-scoped service from the chosen local player.
 	bool bLocalPlayerSubsystem = false;
+	/// Module-owned reflection descriptions for Blueprint methods.
+	TConstArrayView<FBlueprintFunction> BlueprintFunctions;
+	/// Cooked class identity resolved when a Blueprint provider is registered.
+	FSoftClassPath BlueprintClass;
 };
 
 /// A revocable registration. The owner must release it before unloading code.

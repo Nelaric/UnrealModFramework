@@ -10,6 +10,7 @@
 #include "Framework/Docking/LayoutExtender.h"
 #include "Framework/Docking/TabManager.h"
 #include "Modules/ModuleManager.h"
+#include "ModAPIBlueprint.h"
 #include "Styling/AppStyle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "BlueprintModes/WidgetBlueprintApplicationMode.h"
@@ -116,6 +117,10 @@ class FBlueprintIntegrationModule final : public IModuleInterface
 public:
 	virtual void StartupModule() override
 	{
+		if (IsRunningCommandlet())
+		{
+			return;
+		}
 		FBlueprintEditorModule& BlueprintEditor =
 		    FModuleManager::LoadModuleChecked<FBlueprintEditorModule>(TEXT("Kismet"));
 		RegisterTabsHandle =
@@ -129,6 +134,8 @@ public:
 		    WidgetEditor.OnRegisterLayoutExtensions().AddRaw(this, &FBlueprintIntegrationModule::ExtendWidgetLayout);
 		if (GEditor)
 		{
+			BlueprintPreCompileHandle =
+			    GEditor->OnBlueprintPreCompile().AddLambda([](UBlueprint*) { API::FBlueprintCall::Invalidate(); });
 			if (UAssetEditorSubsystem* AssetEditors = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
 			{
 				AssetEditorSubsystem = AssetEditors;
@@ -140,6 +147,10 @@ public:
 
 	virtual void ShutdownModule() override
 	{
+		if (GEditor)
+		{
+			GEditor->OnBlueprintPreCompile().Remove(BlueprintPreCompileHandle);
+		}
 		if (FModuleManager::Get().IsModuleLoaded(TEXT("Kismet")))
 		{
 			FBlueprintEditorModule& BlueprintEditor =
@@ -221,6 +232,7 @@ private:
 	FDelegateHandle RegisterWidgetTabsHandle;
 	FDelegateHandle RegisterWidgetLayoutHandle;
 	FDelegateHandle AssetOpenedHandle;
+	FDelegateHandle BlueprintPreCompileHandle;
 	TWeakObjectPtr<UAssetEditorSubsystem> AssetEditorSubsystem;
 	TArray<FTSTicker::FDelegateHandle> PendingTickers;
 };

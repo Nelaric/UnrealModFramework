@@ -128,6 +128,31 @@ A target or variant `buildInput` selects a caller-managed input. Its compilation
 database and response files must match the active target. Clang also requires
 the headers produced by standard UHT CodeGen.
 
+### Host Blueprint API exports
+
+Configure `blueprintExports` in the project's `Config/ModHeaderTool.json`.
+Each entry supplies the saved Blueprint object path as `asset`, a stable
+`typeId`, and a participating Runtime `module`. The development project
+includes an entry for `BP_ModBlueprintAPIExportTest`. Set `PublicName` on
+the Blueprint API declaration before publishing. Existing declarations
+with empty names and versions use their current declaration name and
+`1.0.0`.
+
+The `ModExportBlueprints` commandlet compiles the saved asset and passes
+the compiled `UFunction` signature to MHT. The supported instance API
+profile is `World`, `GameThread`, and `ReturnError`, with value scalar
+inputs and one scalar output or `void`. The configured packages are added
+to the host cook. Use `-MhtBootstrap` to prepare the Editor when needed.
+
+The game calls `UModAPIHostSubsystem::RegisterWorldProvider` once its object
+is ready and retains the registration. It uses `SetWorldCallerPolicy` to
+select authorized mods, types, and permissions. The generated
+`<SDK>API.h` provides `Acquire_<object reference type>`. A native mod calls
+it with its active `UModInstance` to connect the generated tables and
+acquire a reference for the typed SDK methods. The host invokes the actual
+Blueprint instance with `ProcessEvent`. Mod unload, world closure, or
+policy replacement revokes the corresponding callers.
+
 ## Independent host compilation and linking
 
 The owner rules call `ExportMetadata.ConfigureHost(this, Target)`. A companion

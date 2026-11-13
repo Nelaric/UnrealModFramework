@@ -88,6 +88,9 @@ class, include, and module. An object result names the projected view TypeId.
 The `blueprint` flag selects whether to generate a node in addition to the
 native UE declaration. Getters use Player scope. Methods support Player or World. APIs declare
 `thread: GameThread` and `failureRule: ReturnError`, with per-API permissions.
+World-scoped host Blueprint APIs include `hostBlueprint.callingTableHash`. The
+generated C++ SDK uses this hash to acquire the registered provider through the
+active `UModInstance` and connects the native tables before the first call.
 
 Each API also supplies `id`, stable public `name`, `displayName`, `signatureHash`,
 `projectionHash`, and `native: {header, symbol}`. Client profiles need the required
@@ -174,7 +177,9 @@ connection descriptor names host queries and client Connect/Disconnect symbols;
 MDT requires it to be a hash-checked public Contract artifact, matches its identities
 and API signatures, and copies it into both the bundle and SDK plugin at the
 declared relative path. `inspect` verifies both copies and their contract identity.
-The loader still needs to connect the module and deliver host-approved tokens.
+The game supplies the authorization policy and live world provider for host
+Blueprint APIs. Other context delivery, such as the local-player scope, belongs
+to the game integration.
 MHT marks the SDK adapter contract `Unsupported` for API graphs outside this
 MDT adapter's shapes. The internal UE-view `.modcontract.json` remains a separate
 contract and is rejected as an MDT SDK contract.

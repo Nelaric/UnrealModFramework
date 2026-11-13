@@ -140,6 +140,13 @@ void UModLifecycleSubsystem::Activate(const FMountedPackage& Package)
 	}
 }
 
+const FString* UModLifecycleSubsystem::FindModId(const UModInstance& Instance) const
+{
+	const auto* Entry =
+	    Instances.FindByPredicate([&Instance](const auto& Active) { return Active.Instance == &Instance; });
+	return Entry ? &Entry->ModId : nullptr;
+}
+
 void UModLifecycleSubsystem::HandleBeforeUnload(const FMountedPackage& Package)
 {
 	Deactivate(Package.ModId);
@@ -159,6 +166,10 @@ void UModLifecycleSubsystem::Deactivate(const FString& ModId)
 		    Unloading.Emplace(Entry.Instance.Get());
 		    return true;
 	    });
+	for (const TStrongObjectPtr<UModInstance>& Instance : Unloading)
+	{
+		Instance->RevokeWorldAPIs();
+	}
 	for (const TStrongObjectPtr<UModInstance>& Instance : Unloading)
 	{
 		Instance->OnModBeforeUnload();

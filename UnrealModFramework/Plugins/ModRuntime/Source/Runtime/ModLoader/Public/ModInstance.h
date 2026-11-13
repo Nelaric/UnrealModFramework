@@ -60,6 +60,33 @@ public:
 		return GameInstance ? GameInstance->GetWorld() : nullptr;
 	}
 
+	/** @brief Returns this instance's active package ID on the game thread.
+	 * @return The package ID, or an empty string outside the active lifetime.
+	 */
+	FString GetModId() const;
+
+	/** @brief Acquires a host-approved world provider on the game thread.
+	 * @param TypeId Stable identity of the requested provider.
+	 * @param Signature The caller's generated calling table signature.
+	 * @param OutContext Receives the session-owned context token.
+	 * @param OutObject Receives the non-owning provider token.
+	 * @return True when the host authorized and issued both tokens.
+	 */
+	bool AcquireWorldAPI(FName TypeId, const TCHAR* Signature, uint64& OutContext, uint64& OutObject);
+
+	/** @brief Resolves a host API table query on the game thread.
+	 * @param Module Owning module in the generated SDK contract.
+	 * @param Symbol Query symbol in that module.
+	 * @return A borrowed symbol address, or null when unavailable.
+	 */
+	static void* ResolveHostAPI(const char* Module, const char* Symbol);
+
+public:
+	using FAcquireWorldAPI = bool (*)(UModInstance&, FName, const TCHAR*, uint64&, uint64&);
+	using FResolveHostAPI = void* (*)(const char*, const char*);
+	using FRevokeWorldAPIs = void (*)(UModInstance&);
+	static void SetHostAPIBridge(FAcquireWorldAPI Acquire, FResolveHostAPI Resolve, FRevokeWorldAPIs Revoke);
+
 protected:
 	/** @brief Receives the result of a load operation on the game thread.
 	 * @param Result The completed startup or
@@ -95,4 +122,5 @@ protected:
 
 private:
 	friend class UModLifecycleSubsystem;
+	void RevokeWorldAPIs();
 };

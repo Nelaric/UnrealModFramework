@@ -67,7 +67,8 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 		}
 		const Json Signature{{"callingConvention", "cdecl"}, {"returns", "uint32_t"}, {"parameters", Params}};
 		const std::string SignatureHash = Hash::HashBytes(Signature.dump());
-		const std::string APIProjection = Hash::HashBytes(API.SourceSignature + Signature.dump() + ":ContextHandlesV1");
+		const std::string APIProjection = Hash::HashBytes(API.SourceSignature + Signature.dump() + ":ContextHandlesV1" +
+		                                                  (API.Blueprint ? Json(API.Permissions).dump() : ""));
 		APIs.push_back({{"id", API.Id},
 		                {"version", API.Version},
 		                {"ownerModule", API.Module},
@@ -242,7 +243,7 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 		std::set<std::string> Headers;
 		for (const auto& [Name, Type] : Model.Types)
 		{
-			if (Type.Module == Owner)
+			if (Type.Module == Owner && !Type.HeaderInclude.empty())
 			{
 				Headers.insert(Type.HeaderInclude);
 			}
@@ -303,9 +304,29 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 					Host << "    if (Arg" << P << " > 1) { return " << Prefix << "_InvalidArgument; }\n";
 				}
 			}
-			Host << "    auto Binding = Mod::API::FNativeAccess::Resolve(Context, Target, Mod::API::TBindingTraits<"
-			     << API.Owner << ">::TypeId(), Mod::API::TBindingTraits<" << API.Owner << ">::Signature);\n"
+			Host << "    auto Binding = Mod::API::FNativeAccess::" << (API.Blueprint ? "ResolveObject" : "Resolve")
+			     << "(Context, Target, Mod::API::TBindingTraits<" << API.Owner
+			     << ">::TypeId(), Mod::API::TBindingTraits<" << API.Owner << ">::Signature);\n"
 			     << "    if (!Binding.IsSuccess()) { return NativeStatus(Binding.GetError()); }\n";
+			if (API.Blueprint)
+			{
+				const auto& Type = Model.Types.at(API.Owner);
+				Host << "    auto Calls = Binding.GetValue().ResolveCalls(Mod::API::TBindingTraits<" << API.Owner
+				     << ">::TypeId(), Mod::API::TBindingTraits<" << API.Owner << ">::Signature);\n"
+				     << "    if (!Calls.IsSuccess()) { return NativeStatus(Calls.GetError()); }\n"
+				     << "    auto Result = static_cast<const Mod::Generated::" << Type.Symbol
+				     << "Calls*>(Calls.GetValue())->" << API.Symbol << "(Binding.GetValue()"
+				     << (API.Parameters.empty() ? "" : ", ") << NativeSignature::Arguments(API, true) << ");\n"
+				     << "    if (!Result.IsSuccess()) { return NativeStatus(Result.GetError()); }\n";
+				if (API.Return.Kind != APIType::EKind::Void)
+				{
+					Host << "    *OutValue = static_cast<" << NativeSignature::Scalar(API.Return)
+					     << ">(Result.GetValue());\n";
+				}
+				Host << "    return 0;\n#if !PLATFORM_EXCEPTIONS_DISABLED\n    }\n    catch (...) { return " << Prefix
+				     << "_InternalError; }\n#endif\n}\n\n";
+				continue;
+			}
 			if (!API.Permissions.empty())
 			{
 				Host << "    static const FName Permissions[] = {";
@@ -432,6 +453,40 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 	Header << "#pragma pack(pop)\n\n/** @brief Returns the compiled client ABI version. */\n"
 	       << Macro << "_CLIENT_API uint32_t " << Macro << "_CALL UMF_ModClient_" << Game
 	       << "(void);\n\n#ifdef __cplusplus\n}\n#endif\n";
+	if (std::any_of(Model.APIs.begin(), Model.APIs.end(), [](const auto& Api) { return Api.Blueprint.has_value(); }))
+	{
+		Header << "\n#ifdef __cplusplus\n"
+		       << "/** @brief Connects each client table using host symbol addresses.\n"
+		       << " * @param Resolve Receives an owning module and its query symbol.\n"
+		       << " * @return Zero on success, otherwise a native status.\n"
+		       << " * @details Call on the game thread before delivering caller tokens.\n"
+		       << " */\n"
+		       << "template <class FResolve> uint32_t " << Prefix << "_ConnectHost(FResolve Resolve)\n{\n";
+		for (const auto& Connection : Connections)
+		{
+			const std::string Owner = Connection.at("ownerModule");
+			const std::string Table = Connection.at("tableType");
+			const std::string Query = Connection.at("querySymbol");
+			Header << "    " << Table << " " << Owner << "Table{};\n"
+			       << "    const auto " << Owner << "Query = reinterpret_cast<decltype(&" << Query << ")>(Resolve("
+			       << NativeCode::Literal(Owner) << ", " << NativeCode::Literal(Query) << "));\n"
+			       << "    if (!" << Owner << "Query) { return " << Prefix << "_NotConnected; }\n"
+			       << "    if (const uint32_t Status = " << Owner << "Query(" << Macro << "_ABI_VERSION, sizeof("
+			       << Owner << "Table), " << Macro << "_ABI_HASH, &" << Owner
+			       << "Table); Status != 0) { return Status; }\n";
+		}
+		for (const auto& Connection : Connections)
+		{
+			Header << "    if (const uint32_t Status = " << Connection.at("connectSymbol").get<std::string>() << "(&"
+			       << Connection.at("ownerModule").get<std::string>() << "Table); Status != 0)\n    {\n";
+			for (const auto& Other : Connections)
+			{
+				Header << "        " << Other.at("disconnectSymbol").get<std::string>() << "();\n";
+			}
+			Header << "        return Status;\n    }\n";
+		}
+		Header << "    return 0;\n}\n#endif\n";
+	}
 	Files[HeaderPath] = Header.str();
 	Files["Client/" + ClientOwner + "/" + ClientOwner + ".modclient.cpp"] = Client.str();
 	Files["Contract/" + Game + ".clientabi.json"] = Descriptor.dump(2) + "\n";
@@ -450,7 +505,7 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 	std::set<std::string> ViewTypes = DirectResults;
 	for (const auto& [Name, Type] : Model.Types)
 	{
-		if (Type.bFullView)
+		if (Type.bFullView || !Type.BlueprintClass.empty())
 		{
 			ViewTypes.insert(Name);
 		}
@@ -484,7 +539,8 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 		const bool Getter = API.Return.Kind == APIType::EKind::Object && !API.Return.bConst && API.Parameters.empty() &&
 		                    API.Scope == "Player" && Model.Types.at(API.Owner).bLocalPlayerSubsystem;
 		const bool Method = API.Return.Public == "float" && API.Parameters.size() == 1 &&
-		                    API.Parameters[0].Type.Public == "float" && DirectResults.contains(API.Owner);
+		                    API.Parameters[0].Type.Public == "float" && DirectResults.contains(API.Owner) &&
+		                    !API.Blueprint;
 		const bool bPlayerProvider = API.Scope == "Player" && Model.Types.at(API.Owner).bLocalPlayerSubsystem;
 		const bool bCanRepresentInputs =
 		    std::all_of(API.Parameters.begin(), API.Parameters.end(),
@@ -539,6 +595,10 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 		if (API.SourceErrorCodes)
 		{
 			Entry["sourceErrorCodes"] = *API.SourceErrorCodes;
+		}
+		if (API.Blueprint)
+		{
+			Entry["hostBlueprint"] = {{"callingTableHash", Model.Types.at(API.Owner).Signature}};
 		}
 		if (Getter)
 		{
