@@ -4,6 +4,7 @@
 #include "ModHeaderTool/src/Analysis/CursorSource.h"
 #include "ModHeaderTool/src/Analysis/Location.h"
 #include "ModHeaderTool/src/Files/Path.h"
+#include "ModHeaderTool/src/Scan/MacroNames.h"
 
 #include <cctype>
 #include <clang-c/Index.h>
@@ -57,38 +58,33 @@ CXChildVisitResult Traversal::Visit(CXCursor Cursor, CXCursor, CXClientData Data
 		{
 			return CXChildVisit_Continue;
 		}
-		if (Cursor.kind == CXCursor_MacroExpansion)
+		if (Cursor.kind == CXCursor_MacroExpansion &&
+		    !MacroNames::IsExportMacro(Context.Clang.String(Context.Clang.clang_getCursorSpelling(Cursor))))
 		{
-			const auto Name = Context.Clang.String(Context.Clang.clang_getCursorSpelling(Cursor));
-			if (Name != "MOD_EXPORT_API" && Name != "MOD_EXPORT_EVENT" && Name != "MOD_EXPORT_HOOK")
-			{
-				return CXChildVisit_Continue;
-			}
+			return CXChildVisit_Continue;
 		}
 		const auto LocationValue =
 		    CursorSource::ReadLocation(Context.Clang, Context.Clang.clang_getCursorLocation(Cursor));
-		auto Source = LocationValue.File.empty() ? Context.Sources.end()
-		                                         : Context.Sources.find(CursorSource::Key(LocationValue.File));
-		if (Cursor.kind == CXCursor_MacroExpansion && Source != Context.Sources.end())
+		if (LocationValue.File.empty())
 		{
-			const auto Name = Context.Clang.String(Context.Clang.clang_getCursorSpelling(Cursor));
-			if (Name == "MOD_EXPORT_API" || Name == "MOD_EXPORT_EVENT" || Name == "MOD_EXPORT_HOOK")
-			{
-				Source->second.Active.insert(LocationValue.Offset);
-				Context.Active.insert(Source->first + ":" + std::to_string(LocationValue.Offset));
-			}
+			return CXChildVisit_Continue;
 		}
-		if (Cursor.kind == CXCursor_CXXMethod && Source != Context.Sources.end())
+		const auto Source = Context.SourcePaths.find(CursorSource::Key(LocationValue.File));
+		if (Source == Context.SourcePaths.end())
 		{
-			Context.Methods.push_back(Cursor);
+			return CXChildVisit_Continue;
 		}
-		if (Cursor.kind == CXCursor_Namespace || Cursor.kind == CXCursor_LinkageSpec ||
-		    ((Cursor.kind == CXCursor_ClassDecl || Cursor.kind == CXCursor_StructDecl) &&
-		     Source != Context.Sources.end()))
+		if (Cursor.kind == CXCursor_MacroExpansion)
 		{
-			return CXChildVisit_Recurse;
+			Context.ExportExpansions[Source->first].push_back(Cursor);
+			return CXChildVisit_Continue;
 		}
-		return CXChildVisit_Continue;
+		if (Cursor.kind == CXCursor_CXXMethod)
+		{
+			Context.Methods[Source->first].push_back(Cursor);
+			return CXChildVisit_Continue;
+		}
+		return CXChildVisit_Recurse;
 	}
 	catch (...)
 	{
