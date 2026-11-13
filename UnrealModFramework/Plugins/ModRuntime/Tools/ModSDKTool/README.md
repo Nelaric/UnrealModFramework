@@ -39,11 +39,25 @@ changed inputs require a new versioned output directory. Publication verifies an
 owned sibling staging directory, then renames it into the absent destination.
 Failures do not replace existing SDKs.
 
-Use `ModSDKTool build-editor` to package the independent authoring plugin from
-its descriptor and an installed Editor. Pass a new directory with `--package`,
-the Editor's .NET host, AutomationTool assembly, module manifest and
-architecture, and the MBT executable. MDT verifies the Editor BuildId and
-binary before publishing the plugin with the native tools. [CircleCI invocation](../../../../../.circleci/build-editor-plugin.sh)
+Use `ModSDKTool build-editor` to build the independent authoring plugin for an
+installed Editor.
+
+```text
+ModSDKTool build-editor --package <new-directory>
+                       --dotnet <host> --automation-tool <AutomationTool.dll>
+                       --editor-modules <UnrealEditor.modules>
+                       --architecture <x64|arm64> --mbt <ModBuildTool>
+```
+
+CMake embeds the files listed in `Resources/DevelopmentEditor/Files.cmake` in
+MDT. Both `build-editor` and `build` write these files, the plugin descriptor,
+and the packaging configuration into a temporary workspace. MDT then calls
+UAT and verifies the Editor BuildId and binary before publishing the plugin
+with the native tools. [CircleCI invocation](../../../../../.circleci/build-editor-plugin.sh)
+
+To open `ExampleMods/TestMod`, install the generated `ModDevelopmentSDKEditor`
+and the game's `UMFDevSDK` under `ExampleMods/TestMod/Plugins`. A complete SDK
+bundle for the sample contains both plugins.
 
 ## Input contracts
 
@@ -95,7 +109,8 @@ reflection module preserves the game's `/Script/ModLoader` type paths. The game
 session owns the instances and delivers lifecycle events.
 
 [sdk-build-request.schema.json](Protocol/sdk-build-request.schema.json) defines
-`UMF.SdkBuildRequest` v1:
+`UMF.SdkBuildRequest` v2. Set `schemaVersion` to `2` and omit
+`developmentPlugin`.
 
 | Field | Purpose |
 | --- | --- |
@@ -103,7 +118,6 @@ session owns the instances and delivers lifecycle events.
 | `pluginName` | Stable SDK plugin/reflection identity |
 | `contract` | Completed public producer contract |
 | `outputDirectory` | Optional bundle destination, defaulting to `<project>/Intermediate/ModTools/ModSDKTool/<pluginName>/<sdkVersion>` |
-| `developmentPlugin` | Independent plugin containing `DevelopmentEditor` |
 | `tools.mbt` | MBT with support for the input manifest version and binary inspection |
 | `tools.dotnet`, `tools.automationTool` | Actual UE-compatible host and assembly |
 | `editor` | Host platform, architecture, Development, real engine `.modules`, matching `buildId` |

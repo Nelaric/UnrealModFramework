@@ -16,6 +16,7 @@
 #include "ModSDKTool/src/Bundle/BundlePublisher.h"
 #include "ModSDKTool/src/Bundle/BundleReuse.h"
 #include "ModSDKTool/src/Editor/EditorPackage.h"
+#include "ModSDKTool/src/Editor/PluginSources.h"
 #include "ModSDKTool/src/Manifest/ContractSchema.h"
 #include "ModSDKTool/src/Manifest/ContractValidator.h"
 #include "ModSDKTool/src/Manifest/JsonDocument.h"
@@ -110,12 +111,20 @@ SdkRequest SdkBuild::ReadRequest(const fs::path& File)
 	SdkRequest Request;
 	Request.File = fs::canonical(File);
 	Request.Document = JsonDocument::ReadJson(Request.File);
-	JsonDocument::RequireFormat(Request.Document, "UMF.SdkBuildRequest");
+	JsonDocument::RequireFormat(Request.Document, "UMF.SdkBuildRequest", {2});
 	const fs::path Root = Request.File.parent_path();
 	const Json& Document = Request.Document;
+	if (Document.contains("developmentPlugin"))
+	{
+		throw std::runtime_error("Remove developmentPlugin from the request. MDT generates the authoring plugin.");
+	}
 	JsonDocument::Text(Document, "gameId");
 	const std::string Plugin = JsonDocument::Text(Document, "pluginName");
 	PortableNames::Identifier(Plugin);
+	if (PortableNames::Fold(Plugin) == PortableNames::Fold(PluginSources::DevelopmentPluginName))
+	{
+		throw std::runtime_error("The generated SDK and independent development plugin need distinct names.");
+	}
 	const std::string Version = JsonDocument::Text(Document, "sdkVersion");
 	if (Version.find_first_not_of("0123456789.") != std::string::npos || Version.front() == '.' ||
 	    Version.back() == '.' || std::count(Version.begin(), Version.end(), '.') != 2 ||
@@ -148,22 +157,6 @@ SdkRequest SdkBuild::ReadRequest(const fs::path& File)
 	    fs::canonical(Mod::BuildTool::Path::ResolvePath(Root, JsonDocument::Text(Document.at("tools"), "dotnet")));
 	Request.AutomationTool = fs::canonical(
 	    Mod::BuildTool::Path::ResolvePath(Root, JsonDocument::Text(Document.at("tools"), "automationTool")));
-	Request.DevelopmentPlugin =
-	    fs::canonical(Mod::BuildTool::Path::ResolvePath(Root, JsonDocument::Text(Document, "developmentPlugin")));
-	if (PortableNames::Fold(JsonDocument::Text(Document, "pluginName")) ==
-	    PortableNames::Fold(Mod::BuildTool::Path::PathToUtf8(Request.DevelopmentPlugin.stem())))
-	{
-		throw std::runtime_error("The generated SDK and independent development plugin need distinct names.");
-	}
-	const Json Development = JsonDocument::ReadJson(Request.DevelopmentPlugin);
-	if (Request.DevelopmentPlugin.extension() != ".uplugin" || !Development.at("Modules").is_array() ||
-	    !std::any_of(Development.at("Modules").begin(), Development.at("Modules").end(),
-	                 [](const Json& Module) {
-		                 return Module.value("Name", "") == "DevelopmentEditor" && Module.value("Type", "") == "Editor";
-	                 }))
-	{
-		throw std::runtime_error("developmentPlugin must contain the independent DevelopmentEditor module.");
-	}
 	const Json& Editor = Document.at("editor");
 	const std::string Platform = JsonDocument::Text(Editor, "platform");
 	const std::string Architecture = JsonDocument::Text(Editor, "architecture");
@@ -199,19 +192,6 @@ SdkRequest SdkBuild::ReadRequest(const fs::path& File)
 	for (const char* Name : {"UnrealModFramework.LICENSE", "nlohmann.LICENSE.MIT", "NOTICE.md"})
 	{
 		SdkInputs::AddInput(Request, Mod::BuildTool::Executable::ExecutablePath().parent_path() / "Licenses" / Name);
-	}
-	const fs::path TemplateRoot = Request.DevelopmentPlugin.parent_path();
-	for (const fs::directory_entry& Entry : fs::recursive_directory_iterator(TemplateRoot))
-	{
-		if (Entry.is_symlink())
-		{
-			throw std::runtime_error("Developer plugin templates cannot contain symbolic links.");
-		}
-		const fs::path Relative = Entry.path().lexically_relative(TemplateRoot);
-		if (Entry.is_regular_file() && *Relative.begin() != "Binaries" && *Relative.begin() != "Intermediate")
-		{
-			SdkInputs::AddInput(Request, Entry.path());
-		}
 	}
 	const Json& Libraries = Document.at("libraries");
 	if (!Libraries.is_array() || Libraries.empty() || Libraries.size() > 256)
@@ -270,17 +250,13 @@ SdkRequest SdkBuild::ReadRequest(const fs::path& File)
 			throw std::runtime_error("SDK output would contain or replace an input.");
 		}
 	}
-	if (PathRelations::IsInside(Request.Output, TemplateRoot))
-	{
-		throw std::runtime_error("SDK output cannot be inside its developer plugin template.");
-	}
 	if (Document.contains("workDirectory"))
 	{
 		const fs::path WorkRoot =
 		    Mod::BuildTool::Path::ResolvePath(Root, JsonDocument::Text(Document, "workDirectory"));
-		if (PathRelations::IsInside(WorkRoot, Request.Output) || PathRelations::IsInside(WorkRoot, TemplateRoot))
+		if (PathRelations::IsInside(WorkRoot, Request.Output))
 		{
-			throw std::runtime_error("workDirectory overlaps the SDK output or plugin source.");
+			throw std::runtime_error("workDirectory cannot be inside the SDK output.");
 		}
 		for (const Library& Job : Request.Libraries)
 		{

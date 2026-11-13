@@ -51,7 +51,7 @@
 | `BlueprintIntegration` | “蓝图Mod导出”面板、蓝图内的独立 API/Event/Hook 声明、接入节点与编译校验 | 随 ModRuntime 源码插件编译，仅 Editor Target 加载 |
 | `ModHeaderTool`（MHT） | 导出宏、真实类型与成员签名、契约校验、完整类型闭包、投影、调用/转换/ABI/验证代码及生成清单 | 独立 C++ 工具；通过 C# UHT Exporter 适配器接入，完整 C++ 分析可使用 Clang |
 | `ModBuildTool`（MBT） | 实际 Target 与工具链识别、构建准备、生成输入与缓存管理、SDK/二进制兼容核对、产物收集和发布 | 独立构建管理工具；保留仓库现有 CMake/C++ 工具布局，通过 UBT 构建步骤接入 |
-| `ModSDKTool`（MDT） | SDK 工具工程骨架；具体 SDK 操作待实现 | 独立 CMake/C++20 可执行工具，接入统一工具构建入口 |
+| `ModSDKTool`（MDT） | 生成并构建制作插件与游戏专属 SDK，校验并发布产物 | 独立 CMake/C++20 可执行工具，接入统一工具构建入口 |
 | `DevelopmentEditor` | 模组工程的创作界面、SDK 浏览、Cook/打包、包检查、预览与发布工具 | 单独构建的编辑器二进制插件 |
 | `ModProtocol` | Export Schema、包格式、Manifest、内容注册表、IPC 消息和 C ABI 版本定义 | 单一版本化源定义，构建时复制到各独立交付物 |
 | 游戏 Mod SDK Bundle | 公共 GameModSDK、受限视图、反射类型、契约、链接/模块元数据、Cook Profile 与能力报告 | 同批生成、按 Game/Editor 等目标构建，原子发布 |
@@ -78,20 +78,17 @@ UnrealModFramework/
 │           ├── ModHeaderTool/
 │           ├── ModBuildTool/
 │           └── ModSDKTool/
-├── SourcePlugins/
-│   └── ModDevelopmentSDKEditor/
-│       ├── ModDevelopmentSDKEditor.uplugin
-│       └── Source/DevelopmentEditor/
+│               └── Resources/DevelopmentEditor/
+│                   └── Source/DevelopmentEditor/
 ├── Shared/ModProtocol/            # Export Schema、包格式和 C ABI 的唯一源定义
 ├── Build/
-│   ├── BuildModDevelopmentSDKEditor.ps1
 │   └── BuildRelease.ps1
 └── Dist/
     ├── RuntimeSDK/
     └── ModDevelopmentSDKEditor/UE_5.X/Win64/ModDevelopmentSDKEditor/
 ```
 
-`Plugins/ModRuntime` 参与游戏工程的正常 UBT 构建。`SourcePlugins/ModDevelopmentSDKEditor` 位于 UE 的常规插件搜索目录之外，以 `RunUAT BuildPlugin -Plugin=<路径> -Package=<短路径暂存目录>` 独立构建，成功后将二进制插件整理到 `Dist`，交付后安装在 `Engine/Plugins`。Windows 构建会在 `-Package` 下生成较深的临时 `HostProject` 路径，直接指定深层 `Dist` 目录可能触发 260 字符路径检查。UE 文档确认项目插件位于 `Project/Plugins`、引擎插件位于 `Engine/Plugins`，并且模块类型决定 Runtime 或 Editor 的加载目标。[UE 5.6 插件文档](https://dev.epicgames.com/documentation/en-us/unreal-engine/plugins-in-unreal-engine?application_version=5.6)
+`Plugins/ModRuntime` 参与游戏工程的正常 UBT 构建。CMake 将制作插件源码资源嵌入 MDT。`ModSDKTool build-editor` 在临时工作目录生成描述符、模块源码和打包配置，用 UAT `BuildPlugin` 独立编译，通过 Editor BuildId 和二进制校验后发布到指定目录。完整 SDK 构建使用同一入口，将制作插件随 SDK 一并交付。作者可以将产物安装到工程的 `Plugins` 或对应的 `Engine/Plugins`。[UE 5.6 插件文档](https://dev.epicgames.com/documentation/en-us/unreal-engine/plugins-in-unreal-engine?application_version=5.6)
 
 两个插件的发布副本都必须包含编译所需的 `ModProtocol` 定义，不能让已安装的编辑器插件从开发仓库的相对路径包含文件。`Shared/ModProtocol` 是唯一源定义；生成脚本把版本化快照同步到两个插件的自包含源码目录，CI 检查快照与源定义一致，独立 `BuildPlugin` 再使用短路径暂存目录。
 

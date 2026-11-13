@@ -35,8 +35,6 @@ struct SdkRequest
 	fs::path Dotnet;
 	/// Actual UE AutomationTool assembly.
 	fs::path AutomationTool;
-	/// Independent development editor plugin template.
-	fs::path DevelopmentPlugin;
 	/// Checked per-module library jobs.
 	std::vector<Library> Libraries;
 	/// Public include paths mapped to validated generated source files.

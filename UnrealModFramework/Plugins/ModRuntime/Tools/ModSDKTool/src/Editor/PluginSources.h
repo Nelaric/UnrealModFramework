@@ -13,7 +13,11 @@ namespace fs = std::filesystem;
 class PluginSources
 {
 public:
+	static constexpr char DevelopmentPluginName[] = "ModDevelopmentSDKEditor";
+	static constexpr char DevelopmentModuleName[] = "DevelopmentEditor";
+
 	static void PrepareSdkSource(const SdkRequest& Request, const fs::path& Source);
-	static void PrepareDevelopmentSource(const SdkRequest& Request, const fs::path& DevelopmentSource);
+	/// Writes the embedded editor plugin into the build workspace and returns its descriptor.
+	static fs::path PrepareDevelopmentSource(const fs::path& Work);
 };
 } // namespace Mod::SdkTool

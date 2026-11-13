@@ -24,7 +24,18 @@ ModSDKTool inspect --bundle <发布目录>
 
 已发布目录不可变。相同输入核对全部文件后返回 `UpToDate`；输入变化须选择新的版本化输出目录。发布先在同级独占目录中准备并验证，再重命名到原先不存在的目标。失败不会替换已有 SDK。
 
-使用 `ModSDKTool build-editor` 构建独立制作插件。传入插件描述文件、尚不存在的 `--package` 目录、已安装 Editor 的 .NET 宿主、AutomationTool 程序集、模块清单、架构以及 MBT 可执行文件。MDT 校验 Editor BuildId 和二进制后，将插件与原生工具一并发布。 [CircleCI 调用方式](../../../../../.circleci/build-editor-plugin.sh)
+使用 `ModSDKTool build-editor` 为已安装的 Editor 构建独立制作插件。
+
+```text
+ModSDKTool build-editor --package <尚不存在的目录>
+                       --dotnet <.NET 宿主> --automation-tool <AutomationTool.dll>
+                       --editor-modules <UnrealEditor.modules>
+                       --architecture <x64|arm64> --mbt <ModBuildTool>
+```
+
+CMake 将 `Resources/DevelopmentEditor/Files.cmake` 列出的文件嵌入 MDT。`build-editor` 和 `build` 都在临时目录写出这些文件、插件描述符和打包配置。MDT 调用 UAT 编译，校验 Editor BuildId 和二进制后，将插件与原生工具一并发布。 [CircleCI 调用方式](../../../../../.circleci/build-editor-plugin.sh)
+
+打开 `ExampleMods/TestMod` 前，将生成的 `ModDevelopmentSDKEditor` 和游戏的 `UMFDevSDK` 安装到 `ExampleMods/TestMod/Plugins`。示例游戏的完整 SDK 包包含这两个插件。
 
 ## 生产者契约
 
@@ -45,7 +56,7 @@ uint32_t FloatMethod(uint64_t ModContext, uint64_t Object, float Amount, float* 
 
 MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 SDK 契约的 `modLifecycle` 中绑定摘要。MBT 验证该产物并完成库编译后，MDT 生成 `ModInstance.h` 和 `ModInstanceSubSystem.h`，随后用 UAT 编译作者 SDK 和制作编辑器插件。生成模块保留宿主的 `/Script/ModLoader` 类型路径。游戏会话负责实例化及事件分发。
 
-[sdk-build-request.schema.json](Protocol/sdk-build-request.schema.json) 定义 `UMF.SdkBuildRequest` v1：
+[sdk-build-request.schema.json](Protocol/sdk-build-request.schema.json) 定义 `UMF.SdkBuildRequest` v2。将 `schemaVersion` 设为 `2`，并移除 `developmentPlugin` 字段。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -53,7 +64,6 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 | `pluginName` | 稳定插件和反射模块身份 |
 | `contract` | 完整公开契约 |
 | `outputDirectory` | 可选发布目录，默认位于 `<工程>/Intermediate/ModTools/ModSDKTool/<pluginName>/<sdkVersion>` |
-| `developmentPlugin` | 含 `DevelopmentEditor` 的独立开发插件 |
 | `tools.mbt` | 支持输入清单版本和二进制检查的 MBT |
 | `tools.dotnet`、`tools.automationTool` | UE 可用的实际 .NET 程序与 UAT 程序集 |
 | `editor` | 当前宿主平台、架构、Development、实际引擎 `.modules` 和匹配 `buildId` |

@@ -15,8 +15,7 @@ using Options = std::map<std::string, std::string>;
 int EditorBuildCommand::BuildEditorCommand(const Options& Options)
 {
 	const auto Editor = EditorBuildOptions::ReadEditorBuild(Options);
-	EditorPlugin::BuildEditorPlugin(Editor, CommandOptions::OptionPath(Options, "--plugin"),
-	                                CommandOptions::OptionPath(Options, "--package"));
+	EditorPlugin::BuildEditorPlugin(Editor, CommandOptions::OptionPath(Options, "--package"));
 	return 0;
 }
 } // namespace Mod::SdkTool

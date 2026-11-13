@@ -20,7 +20,7 @@ Blank issues remain available for topics that do not fit these forms. Keep each 
 
 ## Project scope
 
-The development baseline is Unreal Engine 5.6. The repository contains the development host project, the game-side `ModRuntime` plugin, and the independently built `ModDevelopmentEditor` plugin. See the [project overview](README.md) and [module boundaries](Docs/CodingStandards/Modules.md) for the current implementation and planned capabilities.
+The development baseline is Unreal Engine 5.6. The repository contains the development host project and the game-side `ModRuntime` plugin. MDT generates and builds the independent `ModDevelopmentSDKEditor` plugin. See the [project overview](README.md) and [module boundaries](Docs/CodingStandards/Modules.md) for the current implementation and planned capabilities.
 
 When proposing a change, identify whether it belongs in the runtime, authoring editor, shared package protocol, export/build tooling, or a host-game SDK. Keep host-game behavior outside reusable framework modules. Explain public API, native mod ABI, package compatibility, and independent-build impacts when relevant.
 

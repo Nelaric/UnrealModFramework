@@ -85,11 +85,11 @@ void EditorPackage::VerifyEditorModule(const EditorBuild& Editor, const fs::path
 	}
 }
 
-void EditorPackage::BuildDevelopmentPlugin(const EditorBuild& Editor, const fs::path& Plugin, const fs::path& Package)
+void EditorPackage::BuildDevelopmentPlugin(const EditorBuild& Editor, const fs::path& Work, const fs::path& Package)
 {
-	BuildProgress::ReportStage("BuildDevelopmentPlugin", "Building the independent SDK development editor plugin.");
-	BuildPlugin(Editor, Plugin, Package);
-	VerifyEditorModule(Editor, Package, "DevelopmentEditor");
+	BuildProgress::ReportStage("BuildDevelopmentPlugin", "Generating and building the SDK development editor plugin.");
+	BuildPlugin(Editor, PluginSources::PrepareDevelopmentSource(Work), Package);
+	VerifyEditorModule(Editor, Package, PluginSources::DevelopmentModuleName);
 	const fs::path Tool = Mod::BuildTool::Executable::ExecutablePath();
 	const fs::path ToolDirectory = Package / "Binaries" / "ThirdParty" / "ModSDKTool" / Editor.Platform;
 	StageFiles::CopyFile(Tool, ToolDirectory / Tool.filename());
@@ -105,11 +105,9 @@ PluginPackages EditorPackage::BuildSdkPackages(const SdkRequest& Request, const 
 {
 	const fs::path Source = Work / "SdkSource";
 	const fs::path SdkPackage = Work / "SdkPackage";
-	const fs::path DevelopmentSource = Work / "DevelopmentSource";
 	const fs::path DevelopmentPackage = Work / "DevelopmentPackage";
 
 	PluginSources::PrepareSdkSource(Request, Source);
-	PluginSources::PrepareDevelopmentSource(Request, DevelopmentSource);
 	const Json& EditorDocument = Request.Document.at("editor");
 	const EditorBuild Editor{Request.Dotnet,
 	                         Request.AutomationTool,
@@ -125,7 +123,7 @@ PluginPackages EditorPackage::BuildSdkPackages(const SdkRequest& Request, const 
 	{
 		VerifyEditorModule(Editor, SdkPackage, "ModLoader");
 	}
-	BuildDevelopmentPlugin(Editor, DevelopmentSource / Request.DevelopmentPlugin.filename(), DevelopmentPackage);
+	BuildDevelopmentPlugin(Editor, Work, DevelopmentPackage);
 	return {SdkPackage, DevelopmentPackage};
 }
 } // namespace Mod::SdkTool

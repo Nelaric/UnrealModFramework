@@ -12,6 +12,6 @@ class StageFiles
 {
 public:
 	static void CopyFile(const fs::path& Source, const fs::path& Destination);
-	static void CopyTree(const fs::path& Source, const fs::path& Destination, bool bPluginSource = false);
+	static void CopyTree(const fs::path& Source, const fs::path& Destination);
 };
 } // namespace Mod::SdkTool
