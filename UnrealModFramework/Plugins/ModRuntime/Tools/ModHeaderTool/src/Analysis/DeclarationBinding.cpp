@@ -15,6 +15,8 @@
 
 #include <clang-c/Index.h>
 #include <cstddef>
+#include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,41 +35,79 @@ std::string DeclarationBinding::Field(const ExportMacro& Macro, std::string_view
 	return {};
 }
 
-bool DeclarationBinding::CheckGap(const ExportMacro& Macro, const std::string& Source, std::size_t DeclarationBegin)
+namespace
 {
-	Detail::Lexer Lexer(Macro.File, Source, Macro.Offset + Macro.Length, false);
+std::optional<bool> ReadAnnotations(const ExportMacro& Macro, const std::string& Text, std::size_t Begin,
+                                    std::size_t End)
+{
+	Detail::Lexer Lexer(Macro.File, Text, Begin, false);
 	bool bReflected = false;
-	for (auto Token = Lexer.Read(); Token.Begin < DeclarationBegin; Token = Lexer.Read())
+	for (auto Token = Lexer.Read(); Token.Begin < End; Token = Lexer.Read())
 	{
-		if (Token.Kind == Detail::Token::EKind::Identifier && Token.Text == "UFUNCTION")
+		if (Token.Kind != Detail::Token::EKind::Identifier || Token.Text != "UFUNCTION")
 		{
-			bReflected = true;
-			if (Lexer.Read().Punctuation != '(')
-			{
-				CursorSource::Fail(Macro, "malformed UFUNCTION between marker and member.");
-			}
-			int Depth = 1;
-			while (Depth)
-			{
-				const auto Next = Lexer.Read();
-				if (Next.Kind == Detail::Token::EKind::End)
-				{
-					CursorSource::Fail(Macro, "unterminated UFUNCTION.");
-				}
-				if (Next.Punctuation == '(')
-				{
-					++Depth;
-				}
-				if (Next.Punctuation == ')')
-				{
-					--Depth;
-				}
-			}
-			continue;
+			return std::nullopt;
 		}
-		CursorSource::Fail(Macro, "marker must immediately precede one supported member declaration.");
+		bReflected = true;
+		const auto Open = Lexer.Read();
+		if (Open.Punctuation != '(' || Open.Begin >= End)
+		{
+			CursorSource::Fail(Macro, "malformed UFUNCTION between marker and member.");
+		}
+		int Depth = 1;
+		while (Depth)
+		{
+			const auto Next = Lexer.Read();
+			if (Next.Kind == Detail::Token::EKind::End || Next.Begin >= End)
+			{
+				CursorSource::Fail(Macro, "unterminated UFUNCTION.");
+			}
+			if (Next.Punctuation == '(')
+			{
+				++Depth;
+			}
+			if (Next.Punctuation == ')')
+			{
+				--Depth;
+			}
+		}
 	}
 	return bReflected;
+}
+
+bool ContainsDeclarationTokens(const ExportMacro& Macro, const Source& Source, Source::Range Group)
+{
+	try
+	{
+		const auto Text = Source.TextWithoutConditionalDirectives.substr(Group.Begin, Group.End - Group.Begin);
+		return !ReadAnnotations(Macro, Text, 0, Text.size());
+	}
+	catch (const std::runtime_error&)
+	{
+		// A skipped arm may contain arbitrary tokens. Treat it as a possible declaration.
+		return true;
+	}
+}
+} // namespace
+
+bool DeclarationBinding::CheckGap(const ExportMacro& Macro, const Source& Source, std::size_t DeclarationBegin)
+{
+	const auto Begin = Macro.Offset + Macro.Length;
+	const auto Reflected = ReadAnnotations(Macro, Source.Text, Begin, DeclarationBegin);
+	if (!Reflected)
+	{
+		CursorSource::Fail(Macro, "marker must immediately precede one supported member declaration.");
+	}
+
+	for (const auto& Group : Source.ConditionalGroups)
+	{
+		if (Group.Begin >= Begin && Group.End <= DeclarationBegin && ContainsDeclarationTokens(Macro, Source, Group))
+		{
+			CursorSource::Fail(Macro,
+			                   "active marker has no supported member declaration in the following conditional group.");
+		}
+	}
+	return *Reflected;
 }
 
 void DeclarationBinding::BindSignature(GenerationModel& Model, ClangLibrary& Clang, CXCursor Method, API& API)
@@ -114,7 +154,7 @@ API DeclarationBinding::Bind(GenerationModel& Model, ClangLibrary& Clang, Export
 {
 	const auto Start =
 	    CursorSource::ReadLocation(Clang, Clang.clang_getRangeStart(Clang.clang_getCursorExtent(Method)));
-	const bool bReflected = CheckGap(Macro, Source.Text, Start.Offset);
+	const bool bReflected = CheckGap(Macro, Source, Start.Offset);
 	const auto& Owner = TypeResolution::ResolveRecord(Model, Clang, Clang.clang_getCursorSemanticParent(Method), Macro);
 	API API;
 	API.Owner = Owner.Identity.CppName;

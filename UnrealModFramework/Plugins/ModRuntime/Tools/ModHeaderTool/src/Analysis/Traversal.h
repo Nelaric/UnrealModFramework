@@ -3,12 +3,11 @@
 #pragma once
 
 #include "ModHeaderTool/src/Analysis/ClangLibrary.h"
-#include "ModHeaderTool/src/Analysis/Source.h"
 
 #include <clang-c/Index.h>
 #include <exception>
+#include <filesystem>
 #include <map>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -18,9 +17,9 @@ struct Traversal
 {
 	ClangLibrary& Clang;
 	CXTranslationUnit Tu;
-	std::map<std::string, Source>& Sources;
-	std::vector<CXCursor> Methods;
-	std::set<std::string> Active;
+	const std::map<std::string, std::filesystem::path>& SourcePaths;
+	std::map<std::string, std::vector<CXCursor>> Methods;
+	std::map<std::string, std::vector<CXCursor>> ExportExpansions;
 	std::map<std::string, std::string> Macros;
 	std::exception_ptr Error;
 

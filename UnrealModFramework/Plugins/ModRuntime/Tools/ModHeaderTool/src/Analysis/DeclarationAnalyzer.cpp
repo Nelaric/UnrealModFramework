@@ -26,7 +26,6 @@
 #include "ModHeaderTool/src/Project/Project.h"
 #include "ModHeaderTool/src/Project/ProjectSources.h"
 #include "ModHeaderTool/src/Scan/ExportMacro.h"
-#include "ModHeaderTool/src/Scan/MacroScanner.h"
 
 #include "ModExportMetadataSchema.h"
 
@@ -91,7 +90,7 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 	Model.Dependencies.insert(Options.Inputs.begin(), Options.Inputs.end());
 	Model.Dependencies.insert(Model.Input.Project.ConfigFile);
 	Model.ConfigRoots = Options.ConfigRoots;
-	std::map<std::string, Source> Sources;
+	std::map<std::string, fs::path> SourcePaths;
 	for (const auto& File : ProjectSources::CollectSourceFiles(Model.Input.Project))
 	{
 		if (!TypeResolution::OwnerModule(Model.Input, File))
@@ -99,12 +98,7 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 			continue;
 		}
 		Model.Dependencies.insert(File);
-		Source Source{File, TextFile::ReadTextFile(File), {}, false, {}};
-		Source.Macros = MacroScanner::ScanSource(File, Source.Text);
-		if (!Source.Macros.empty())
-		{
-			Sources.emplace(CursorSource::Key(File), std::move(Source));
-		}
+		SourcePaths.emplace(CursorSource::Key(File), File);
 	}
 	ClangLibrary Clang(ClangPath);
 	Model.ClangVersion = Clang.String(Clang.clang_getClangVersion());
@@ -121,7 +115,7 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 		const auto Directory = Path::PathFromUtf8(Entry.at("directory").get<std::string>());
 		Entries.emplace(CursorSource::Key(Directory / Path::PathFromUtf8(Entry.at("file").get<std::string>())), &Entry);
 	}
-	std::map<std::string, std::size_t> Bound;
+	std::map<std::pair<std::string, std::size_t>, std::size_t> Bound;
 	std::map<std::string, FullView> FullViews;
 	for (const auto& Module : Model.Input.Modules)
 	{
@@ -190,18 +184,7 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 				    }
 			    },
 			    &Inclusion);
-			for (auto& [SourceKey, Source] : Sources)
-			{
-				for (const auto& Dependency : Model.Dependencies)
-				{
-					if (CursorSource::Key(Dependency) == SourceKey)
-					{
-						Source.bCovered = true;
-						break;
-					}
-				}
-			}
-			Traversal Traversal{Clang, Tu, Sources, {}, {}, {}, {}};
+			Traversal Traversal{Clang, Tu, SourcePaths, {}, {}, {}, {}};
 			Clang.clang_visitChildren(Clang.clang_getTranslationUnitCursor(Tu), Traversal::Visit, &Traversal);
 			if (Traversal.Error)
 			{
@@ -232,14 +215,21 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 			}
 			Model.ContextMacros[Module.Name] = std::move(Traversal.Macros);
 
-			for (auto& [SourceKey, Source] : Sources)
+			for (const auto& [SourceKey, Expansions] : Traversal.ExportExpansions)
 			{
-				for (auto Macro : Source.Macros)
+				CXFile File = nullptr;
+				Clang.clang_getExpansionLocation(Clang.clang_getCursorLocation(Expansions.front()), &File, nullptr,
+				                                 nullptr, nullptr);
+				const Source Source(Clang, Tu, File, SourcePaths.at(SourceKey));
+				const auto& Methods = Traversal.Methods[SourceKey];
+				for (const auto Expansion : Expansions)
 				{
-					if (!Traversal.Active.contains(SourceKey + ":" + std::to_string(Macro.Offset)))
+					auto Invocation = Source.ReadMacro(Clang, Expansion);
+					if (!Invocation)
 					{
 						continue;
 					}
+					auto& Macro = *Invocation;
 					if (Macro.Name != "MOD_EXPORT_API")
 					{
 						CursorSource::Fail(Macro, "code generation currently supports API declarations only.");
@@ -257,12 +247,12 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 					}
 					CXCursor Candidate{};
 					std::size_t Nearest = Source.Text.size() + 1;
-					for (const auto Method : Traversal.Methods)
+					for (const auto Method : Methods)
 					{
 						const auto Start = CursorSource::ReadLocation(
 						    Clang, Clang.clang_getRangeStart(Clang.clang_getCursorExtent(Method)));
-						if (!Start.File.empty() && CursorSource::Key(Start.File) == SourceKey &&
-						    Start.Offset >= Macro.Offset + Macro.Length && Start.Offset < Nearest)
+						if (Start.Offset >= Macro.Offset + Macro.Length && Start.Offset < Nearest &&
+						    !Start.File.empty() && CursorSource::Key(Start.File) == SourceKey)
 						{
 							Candidate = Method;
 							Nearest = Start.Offset;
@@ -270,8 +260,7 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 					}
 					if (Candidate.kind != CXCursor_CXXMethod)
 					{
-						// This file may be active only in another participating TU.
-						continue;
+						CursorSource::Fail(Macro, "active marker has no supported member declaration.");
 					}
 					API API;
 					try
@@ -287,12 +276,19 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 						}
 						CursorSource::Fail(Macro, Error.what());
 					}
-					const auto KeyValue = SourceKey + ":" + std::to_string(Macro.Offset);
+					const auto KeyValue = std::make_pair(SourceKey, Macro.Offset);
 					if (const auto It = Bound.find(KeyValue); It != Bound.end())
 					{
-						if (Model.APIs[It->second].SourceSignature != API.SourceSignature)
+						const auto& Previous = Model.APIs[It->second];
+						if (Previous.DeclarationUsr != API.DeclarationUsr ||
+						    Previous.SourceSignature != API.SourceSignature)
 						{
-							CursorSource::Fail(Macro, "inconsistent member signature across translation units.");
+							CursorSource::Fail(Macro, "inconsistent member declaration across translation units.");
+						}
+						if (Previous.Macro.Arguments != Macro.Arguments || Previous.bReflected != API.bReflected)
+						{
+							CursorSource::Fail(Macro,
+							                   "inconsistent export metadata or reflection across translation units.");
 						}
 					}
 					else
@@ -301,20 +297,6 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 						Model.APIs.push_back(std::move(API));
 					}
 				}
-			}
-		}
-	}
-	for (const auto& [SourceKey, Source] : Sources)
-	{
-		for (const auto& Macro : Source.Macros)
-		{
-			if (!Source.bCovered)
-			{
-				CursorSource::Fail(Macro, "source is not covered by a participating translation unit.");
-			}
-			if (Source.Active.contains(Macro.Offset) && !Bound.contains(SourceKey + ":" + std::to_string(Macro.Offset)))
-			{
-				CursorSource::Fail(Macro, "active marker has no supported member declaration.");
 			}
 		}
 	}

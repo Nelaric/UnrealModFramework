@@ -24,6 +24,6 @@ public:
 
 private:
 	static std::string Field(const ExportMacro& Macro, std::string_view Name);
-	static bool CheckGap(const ExportMacro& Macro, const std::string& Source, std::size_t DeclarationBegin);
+	static bool CheckGap(const ExportMacro& Macro, const Source& Source, std::size_t DeclarationBegin);
 };
 } // namespace Mod::HeaderTool
