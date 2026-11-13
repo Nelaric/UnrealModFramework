@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "UMF SDK build request v1",
+  "title": "UMF SDK build request v2",
   "type": "object",
-  "required": ["format", "schemaVersion", "project", "gameId", "sdkVersion", "pluginName", "contract", "developmentPlugin", "tools", "editor", "libraries"],
+  "required": ["format", "schemaVersion", "project", "gameId", "sdkVersion", "pluginName", "contract", "tools", "editor", "libraries"],
   "properties": {
     "format": { "const": "UMF.SdkBuildRequest" },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "project": { "$ref": "#/$defs/path" },
     "gameId": { "type": "string", "minLength": 1 },
     "sdkVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
@@ -13,7 +13,7 @@
     "contract": { "$ref": "#/$defs/path" },
     "outputDirectory": { "$ref": "#/$defs/path" },
     "workDirectory": { "$ref": "#/$defs/path" },
-    "developmentPlugin": { "$ref": "#/$defs/path" },
+    "developmentPlugin": false,
     "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 1800 },
     "tools": {
       "type": "object", "required": ["mbt", "dotnet", "automationTool"],

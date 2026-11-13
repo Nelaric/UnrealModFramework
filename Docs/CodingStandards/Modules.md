@@ -16,7 +16,7 @@ The UE project lives in `UnrealModFramework/`. Module and configuration paths in
 | Mod package loader | `Plugins/ModRuntime/Source/Runtime/ModLoader/` | `Runtime` |
 | Blueprint integration | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
 | Export code generation | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
-| Independent authoring tools | `SourcePlugins/ModDevelopmentSDKEditor/Source/DevelopmentEditor/` | `Editor` |
+| Independent authoring tools | `Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/Source/DevelopmentEditor/` | `Editor` |
 | Development host | `Source/ExportTest/` | `Runtime` |
 
 The host project's `[CoreRedirects]` in `Config/DefaultEngine.ini` maps `/Script/ModBlueprintIntegration` to `/Script/BlueprintIntegration`, preserving references in existing Blueprint assets.
@@ -47,7 +47,7 @@ The Blueprint extension contributes API, Event, and Hook names and tooltips to F
 
 `ModAPI` is a Runtime module for Game and Editor targets, publicly depending on `Core`, `CoreUObject`, and `Engine`. It owns generated API results, bindings, World/Player scopes, explicit providers, permissions, and revocation. `ExportMetadata` owns declaration metadata and configuration. `ExportTest` declares its character and LocalPlayer exports. MHT generates their registration and provider metadata, and `UModAPIHostSubsystem` manages the registry and player bindings per game instance.
 
-`DevelopmentEditor` is built independently with UAT `BuildPlugin`. It must not statically depend on the project-side `ExportMetadata` module or a host game's modules. Shared package schemas and SDK contracts belong in versioned `Shared/ModProtocol` definitions when introduced; both plugins compile against those definitions separately. Runtime preview across processes uses a versioned bridge or IPC rather than a UBT dependency on the game project.
+MDT writes the embedded `DevelopmentEditor` source into a temporary workspace and builds the authoring plugin with UAT `BuildPlugin`. It must not statically depend on the project-side `ExportMetadata` module or a host game's modules. Shared package schemas and SDK contracts belong in versioned `Shared/ModProtocol` definitions when introduced; both plugins compile against those definitions separately. Runtime preview across processes uses a versioned bridge or IPC rather than a UBT dependency on the game project.
 
 `ExportCodeGenerator` is an Editor module with a public `ExportMetadata` dependency and private `Core`, `CoreUObject`, `Engine`, `Json`, and `Projects` dependencies. Its `ModExportOptions` commandlet exports resolved GameMod choices and UE function redirects. The shared annotation macros are defined in `ExportMetadata/Public/ModExportMacros.h`. Standalone MHT retains lexical scan/metadata validation and adds generation from active API declarations through a real UBT compilation database and libclang AST. The first synchronous UObject backend generates closed SDK views, concrete host bridges, compile verification, contracts, and manifests for GameThread/ReturnError APIs with scalar value arguments and scalar/void/World-object results. Other forms and Event/Hook generation fail explicitly. MHT has no `BlueprintIntegration` dependency.
 

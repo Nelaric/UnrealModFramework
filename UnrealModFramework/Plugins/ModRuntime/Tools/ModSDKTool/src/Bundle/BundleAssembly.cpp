@@ -7,6 +7,7 @@
 #include "ModSDKTool/src/Build/StageFiles.h"
 #include "ModSDKTool/src/Bundle/BundleInventory.h"
 #include "ModSDKTool/src/Bundle/ClientLayout.h"
+#include "ModSDKTool/src/Editor/PluginSources.h"
 #include "ModSDKTool/src/Manifest/ContractSchema.h"
 #include "ModSDKTool/src/Manifest/JsonDocument.h"
 #include "ModSDKTool/src/Manifest/Library.h"
@@ -25,7 +26,7 @@ void BundleAssembly::CopySdkPackages(const SdkRequest& Request, const PluginPack
                                      const std::string& Plugin, const fs::path& Bundle)
 {
 	StageFiles::CopyTree(Packages.Sdk, Bundle / "Plugins" / Plugin);
-	StageFiles::CopyTree(Packages.Development, Bundle / "Plugins" / Request.DevelopmentPlugin.stem());
+	StageFiles::CopyTree(Packages.Development, Bundle / "Plugins" / PluginSources::DevelopmentPluginName);
 	Mod::BuildTool::File::WriteFileAtomically(Bundle / "Contract" / "SdkContract.json",
 	                                          Request.Contract.dump(2) + "\n");
 	if (!Request.LifecycleArtifact.is_null())

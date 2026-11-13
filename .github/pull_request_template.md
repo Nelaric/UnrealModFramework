@@ -10,7 +10,7 @@
 
 ## Design and compatibility | 设计与兼容性
 
-<!-- Describe any ModRuntime/ModDevelopmentEditor boundary, public API, native mod ABI, package compatibility, behavior, or Unreal Engine 5.6+ compatibility impact. Write "None" for a documentation-only change. | 说明对 ModRuntime/ModDevelopmentEditor 边界、公开 API、原生模组 ABI、模组包兼容性、行为或 Unreal Engine 5.6+ 兼容性的影响。仅修改文档时填写 "None"。 -->
+<!-- Describe any ModRuntime/ModDevelopmentSDKEditor boundary, public API, native mod ABI, package compatibility, behavior, or Unreal Engine 5.6+ compatibility impact. Write "None" for a documentation-only change. | 说明对 ModRuntime/ModDevelopmentSDKEditor 边界、公开 API、原生模组 ABI、模组包兼容性、行为或 Unreal Engine 5.6+ 兼容性的影响。仅修改文档时填写 "None"。 -->
 
 ## Verification | 验证
 

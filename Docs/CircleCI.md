@@ -6,7 +6,7 @@ English | [简体中文](CircleCI.zh-CN.md)
 
 The push and trusted PR configurations each define two parallel Unreal Engine 5.6.1 Linux jobs. `build_game_linux` compiles `UnrealModFrameworkDev` and its enabled runtime modules. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, then builds `ModSDKTool` (MDT) and MBT in the UE container and runs `ModSDKTool build-editor` to compile and verify the independent `ModDevelopmentSDKEditor` plugin. [Push configuration](../.circleci/config.yml) · [Trusted PR configuration](../.circleci/pr-build.yml)
 
-The shared build script uses the engine's bundled .NET host and Editor BuildId, and places the verified plugin under `Dist` in the job's staging directory. For older PR commits without the shared script, the job builds MDT and MBT from the trusted configuration commit and compiles the plugin from the PR commit. [Editor plugin build script](../.circleci/build-editor-plugin.sh)
+Both pipelines build MDT and MBT from the commit under test. The shared build script uses the engine's bundled .NET host and Editor BuildId. MDT generates the plugin from embedded resources and publishes the verified package to `Dist/ModDevelopmentSDKEditor` in the job's staging directory. [Editor plugin build script](../.circleci/build-editor-plugin.sh)
 
 ## Active PR integration
 

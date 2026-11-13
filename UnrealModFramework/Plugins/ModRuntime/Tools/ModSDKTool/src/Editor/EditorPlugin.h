@@ -14,6 +14,6 @@ class EditorPlugin
 {
 public:
 	/// Builds and publishes the independent authoring plugin.
-	static void BuildEditorPlugin(const EditorBuild& Editor, const fs::path& Plugin, const fs::path& Package);
+	static void BuildEditorPlugin(const EditorBuild& Editor, const fs::path& Package);
 };
 } // namespace Mod::SdkTool

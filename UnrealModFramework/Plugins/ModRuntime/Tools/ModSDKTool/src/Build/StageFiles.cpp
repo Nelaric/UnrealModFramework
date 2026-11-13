@@ -16,7 +16,7 @@ void StageFiles::CopyFile(const fs::path& Source, const fs::path& Destination)
 	fs::copy_file(Source, Destination);
 }
 
-void StageFiles::CopyTree(const fs::path& Source, const fs::path& Destination, bool bPluginSource)
+void StageFiles::CopyTree(const fs::path& Source, const fs::path& Destination)
 {
 	if (!fs::is_directory(Source))
 	{
@@ -28,11 +28,9 @@ void StageFiles::CopyTree(const fs::path& Source, const fs::path& Destination, b
 		{
 			throw std::runtime_error("SDK packages cannot contain symbolic links.");
 		}
-		const fs::path Relative = Entry.path().lexically_relative(Source);
-		if (Entry.is_regular_file() &&
-		    (!bPluginSource || (*Relative.begin() != "Binaries" && *Relative.begin() != "Intermediate")))
+		if (Entry.is_regular_file())
 		{
-			CopyFile(Entry.path(), Destination / Relative);
+			CopyFile(Entry.path(), Destination / Entry.path().lexically_relative(Source));
 		}
 	}
 }

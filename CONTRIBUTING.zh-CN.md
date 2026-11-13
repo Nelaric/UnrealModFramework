@@ -20,7 +20,7 @@
 
 ## 项目范围
 
-开发基线为 Unreal Engine 5.6。仓库包含开发宿主工程、游戏侧 `ModRuntime` 插件及独立构建的 `ModDevelopmentEditor` 插件。当前实现与规划能力见[项目概览](README.zh-CN.md)和[模块边界](Docs/CodingStandards/Modules.zh-CN.md)。
+开发基线为 Unreal Engine 5.6。仓库包含开发宿主工程和游戏侧 `ModRuntime` 插件。独立的 `ModDevelopmentSDKEditor` 插件由 MDT 生成并构建。当前实现与规划能力见[项目概览](README.zh-CN.md)和[模块边界](Docs/CodingStandards/Modules.zh-CN.md)。
 
 提出改动时，请说明它属于运行时、制作编辑器、共享模组包协议、导出/构建工具还是宿主游戏 SDK。具体游戏行为应位于可复用框架模块之外。涉及公开 API、原生模组 ABI、模组包兼容性或独立构建时，应说明影响。
 

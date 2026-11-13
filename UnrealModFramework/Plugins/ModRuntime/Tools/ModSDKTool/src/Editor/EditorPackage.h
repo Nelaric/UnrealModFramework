@@ -16,7 +16,7 @@ namespace fs = std::filesystem;
 class EditorPackage
 {
 public:
-	static void BuildDevelopmentPlugin(const EditorBuild& Editor, const fs::path& Plugin, const fs::path& Package);
+	static void BuildDevelopmentPlugin(const EditorBuild& Editor, const fs::path& Work, const fs::path& Package);
 	static PluginPackages BuildSdkPackages(const SdkRequest& Request, const fs::path& Work, const std::string& Plugin);
 
 private:

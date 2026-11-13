@@ -17,12 +17,12 @@ UnrealModFramework 是以 UE 5.6 为开发基线的工程，目标是提供可�
 | --- | --- |
 | `UnrealModFramework/UnrealModFrameworkDev.uproject` | 开发宿主工程 |
 | `UnrealModFramework/Plugins/ModRuntime/` | 游戏侧源码插件；`Source/Runtime/` 与 `Source/Editor/` 按目标归类模块 |
-| `UnrealModFramework/SourcePlugins/ModDevelopmentSDKEditor/` | 独立构建的模组制作插件 |
+| `UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/` | MDT 生成制作插件时使用的源码资源 |
 | `Docs/CodingStandards/` | 项目编码与贡献规范 |
 | `.circleci/config.yml` | UE 5.6.1 Linux 构建配置 |
 | `Scripts/` | 本地质量检查 |
 
-`Binaries`、`Intermediate`、`Saved` 和 `Dist` 是生成产物，不进入 Git。制作插件从 `UnrealModFramework/SourcePlugins` 下的描述文件通过 UAT `BuildPlugin` 构建；Windows 上应使用较短的临时 `-Package` 路径，成功后再将插件复制到发布目录。
+`Binaries`、`Intermediate`、`Saved` 和 `Dist` 是生成产物，不进入 Git。`ModSDKTool build-editor` 在临时目录生成制作插件源码，用 UAT `BuildPlugin` 编译并发布通过校验的产物。
 
 修改代码或构建文件前，请阅读[编码规范](Docs/CodingStandards/README.zh-CN.md)、[贡献指南](CONTRIBUTING.zh-CN.md)和 [CircleCI 接入说明](Docs/CircleCI.zh-CN.md)。
 
@@ -63,7 +63,7 @@ UE 宿主工程的构建步骤和 libclang 配置见 [ModRuntime UHT 接入](Unr
 
 ## SDK 构建工具
 
-`ModSDKTool`（MDT）提供 `plan`、`build` 和 `inspect`，根据导出契约及链接产物构建游戏专属 SDK。构建入口为 `Tools/Build.bat --target ModSDKTool`，请求和产物格式见 [MDT 文档](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)。
+`ModSDKTool`（MDT）提供 `plan`、`build` 和 `inspect`，根据导出契约及链接产物构建游戏专属 SDK，也可用 `build-editor` 单独构建制作插件。工具的构建入口为 `Tools/Build.bat --target ModSDKTool`，请求和产物格式见 [MDT 文档](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)。
 
 ## 参与贡献
 

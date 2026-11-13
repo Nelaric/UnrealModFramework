@@ -9,7 +9,6 @@ commands:
           name: Validate and check out the PR commit
           command: |
             set -euo pipefail
-            printf 'export UMF_CI_BASE_COMMIT=%q\n' "$(git rev-parse HEAD)" >> "$BASH_ENV"
             python3 -c '
             import json
             import os
@@ -106,23 +105,14 @@ jobs:
           command: |
             set -euo pipefail
             : "${UE_PROJECT_DIR:?Project staging directory is missing}"
-            build_script=.circleci/build-editor-plugin.sh
-            if [ -f "$build_script" ]; then
-              mkdir "$UE_PROJECT_DIR/.circleci"
-              cp -a LICENSE NOTICE.md "$UE_PROJECT_DIR/"
-              cp -a "$build_script" "$UE_PROJECT_DIR/.circleci/"
-            else
-              # Older PRs can build their plugin with the MDT entry point from trusted main.
-              mkdir "$UE_PROJECT_DIR/mst"
-              git archive "$UMF_CI_BASE_COMMIT" "$build_script" LICENSE NOTICE.md \
-                UnrealModFramework/Plugins/ModRuntime/Tools | tar -x -C "$UE_PROJECT_DIR/mst"
-              build_script="mst/$build_script"
-            fi
+            mkdir "$UE_PROJECT_DIR/.circleci"
+            cp -a LICENSE NOTICE.md "$UE_PROJECT_DIR/"
+            cp -a .circleci/build-editor-plugin.sh "$UE_PROJECT_DIR/.circleci/"
             docker run --rm --init --network none \
               --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
               --workdir /workspace \
               umf-ue-build:5.6.1 \
-              bash "$build_script"
+              bash .circleci/build-editor-plugin.sh
 
 workflows:
   fork_pr_linux_build:

@@ -4,9 +4,6 @@
 	"DisableEnginePluginsByDefault": true,
 	"Category": "Development",
 	"Description": "Standalone test project for UnrealModFramework.",
-	"AdditionalPluginDirectories": [
-		"../../UnrealModFramework/SourcePlugins"
-	],
 	"Modules": [
 		{
 			"Name": "TP_FirstPerson",

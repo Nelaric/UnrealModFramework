@@ -156,7 +156,7 @@ def project_cpp_files():
         if not path.is_relative_to(PROJECT_ROOT):
             continue
         parts = path.relative_to(PROJECT_ROOT).parts
-        if "Source" in parts and (parts[0] == "Plugins" or parts[0] == "SourcePlugins" or parts[0] == "Source"):
+        if "Source" in parts and parts[0] in {"Plugins", "Source"}:
             yield path
 
 

@@ -27,14 +27,14 @@ int CommandLine::PrintHelp()
 Usage:
   ModSDKTool plan --request <SdkBuildRequest.json> [--output <plan.json>]
   ModSDKTool build --request <SdkBuildRequest.json> [--output <result.json>]
-  ModSDKTool build-editor --plugin <plugin.uplugin> --package <directory>
+  ModSDKTool build-editor --package <directory>
                           --dotnet <host> --automation-tool <AutomationTool.dll>
                           --editor-modules <UnrealEditor.modules>
                           --architecture <x64|arm64> --mbt <ModBuildTool>
   ModSDKTool inspect --bundle <directory> [--output <inspection.json>]
   ModSDKTool --help | --version
 
-Accepts UMF.SdkBuildRequest v1 and UMF.SdkContract v1 or v2.
+Accepts UMF.SdkBuildRequest v2 and UMF.SdkContract v1 or v2.
 Contracts must already contain complete, resolved projections. MHT scan reports
 are rejected. Blueprint export belongs to ExportCodeGenerator.
 
@@ -45,7 +45,7 @@ from the contract. No game private source is copied into the public SDK.
 plan asks MBT to validate its inputs but does not compile or publish.
 build calls MBT and UE AutomationTool, builds the SDK and independent developer
 plugin, verifies their artifacts, then publishes a versioned bundle.
-build-editor packages the independent authoring plugin for the installed Editor.
+build-editor generates and packages the authoring plugin for the installed Editor.
 Host library creation does not prove final game linkage or runtime binding.
 
 Progress and child diagnostics use stderr; the final JSON uses stdout or
@@ -69,7 +69,7 @@ const CommandLine::Command& CommandLine::FindCommand(const std::string& Name)
 	    {"build", {"--request"}, SdkBuildCommands::BuildSdkCommand},
 	    {"inspect", {"--bundle"}, SdkInspectCommand::InspectSdkCommand},
 	    {"build-editor",
-	     {"--architecture", "--automation-tool", "--dotnet", "--editor-modules", "--mbt", "--package", "--plugin"},
+	     {"--architecture", "--automation-tool", "--dotnet", "--editor-modules", "--mbt", "--package"},
 	     EditorBuildCommand::BuildEditorCommand,
 	     false},
 	};

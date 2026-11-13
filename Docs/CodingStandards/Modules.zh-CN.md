@@ -16,7 +16,7 @@ UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相�
 | 模组加载器 | `Plugins/ModRuntime/Source/Runtime/ModLoader/` | `Runtime` |
 | Blueprint 接入 | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
 | 导出代码生成 | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
-| 独立的制作工具 | `SourcePlugins/ModDevelopmentSDKEditor/Source/DevelopmentEditor/` | `Editor` |
+| 独立的制作工具 | `Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/Source/DevelopmentEditor/` | `Editor` |
 | 开发宿主 | `Source/ExportTest/` | `Runtime` |
 
 宿主工程通过 `Config/DefaultEngine.ini` 中的 `[CoreRedirects]` 将 `/Script/ModBlueprintIntegration` 映射到 `/Script/BlueprintIntegration`，保留已有蓝图资产中的引用。
@@ -47,7 +47,7 @@ UE 工程位于 `UnrealModFramework/`。本文中的模块与配置路径均相�
 
 `ModAPI` 是 Game 与 Editor Target 共用的 Runtime 模块，公开依赖 `Core`、`CoreUObject` 和 `Engine`。它负责生成 API 的结果、绑定、World/Player 作用域、显式实例提供者、权限与撤销。`ExportMetadata` 承载声明和配置。`ExportTest` 声明角色和 LocalPlayer 导出，MHT 生成注册和提供者信息，由 `UModAPIHostSubsystem` 管理各 GameInstance 的注册表和玩家绑定。
 
-`DevelopmentEditor` 通过 UAT `BuildPlugin` 独立构建。它不得静态依赖项目侧的 `ExportMetadata` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
+MDT 把内嵌的 `DevelopmentEditor` 源码写入临时目录，再用 UAT `BuildPlugin` 独立构建制作插件。它不得静态依赖项目侧的 `ExportMetadata` 模块或宿主游戏模块。未来共享的包 Schema 与 SDK 契约放入版本化的 `Shared/ModProtocol` 定义，两个插件分别编译这些定义。跨进程预览使用版本化桥接或 IPC，不通过 UBT 依赖游戏工程。
 
 `ExportCodeGenerator` 是 Editor 模块，公开依赖 `ExportMetadata`，私有依赖 `Core`、`CoreUObject`、`Engine`、`Json` 和 `Projects`。`ModExportOptions` commandlet 导出 UE 解析后的 GameMod 选项和函数重定向。共用的声明宏定义在 `ExportMetadata/Public/ModExportMacros.h`。独立 MHT 的 scan 命令保留词法扫描和参数校验。generate 命令通过实际 UBT 编译数据库和 libclang AST 解析活动 API，生成受限 SDK、具体宿主桥、编译验证、契约和清单。首个同步 UObject 后端要求 GameThread、ReturnError、标量值参数及标量/void/World 对象返回。其他形式和 Event/Hook 代码生成明确拒绝。它不依赖 `BlueprintIntegration`。
 

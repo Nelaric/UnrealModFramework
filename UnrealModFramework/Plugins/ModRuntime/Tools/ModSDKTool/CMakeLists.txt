@@ -56,6 +56,7 @@ add_executable(ModSDKTool
     src/Cli/SdkBuildCommands.h
     src/Cli/SdkInspectCommand.cpp
     src/Cli/SdkInspectCommand.h
+    src/Editor/DevelopmentEditorResources.h
     src/Editor/EditorBuild.cpp
     src/Editor/EditorBuild.h
     src/Editor/EditorPackage.cpp
@@ -105,6 +106,27 @@ add_executable(ModSDKTool
     src/Process/ToolProcess.cpp
     src/Process/ToolProcess.h
 )
+
+set(development_editor_resources "${CMAKE_CURRENT_SOURCE_DIR}/Resources/DevelopmentEditor")
+set(development_editor_file_list "${development_editor_resources}/Files.cmake")
+set(embed_development_editor "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedDevelopmentEditor.cmake")
+include("${development_editor_file_list}")
+set(development_editor_inputs "")
+foreach(resource IN LISTS development_editor_files)
+    list(APPEND development_editor_inputs "${development_editor_resources}/${resource}")
+endforeach()
+
+set(development_editor_cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>/DevelopmentEditorResources.cpp")
+add_custom_command(
+    OUTPUT "${development_editor_cpp}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DRESOURCE_DIRECTORY=${development_editor_resources}"
+        "-DOUTPUT_FILE=${development_editor_cpp}"
+        -P "${embed_development_editor}"
+    DEPENDS "${embed_development_editor}" "${development_editor_file_list}" ${development_editor_inputs}
+    VERBATIM
+)
+target_sources(ModSDKTool PRIVATE "${development_editor_cpp}")
 
 target_include_directories(ModSDKTool SYSTEM PRIVATE ../ThirdParty/nlohmann/include)
 
