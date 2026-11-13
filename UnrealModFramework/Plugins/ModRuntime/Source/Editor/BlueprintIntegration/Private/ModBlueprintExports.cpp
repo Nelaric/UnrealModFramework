@@ -550,6 +550,7 @@ UModBlueprintAPIExport* UModBlueprintExports::AddAPI(UBlueprint* Blueprint, cons
 	Entry->EntryGuid = FGuid::NewGuid();
 	Entry->DisplayName = NormalizeDisplayName(Entry->GetClass(), DisplayName);
 	Entry->ExportVersion = TEXT("1.0.0");
+	Entry->PublicName = Entry->DisplayName;
 	Entry->ImplementationGraph = CreateImplementationGraph(Blueprint, Entry);
 	if (!Entry->ImplementationGraph)
 	{

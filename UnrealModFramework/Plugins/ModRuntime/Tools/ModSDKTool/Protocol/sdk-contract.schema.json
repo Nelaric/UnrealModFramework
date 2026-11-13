@@ -67,6 +67,10 @@
           "parameterName": { "$ref": "#/$defs/identifier" },
           "parameterId": { "type": "string", "minLength": 1 },
           "blueprint": { "type": "boolean" },
+          "hostBlueprint": {
+            "type": "object", "required": ["callingTableHash"], "additionalProperties": false,
+            "properties": { "callingTableHash": { "$ref": "#/$defs/hash" } }
+          },
           "parameters": {
             "type": "array", "maxItems": 64,
             "items": {
@@ -106,6 +110,14 @@
         "allOf": [
           { "if": { "properties": { "shape": { "const": "ObjectGetter" } } }, "then": { "required": ["resultTypeId", "provider", "nullResult"], "properties": { "scope": { "const": "Player" } } } },
           { "if": { "properties": { "shape": { "const": "FloatMethod" } } }, "then": { "required": ["targetTypeId", "parameterName", "parameterId"] } },
+          {
+            "if": { "required": ["hostBlueprint"] },
+            "then": {
+              "required": ["targetTypeId"],
+              "properties": { "scope": { "const": "World" }, "shape": { "const": "TypedMethod" } },
+              "not": { "required": ["provider"] }
+            }
+          },
           {
             "if": { "properties": { "shape": { "const": "TypedMethod" } } },
             "then": {

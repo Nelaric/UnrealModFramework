@@ -12,6 +12,7 @@
 #include "ModHeaderTool/src/Generation/ResolvedType.h"
 #include "ModHeaderTool/src/Generation/TypeIdentity.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstddef>
 #include <map>
@@ -22,6 +23,74 @@
 namespace Mod::HeaderTool
 {
 using Files = std::map<std::string, std::string>;
+
+namespace
+{
+void WriteBlueprintCall(std::ostream& Host, const API& Api)
+{
+	const auto& Plan = *Api.Blueprint;
+	const auto Result = CppSignature::ResultType(Api);
+	Host << "    auto Call = Mod::API::FHostAccess::ResolveBlueprintCall(Binding, *Target.GetValue(), " << Plan.Index
+	     << ");\n"
+	     << "    if (!Call.IsSuccess()) { return " << Result << "::Failure(Call.GetError()); }\n";
+	if (Api.Return.Kind != APIType::EKind::Void)
+	{
+		Host << "    " << Api.Return.Cpp << " Value{};\n";
+	}
+	Host << "    const auto Status = Call.GetValue()->Process(*Target.GetValue(), "
+	     << (Api.Parameters.empty() ? "[](void*) {}" : "[&](void* Parameters)\n    {\n");
+	for (std::size_t I = 0; I < Api.Parameters.size(); ++I)
+	{
+		Host << "        static_cast<const F" << Plan.Parameters[I].PropertyClass << "*>(Call.GetValue()->GetParameter("
+		     << I << "))->SetPropertyValue_InContainer(Parameters, Arg" << I << ");\n";
+	}
+	if (!Api.Parameters.empty())
+	{
+		Host << "    }";
+	}
+	Host << ", ";
+	if (Api.Return.Kind == APIType::EKind::Void)
+	{
+		Host << "[](const void*) {});\n    return Status == Mod::API::EError::None ? " << Result
+		     << "::Success() : " << Result << "::Failure(Status);\n}\n\n";
+		return;
+	}
+	Host << "[&](const void* Parameters)\n    {\n"
+	     << "        Value = static_cast<const F" << Plan.Parameters.back().PropertyClass
+	     << "*>(Call.GetValue()->GetParameter(" << Api.Parameters.size()
+	     << "))->GetPropertyValue_InContainer(Parameters);\n    });\n"
+	     << "    return Status == Mod::API::EError::None ? " << Result << "::Success(Value) : " << Result
+	     << "::Failure(Status);\n}\n\n";
+}
+
+void WriteBlueprintDescriptors(std::ostream& Host, const ResolvedType& Type, const GenerationModel& Model)
+{
+	for (auto Index : Type.APIs)
+	{
+		const auto& Api = Model.APIs[Index];
+		if (Api.Blueprint->Parameters.empty())
+		{
+			continue;
+		}
+		Host << "    static const Mod::API::FBlueprintParameter " << Api.Symbol << "_Parameters[] = {\n";
+		for (const auto& Param : Api.Blueprint->Parameters)
+		{
+			Host << "        {FName(" << GeneratedSource::Wide(Param.Name) << "), FName("
+			     << GeneratedSource::Wide(Param.PropertyClass) << "), Mod::API::EBlueprintParameter::" << Param.Role
+			     << "},\n";
+		}
+		Host << "    };\n";
+	}
+	Host << "    static const Mod::API::FBlueprintFunction Functions[] = {\n";
+	for (auto Index : Type.APIs)
+	{
+		const auto& Api = Model.APIs[Index];
+		Host << "        {FName(" << GeneratedSource::Wide(Api.Name) << "), "
+		     << (Api.Blueprint->Parameters.empty() ? "{}" : "MakeArrayView(" + Api.Symbol + "_Parameters)") << "},\n";
+	}
+	Host << "    };\n    Descriptor.BlueprintFunctions = MakeArrayView(Functions);\n";
+}
+} // namespace
 
 void HostBridgeWriter::WriteHost(const GenerationModel& Model, Files& Files)
 {
@@ -45,12 +114,19 @@ void HostBridgeWriter::WriteHost(const GenerationModel& Model, Files& Files)
 		Host << GeneratedSource::Prologue(Module.Name + ".modhost.cpp") << "#include \"" << Module.Name
 		     << ".modexports.h\"\n"
 		     << "#include \"ModAPIHost.h\"\n";
+		const bool bHasBlueprints =
+		    std::any_of(Model.Types.begin(), Model.Types.end(), [&](const auto& Entry)
+		                { return Entry.second.Module == Module.Name && !Entry.second.BlueprintClass.empty(); });
+		if (bHasBlueprints)
+		{
+			Host << "#include \"UObject/UnrealType.h\"\n";
+		}
 		Verify << GeneratedSource::Prologue(Module.Name + ".modverify.cpp")
 		       << "#include <type_traits>\n#include <string_view>\n";
 		std::set<std::string> Headers;
 		for (const auto& [Name, Type] : Model.Types)
 		{
-			if (Type.Module == Module.Name)
+			if (Type.Module == Module.Name && !Type.HeaderInclude.empty())
 			{
 				Headers.insert(Type.HeaderInclude);
 			}
@@ -91,9 +167,12 @@ void HostBridgeWriter::WriteHost(const GenerationModel& Model, Files& Files)
 			{
 				continue;
 			}
-			Verify << "using " << API.Symbol << "Member = " << CppSignature::PointerType(API) << ";\n"
-			       << "static_assert(std::is_same_v<decltype(static_cast<" << API.Symbol << "Member>(&"
-			       << API.DeclaringType << "::" << API.Name << ")), " << API.Symbol << "Member>);\n";
+			if (!API.Blueprint)
+			{
+				Verify << "using " << API.Symbol << "Member = " << CppSignature::PointerType(API) << ";\n"
+				       << "static_assert(std::is_same_v<decltype(static_cast<" << API.Symbol << "Member>(&"
+				       << API.DeclaringType << "::" << API.Name << ")), " << API.Symbol << "Member>);\n";
+			}
 			Host << "static " << CppSignature::ResultType(API) << " " << API.Symbol
 			     << "(const Mod::API::FObjectBinding& Binding" << (API.Parameters.empty() ? "" : ", ")
 			     << CppSignature::Parameters(API) << ")\n{\n";
@@ -112,6 +191,11 @@ void HostBridgeWriter::WriteHost(const GenerationModel& Model, Files& Files)
 			     << (API.bConst && !API.bFullViewMember ? "false" : "true") << ");\n"
 			     << "    if (!Target.IsSuccess()) { return " << CppSignature::ResultType(API)
 			     << "::Failure(Target.GetError()); }\n";
+			if (API.Blueprint)
+			{
+				WriteBlueprintCall(Host, API);
+				continue;
+			}
 			for (std::size_t I = 0; I < API.Parameters.size(); ++I)
 			{
 				if (API.Parameters[I].Type.Kind == APIType::EKind::ObjectInput)
@@ -168,10 +252,19 @@ void HostBridgeWriter::WriteHost(const GenerationModel& Model, Files& Files)
 			}
 			Host << "    {\n    Mod::API::FTypeDescriptor Descriptor;\n"
 			     << "    Descriptor.TypeId = Mod::API::TBindingTraits<" << Name << ">::TypeId();\n"
-			     << "    Descriptor.Class = " << Name << "::StaticClass();\n"
 			     << "    Descriptor.Scope = Mod::API::EScope::" << Type.Identity.Scope << ";\n"
 			     << "    Descriptor.Signature = Mod::API::TBindingTraits<" << Name << ">::Signature;\n"
 			     << "    Descriptor.Calls = &" << Type.Symbol << "Table;\n";
+			if (Type.BlueprintClass.empty())
+			{
+				Host << "    Descriptor.Class = " << Name << "::StaticClass();\n";
+			}
+			else
+			{
+				Host << "    Descriptor.BlueprintClass = FSoftClassPath(" << GeneratedSource::Wide(Type.BlueprintClass)
+				     << ");\n";
+				WriteBlueprintDescriptors(Host, Type, Model);
+			}
 			if (Type.bAllowWorldless)
 			{
 				Host << "    Descriptor.bAllowWorldless = true;\n";

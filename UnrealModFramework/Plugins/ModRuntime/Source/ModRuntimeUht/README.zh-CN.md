@@ -61,6 +61,26 @@ generate 按实际 Target、平台、配置和架构选择 build input，校验�
 
 正常构建时，适配层使用当前 Target 和 MSVC 工具链运行 UBT 的 `GenerateClangDatabase`，并在正式编译动作生成前展开导出模块的响应文件。变体的 `HostTargets` 目录保存 `BuildInput.json` 和 `Ubt/compile_commands.json`。UBT 复用 Makefile 时，适配层读取已保存的编译参数。Target 或变体显式配置的 `buildInput` 由调用方维护，其编译数据库及响应文件须匹配当前 Target。Clang 还依赖标准 UHT CodeGen 生成的头文件。
 
+### 从宿主蓝图导出 API
+
+在工程的 `Config/ModHeaderTool.json` 中配置 `blueprintExports`。每项包含已保存蓝图的资产对象路径 `asset`、发布后固定的 `typeId` 和参与生成的 Runtime 模块 `module`。工程中已有 `BP_ModBlueprintAPIExportTest` 的配置示例。发布新 API 前在「蓝图Mod导出」中设置 `PublicName`。已有声明的空公开名和空版本分别采用当前声明名和 `1.0.0`。
+
+生成时，`ModExportBlueprints` 命令编译已保存的资产，从 Kismet 生成的 `UFunction` 提取签名，将快照交给 MHT。当前支持 `World`、`GameThread`、`ReturnError` 的实例 API，参数为按值传递的布尔或数值，结果为一个标量输出或 `void`。配置中的包会进入宿主 Cook。首次需要准备 Editor 时可用 `-MhtBootstrap`。
+
+游戏在实例就绪后调用 `UModAPIHostSubsystem::RegisterWorldProvider`，持有返回的注册凭据，并用 `SetWorldCallerPolicy` 指定允许访问的模组、类型和权限。生成的 SDK 在 `<SDK>API.h` 提供 `Acquire_<对象引用类型>`。原生 Mod 在活跃的 `UModInstance` 中调用它建立函数表连接并取得对象引用，再调用同一头文件中生成的类型化方法。宿主在实际蓝图实例上执行 `ProcessEvent`。模组卸载、世界关闭或宿主更换授权策略会撤销相应调用者。
+
+例如，样例工程的 `game.blueprint_test` 在 `UMFDevSDK` 中生成以下调用。在 `UModInstance` 子类的方法中使用，宿主须已注册该 Actor 并授权当前模组。取得引用后，可在当前世界存续期间重复调用。
+
+```cpp
+FModObject_T_f4f57c0936062c84 Provider;
+if (UUMFDevSDKLibrary::Acquire_FModObject_T_f4f57c0936062c84(*this, Provider))
+{
+	EUMFDevSDKCallOutcome Outcome;
+	int64 ErrorCode;
+	UUMFDevSDKLibrary::TestModAPIExport(Provider, 1.0, Outcome, ErrorCode);
+}
+```
+
 ## 独立宿主编译与链接
 
 所属模块的规则调用 `ExportMetadata.ConfigureHost(this, Target)`，配套 External 规则类（例如 `ExportTestHost`）调用 `ExportMetadata.ConfigureHostLibrary(this, Target, "ExportTest")`；所属模块私有依赖这个 External 模块。接入按模块配置，单个 API 的开发者继续只写导出宏和原函数。

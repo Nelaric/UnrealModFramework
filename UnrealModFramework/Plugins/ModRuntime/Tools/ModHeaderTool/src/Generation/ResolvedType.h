@@ -16,6 +16,7 @@ struct ResolvedType
 	TypeIdentity Identity;
 	std::string Module;
 	std::string HeaderInclude;
+	std::string BlueprintClass;
 	std::vector<std::size_t> APIs;
 	std::set<std::string> MethodNames;
 	std::string Symbol;

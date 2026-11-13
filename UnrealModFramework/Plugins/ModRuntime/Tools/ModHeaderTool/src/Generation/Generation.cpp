@@ -35,6 +35,6 @@ void Generation::Generate(const fs::path& RequestFile)
 	};
 	APIGenerator(ReadPath("buildInput", true), ReadPath("hostContexts", true))
 	    .Generate(ReadPath("outputDirectory", true), ReadPath("metadataOptions", false), ReadPath("libclang", false),
-	              ReadPath("lifecycleSource", false));
+	              ReadPath("lifecycleSource", false), ReadPath("blueprintSnapshot", false));
 }
 } // namespace Mod::HeaderTool

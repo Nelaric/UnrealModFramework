@@ -53,6 +53,9 @@ class UModBlueprintAPIExport final : public UModBlueprintExportEntry
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(EditAnywhere, Category = "API")
+	FString PublicName;
+
 	UPROPERTY(EditAnywhere, Category = "API", meta = (GetOptions = "GetScopes"))
 	FString Scope;
 

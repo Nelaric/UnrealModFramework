@@ -18,6 +18,7 @@ public class BlueprintIntegration : ModuleRules
 				"Kismet",
 				"KismetCompiler",
 				"ExportMetadata",
+				"ModAPI",
 				"Slate",
 				"SlateCore",
 				"ToolWidgets",

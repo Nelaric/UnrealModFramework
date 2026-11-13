@@ -24,10 +24,9 @@ public:
 	Validator(ExportMacro& InMacro, const MetadataOptions* InOptions, const std::string& Source);
 
 	std::vector<std::string> Validate();
-
-private:
 	static bool IsVersion(std::string_view Text);
 
+private:
 	static bool IsTypeName(std::string_view Text);
 
 	void Error(std::size_t Offset, const std::string& Reason);

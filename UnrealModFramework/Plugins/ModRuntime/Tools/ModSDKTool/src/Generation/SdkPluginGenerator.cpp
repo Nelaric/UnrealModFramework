@@ -48,9 +48,23 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	{
 		Types[JsonDocument::Text(Type, "id")] = JsonDocument::Text(Type, "cppName");
 	}
+	std::map<std::string, std::string> BlueprintProviders;
+	for (const auto& API : Request.Contract.at("apis"))
+	{
+		if (API.contains("hostBlueprint"))
+		{
+			const auto Id = JsonDocument::Text(API, "targetTypeId");
+			const auto Signature = JsonDocument::Text(API.at("hostBlueprint"), "callingTableHash");
+			BlueprintProviders.emplace(Id, Signature);
+		}
+	}
 	std::ostringstream Header;
 	Header << "// Copyright (c) 2026 Nelaric Contributors\n/" << "** @file " << Plugin << "API.h */\n#pragma once\n\n"
 	       << "#include \"CoreMinimal.h\"\n#include \"Kismet/BlueprintFunctionLibrary.h\"\n";
+	if (!BlueprintProviders.empty() && !Request.LifecycleArtifact.is_null())
+	{
+		Header << "#include \"ModInstance.h\"\n";
+	}
 	std::set<std::string> EngineIncludes;
 	std::set<std::string> ExtraModules;
 	for (const auto& API : Request.Contract.at("apis"))
@@ -107,6 +121,34 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	for (const std::string& Include : Includes)
 	{
 		Source << "#include \"" << Include << "\"\n";
+	}
+	if (!BlueprintProviders.empty())
+	{
+		const std::string Game = JsonDocument::Text(Request.Contract, "gameId");
+		Header << "\t" << CppLiteral::LineDoc << " Connects the generated client tables on the game thread.\n"
+		       << "\tstatic " << APIMacro
+		       << " int64 ConnectHost(TFunctionRef<void*(const char*, const char*)> Resolve);\n\n";
+		Source << "\nint64 " << LibraryClass
+		       << "::ConnectHost(TFunctionRef<void*(const char*, const char*)> Resolve)\n{\n"
+		       << "\tif (!IsInGameThread()) { return " << Errors.WrongThread << "; }\n"
+		       << "\treturn UMF_" << Game << "_ConnectHost(Resolve);\n}\n\n";
+		if (!Request.LifecycleArtifact.is_null())
+		{
+			for (const auto& [Id, Signature] : BlueprintProviders)
+			{
+				const auto& Type = Types.at(Id);
+				Header << "\t" << CppLiteral::LineDoc << " Acquires a provider for the active Mod instance.\n"
+				       << "\tstatic " << APIMacro << " bool Acquire_" << Type << "(UModInstance& Mod, " << Type
+				       << "& OutObject);\n\n";
+				Source
+				    << "bool " << LibraryClass << "::Acquire_" << Type << "(UModInstance& Mod, " << Type
+				    << "& OutObject)\n{\n\tOutObject = {};\n\tuint64 Context = 0;\n\tuint64 Object = 0;\n"
+				    << "\tif (!IsInGameThread() || ConnectHost(&UModInstance::ResolveHostAPI) != 0) { return false; }\n"
+				    << "\tif (!Mod.AcquireWorldAPI(FName(TEXT(" << CppLiteral::Literal(Id) << ")), TEXT("
+				    << CppLiteral::Literal(Signature) << "), Context, Object)) { return false; }\n"
+				    << "\tOutObject = " << Type << "::FromNative(Context, Object);\n\treturn true;\n}\n\n";
+			}
+		}
 	}
 	Source << "\n";
 	for (const Json& API : Request.Contract.at("apis"))
@@ -197,6 +239,10 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	{
 		Build << ", " << CppLiteral::Literal(Dependency);
 	}
+	if (!BlueprintProviders.empty() && !Request.LifecycleArtifact.is_null())
+	{
+		Build << ", \"ModLoader\"";
+	}
 	Build << " });\n"
 	      << "\t\tPrivateIncludePaths.Add(Path.Combine(PluginDirectory, \"Source\", \"ThirdParty\", \"ModClient\", "
 	         "\"Include\"));\n";
@@ -277,10 +323,25 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 		    "base(Target)\n\t{\n\t\tPCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;\n"
 		    "\t\tPublicDependencyModuleNames.AddRange(new[] { \"Core\", \"CoreUObject\", \"Engine\" });\n"
 		    "\t}\n}\n");
-		GeneratedFile::WriteSource(
-		    LifecycleModule / "Private" / "ModLoaderModule.cpp",
-		    "// Copyright (c) 2026 Nelaric Contributors\n#include \"Modules/ModuleManager.h\"\n\n"
-		    "IMPLEMENT_MODULE(FDefaultModuleImpl, ModLoader);\n");
+		std::string ModuleSource = "// Copyright (c) 2026 Nelaric Contributors\n#include \"ModInstance.h\"\n"
+		                           "#include \"Modules/ModuleManager.h\"\n\n"
+		                           "IMPLEMENT_MODULE(FDefaultModuleImpl, ModLoader);\n";
+		const auto& Instance = Declarations.at("ModInstance").get_ref<const std::string&>();
+		if (Instance.find("GetModId() const;") != std::string::npos)
+		{
+			ModuleSource += "\nFString UModInstance::GetModId() const\n{\n\treturn {};\n}\n";
+		}
+		if (Instance.find("AcquireWorldAPI(") != std::string::npos)
+		{
+			ModuleSource +=
+			    "\nbool UModInstance::AcquireWorldAPI(FName, const TCHAR*, uint64& Context, uint64& Object)\n"
+			    "{\n\tContext = 0;\n\tObject = 0;\n\treturn false;\n}\n";
+		}
+		if (Instance.find("ResolveHostAPI(") != std::string::npos)
+		{
+			ModuleSource += "\nvoid* UModInstance::ResolveHostAPI(const char*, const char*)\n{\n\treturn nullptr;\n}\n";
+		}
+		GeneratedFile::WriteSource(LifecycleModule / "Private" / "ModLoaderModule.cpp", ModuleSource);
 		Modules.push_back({{"Name", "ModLoader"}, {"Type", "Runtime"}, {"LoadingPhase", "Default"}});
 	}
 	const Json Descriptor = {{"FileVersion", 3},

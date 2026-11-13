@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <nlohmann/json.hpp>
 #include <set>
 #include <stdexcept>
@@ -92,6 +93,7 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 	}
 	std::set<std::string> APIIds;
 	std::set<std::string> Functions;
+	std::map<std::string, std::string> BlueprintProviders;
 	bool bHasGetter = false;
 	bool bHasMethod = false;
 	bool bHasTypedMethod = false;
@@ -127,6 +129,22 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 		PortableNames::Identifier(JsonDocument::Text(Native, "symbol"));
 		PortableNames::PortablePath(JsonDocument::Text(Native, "header"));
 		const std::string Shape = JsonDocument::Text(API, "shape");
+		if (API.contains("hostBlueprint"))
+		{
+			if (Shape != "TypedMethod" || API.at("scope") != "World" || API.contains("provider") ||
+			    !API.contains("targetTypeId") || !Contract.contains("connectionDescriptor"))
+			{
+				throw std::runtime_error("A Blueprint API needs a world object target and native connection: " + Id);
+			}
+			const auto TypeId = JsonDocument::Text(API, "targetTypeId");
+			const auto Signature = JsonDocument::Text(API.at("hostBlueprint"), "callingTableHash");
+			Mod::BuildTool::Hash::RequireDigest(Signature, "hostBlueprint.callingTableHash");
+			if (const auto [It, Added] = BlueprintProviders.emplace(TypeId, Signature);
+			    !Added && It->second != Signature)
+			{
+				throw std::runtime_error("Conflicting calling table signatures for Blueprint provider " + TypeId);
+			}
+		}
 		if (Shape == "ObjectGetter")
 		{
 			if (!TypeIds.contains(JsonDocument::Text(API, "resultTypeId")) ||
@@ -200,6 +218,25 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 		else
 		{
 			throw std::runtime_error("Unsupported projected API shape: " + Shape);
+		}
+	}
+	if (!BlueprintProviders.empty())
+	{
+		bool bReservedName = Functions.contains("connecthost");
+		if (Contract.contains("modLifecycle"))
+		{
+			for (const Json& Type : Types)
+			{
+				if (BlueprintProviders.contains(JsonDocument::Text(Type, "id")))
+				{
+					bReservedName |=
+					    Functions.contains("acquire_" + PortableNames::Fold(JsonDocument::Text(Type, "cppName")));
+				}
+			}
+		}
+		if (bReservedName)
+		{
+			throw std::runtime_error("An API name conflicts with a generated Blueprint SDK method.");
 		}
 	}
 	if (!bHasTypedMethod && (!bHasGetter || !bHasMethod))

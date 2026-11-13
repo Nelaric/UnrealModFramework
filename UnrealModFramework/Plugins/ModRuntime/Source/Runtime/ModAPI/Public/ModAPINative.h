@@ -37,6 +37,15 @@ struct MODAPI_API FNativeAccess
 	 * @return A checked binding without exposing a raw object address.
 	 */
 	static TModResult<FObjectBinding> Resolve(uint64 Context, uint64 Target, FName TypeId, const TCHAR* Signature);
+	/** @brief Resolves an object token on the game thread.
+	 * @param Context The calling identity.
+	 * @param Target An object token issued to this context.
+	 * @param TypeId The exact generated source type.
+	 * @param Signature The expected generated calling-table signature.
+	 * @return The checked object binding or an authorization error.
+	 */
+	static TModResult<FObjectBinding> ResolveObject(uint64 Context, uint64 Target, FName TypeId,
+	                                                const TCHAR* Signature);
 	/** @brief Publishes an authorized object as a context-owned token.
 	 * @param Context The identity receiving the result.
 	 * @param Binding The generated and validated object projection.

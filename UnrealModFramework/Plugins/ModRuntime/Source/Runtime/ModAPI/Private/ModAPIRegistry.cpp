@@ -11,6 +11,7 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/PlayerController.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/ObjectKey.h"
 
 #include <cstring>
 
@@ -43,6 +44,7 @@ struct FTypeState : FRegistrationState
 {
 	FTypeDescriptor Descriptor;
 	TSet<FName> ExportIds;
+	TMap<FObjectKey, TArray<TSharedPtr<const FBlueprintCall>>> BlueprintCalls;
 };
 
 struct FProviderState : FRegistrationState
@@ -180,11 +182,51 @@ EError CheckBinding(const TSharedPtr<FBindingState>& Binding)
 	{
 		return EError::ScopeMismatch;
 	}
-	if (!Binding->Object.IsValid() || !Binding->Object->IsA(Binding->Type->Descriptor.Class))
+	if (!Binding->Object.IsValid() ||
+	    (Binding->Type->Descriptor.Class && !Binding->Object->IsA(Binding->Type->Descriptor.Class)))
 	{
 		return EError::ObjectUnavailable;
 	}
 	return CheckObject(Binding->Object.Get(), Binding->Scope, Binding->Type->Descriptor.bAllowWorldless);
+}
+
+using FBlueprintCalls = TArray<TSharedPtr<const FBlueprintCall>>;
+
+TModResult<const FBlueprintCalls*> BindBlueprintCalls(FTypeState& Type, UClass& Class)
+{
+	using FResult = TModResult<const FBlueprintCalls*>;
+	if (Type.Descriptor.BlueprintFunctions.IsEmpty())
+	{
+		return FResult::Success(nullptr);
+	}
+	const FObjectKey Key(&Class);
+	if (const auto* Existing = Type.BlueprintCalls.Find(Key); Existing && (*Existing)[0]->IsCurrent())
+	{
+		return FResult::Success(Existing);
+	}
+	UClass* Declaring = Type.Descriptor.BlueprintClass.ResolveClass();
+	if (!Declaring || !Class.IsChildOf(Declaring))
+	{
+		return FResult::Failure(EError::SignatureMismatch);
+	}
+	FBlueprintCalls Calls;
+	for (const auto& Function : Type.Descriptor.BlueprintFunctions)
+	{
+		auto Call = FBlueprintCall::Bind(*Declaring, Class, Function);
+		if (!Call.IsSuccess())
+		{
+			return FResult::Failure(Call.GetError());
+		}
+		Calls.Add(MoveTemp(Call.GetValue()));
+	}
+	for (auto It = Type.BlueprintCalls.CreateIterator(); It; ++It)
+	{
+		if (!It.Key().ResolveObjectPtr() || !It.Value()[0]->IsCurrent())
+		{
+			It.RemoveCurrent();
+		}
+	}
+	return FResult::Success(&Type.BlueprintCalls.Add(Key, MoveTemp(Calls)));
 }
 
 TSharedPtr<FBindingState> MakeBinding(const TSharedPtr<FRegistryState>& Registry,
@@ -312,8 +354,11 @@ TModResult<FRegistration> FRegistry::RegisterType(FTypeDescriptor Descriptor)
 		return TModResult<FRegistration>::Failure(EError::WrongThread);
 	}
 	const TSharedPtr<FTypeState>* Existing = State->Types.Find(Descriptor.TypeId);
-	if (Descriptor.TypeId.IsNone() || !Descriptor.Class || !Descriptor.Calls || Descriptor.Signature.IsEmpty() ||
-	    (Existing && (*Existing)->bActive))
+	const bool bBlueprint = !Descriptor.BlueprintClass.IsNull();
+	if (Descriptor.TypeId.IsNone() || (!Descriptor.Class && !bBlueprint) ||
+	    (bBlueprint &&
+	     (Descriptor.Class || Descriptor.BlueprintFunctions.IsEmpty() || Descriptor.Scope != EScope::World)) ||
+	    !Descriptor.Calls || Descriptor.Signature.IsEmpty() || (Existing && (*Existing)->bActive))
 	{
 		return TModResult<FRegistration>::Failure(EError::InvalidArgument);
 	}
@@ -456,14 +501,23 @@ TModResult<FRegistration> FRegistry::RegisterProvider(FName TypeId, const FScope
 		return TModResult<FRegistration>::Failure(EError::NotRegistered);
 	}
 	if (!OwnsScope(State, Scope.State) || (*Type)->Descriptor.Scope != Scope.State->Kind || !IsValid(Instance) ||
-	    !Instance->IsA((*Type)->Descriptor.Class))
+	    ((*Type)->Descriptor.Class && !Instance->IsA((*Type)->Descriptor.Class)))
 	{
 		return TModResult<FRegistration>::Failure(EError::ScopeMismatch);
+	}
+	if (!(*Type)->Descriptor.BlueprintFunctions.IsEmpty() &&
+	    Instance->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject))
+	{
+		return TModResult<FRegistration>::Failure(EError::ObjectUnavailable);
 	}
 	if (const EError Error = CheckObject(Instance, Scope.State, (*Type)->Descriptor.bAllowWorldless);
 	    Error != EError::None)
 	{
 		return TModResult<FRegistration>::Failure(Error);
+	}
+	if (auto Calls = BindBlueprintCalls(**Type, *Instance->GetClass()); !Calls.IsSuccess())
+	{
+		return TModResult<FRegistration>::Failure(Calls.GetError());
 	}
 	State->Providers.RemoveAll(
 	    [](const auto& Provider)
@@ -532,8 +586,13 @@ TModResult<FObjectBinding> FRegistry::BindProvider(FName TypeId, const TCHAR* Si
 			Binding.State = MakeBinding(State, Caller.State, TargetScope, *Type, Provider->Object.Get());
 			Binding.State->Provider = Provider;
 			const EError Error = CheckBinding(Binding.State);
-			return Error == EError::None ? TModResult<FObjectBinding>::Success(MoveTemp(Binding))
-			                             : TModResult<FObjectBinding>::Failure(Error);
+			if (Error != EError::None)
+			{
+				return TModResult<FObjectBinding>::Failure(Error);
+			}
+			auto Calls = BindBlueprintCalls(**Type, *Binding.State->Object->GetClass());
+			return Calls.IsSuccess() ? TModResult<FObjectBinding>::Success(MoveTemp(Binding))
+			                         : TModResult<FObjectBinding>::Failure(Calls.GetError());
 		}
 	}
 	return TModResult<FObjectBinding>::Failure(EError::NotRegistered);
@@ -576,6 +635,29 @@ TModResult<UObject*> FHostAccess::Enter(const FObjectBinding& Binding, FName Typ
 		}
 	}
 	return TModResult<UObject*>::Success(Target->Object.Get());
+}
+
+TModResult<TSharedPtr<const FBlueprintCall>> FHostAccess::ResolveBlueprintCall(const FObjectBinding& Binding,
+                                                                               UObject& Target, int32 Index)
+{
+	using FResult = TModResult<TSharedPtr<const FBlueprintCall>>;
+	if (!IsInGameThread())
+	{
+		return FResult::Failure(EError::WrongThread);
+	}
+	if (!Binding.State || Binding.State->Object.Get() != &Target || !Binding.State->Scope->World.IsValid() ||
+	    Binding.State->Scope->World->bIsTearingDown)
+	{
+		return FResult::Failure(EError::BindingExpired);
+	}
+	auto Calls = BindBlueprintCalls(*Binding.State->Type, *Target.GetClass());
+	if (!Calls.IsSuccess())
+	{
+		return FResult::Failure(Calls.GetError());
+	}
+	const auto* Bound = Calls.GetValue();
+	return Bound && Bound->IsValidIndex(Index) ? FResult::Success((*Bound)[Index])
+	                                           : FResult::Failure(EError::SignatureMismatch);
 }
 
 TModResult<void> FHostAccess::ValidateObjectInput(const FObjectBinding& Binding, const UObject* Object)
@@ -648,7 +730,8 @@ TModResult<FObjectBinding> FHostAccess::ProjectObject(const FObjectBinding& Sour
 	{
 		return TModResult<FObjectBinding>::Failure(EError::SignatureMismatch);
 	}
-	if ((*Type)->Descriptor.Scope != EScope::World || !Object->IsA((*Type)->Descriptor.Class))
+	if ((*Type)->Descriptor.Scope != EScope::World || !(*Type)->Descriptor.Class ||
+	    !Object->IsA((*Type)->Descriptor.Class))
 	{
 		return TModResult<FObjectBinding>::Failure(EError::ScopeMismatch);
 	}
@@ -750,6 +833,28 @@ TModResult<FObjectBinding> FNativeAccess::Resolve(uint64 Context, uint64 Target,
 	auto Calls = Binding->ResolveCalls(TypeId, Signature);
 	return Calls.IsSuccess() ? TModResult<FObjectBinding>::Success(*Binding)
 	                         : TModResult<FObjectBinding>::Failure(Calls.GetError());
+}
+
+TModResult<FObjectBinding> FNativeAccess::ResolveObject(uint64 Context, uint64 Target, FName TypeId,
+                                                        const TCHAR* Signature)
+{
+	using FResult = TModResult<FObjectBinding>;
+	if (!IsInGameThread())
+	{
+		return FResult::Failure(EError::WrongThread);
+	}
+	FNativeState* Entry = FindNativeContext(Context);
+	if (!Entry)
+	{
+		return FResult::Failure(EError::BindingExpired);
+	}
+	const FObjectBinding* Binding = Entry->Objects.Find(Target);
+	if (!Binding)
+	{
+		return FResult::Failure(EError::NotRegistered);
+	}
+	auto Calls = Binding->ResolveCalls(TypeId, Signature);
+	return Calls.IsSuccess() ? FResult::Success(*Binding) : FResult::Failure(Calls.GetError());
 }
 
 TModResult<uint64> FNativeAccess::Publish(uint64 Context, FObjectBinding Binding)

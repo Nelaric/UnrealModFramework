@@ -221,6 +221,11 @@ internal static class ModRuntimeExporter
 			bool exportLifecycle = manifest.Modules.Any(module =>
 				module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))
 			);
+			string blueprintSnapshot =
+				config.TryGetProperty("blueprintExports", out JsonElement blueprintExports)
+				&& blueprintExports.GetArrayLength() > 0
+					? ExportBlueprints(factory, project, configPath, config, variantDirectory, timeout)
+					: "";
 			string request = Path.Combine(variantDirectory, "GenerationRequest.json");
 			WriteFileIfChanged(
 				request,
@@ -235,6 +240,7 @@ internal static class ModRuntimeExporter
 						metadataOptions = File.Exists(options) ? options : "",
 						libclang = clang ?? "",
 						lifecycleSource = exportLifecycle ? lifecycleSource : "",
+						blueprintSnapshot,
 					}
 				)
 			);
@@ -295,6 +301,76 @@ internal static class ModRuntimeExporter
 			}
 			factory.CommitOutput(Path.Combine(output, "Scan.json"), new StringBuilder(content));
 		}
+	}
+
+	private static string ExportBlueprints(
+		IUhtExportFactory factory,
+		string project,
+		string configPath,
+		JsonElement config,
+		string variantDirectory,
+		int timeout
+	)
+	{
+		string engine = factory.Session.EngineDirectory!;
+		string projectRoot = Path.GetDirectoryName(project)!;
+		string editorTarget =
+			OptionalText(config, "metadataEditorTarget")
+			?? throw new UhtException("ModRuntime Blueprint exports require a metadataEditorTarget.");
+		if (!MetadataSnapshot.HasDevelopmentEditor(projectRoot, editorTarget))
+		{
+			UbtPreparation.BuildEditor(factory.Session.Logger, engine, project, editorTarget, timeout);
+		}
+		string editor = Path.Combine(engine, "Binaries/Win64/UnrealEditor-Cmd.exe");
+		string snapshot = Path.Combine(variantDirectory, "BlueprintExports.json");
+		string temporary = Path.Combine(variantDirectory, $".blueprints-{Guid.NewGuid():N}.json");
+		string log = Path.ChangeExtension(temporary, ".log");
+		try
+		{
+			void RunCommandlet() =>
+				MhtProcess.Run(
+					factory.Session.Logger,
+					editor,
+					new[]
+					{
+						project,
+						"-run=ModExportBlueprints",
+						$"-Input={configPath}",
+						$"-Output={temporary}",
+						$"-abslog={log}",
+						"-unattended",
+						"-SkipCompile",
+						"-NullRHI",
+						"-NoSound",
+						"-NoSplash",
+						"-stdout",
+					},
+					projectRoot,
+					timeout,
+					description: "ModRuntime ModExportBlueprints"
+				);
+			try
+			{
+				RunCommandlet();
+			}
+			catch (UhtException)
+				when (File.Exists(log)
+					&& File.ReadAllText(log).Contains("we could not find the class", StringComparison.Ordinal)
+				)
+			{
+				// An Editor built before this commandlet may still have a valid target receipt.
+				UbtPreparation.BuildEditor(factory.Session.Logger, engine, project, editorTarget, timeout);
+				RunCommandlet();
+			}
+			WriteFileIfChanged(snapshot, File.ReadAllBytes(temporary));
+			FileItem.ResetCachedInfo(snapshot);
+		}
+		finally
+		{
+			File.Delete(temporary);
+			File.Delete(log);
+		}
+		return snapshot;
 	}
 
 	private static void RegisterGeneratedDependencies(

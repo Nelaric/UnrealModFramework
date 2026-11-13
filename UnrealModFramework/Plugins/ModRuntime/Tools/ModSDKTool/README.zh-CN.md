@@ -54,6 +54,8 @@ uint32_t FloatMethod(uint64_t ModContext, uint64_t Object, float Amount, float* 
 
 生成的 Runtime SDK 包含不透明 `USTRUCT` 引用与 `MinimalAPI` 蓝图函数库。标准 UE 节点通过 `ExpandEnumAsExecs` 展示成功/失败分支，无需额外空 Editor 模块。函数指针 `static_assert` 在 UE 编译时核对 ABI。令牌不开放蓝图编辑，宿主用 `FromNative` 提供上下文。适配层错误为负数，原生状态以非负蓝图 `int64` 错误码保留。
 
+宿主蓝图的 World API 在契约中记录 `hostBlueprint.callingTableHash`。生成的 C++ SDK 通过活动的 `UModInstance` 连接原生函数表，并按该哈希获取宿主注册的实例。宿主指定授权策略和世界内的提供者。
+
 MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 SDK 契约的 `modLifecycle` 中绑定摘要。MBT 验证该产物并完成库编译后，MDT 生成 `ModInstance.h` 和 `ModInstanceSubSystem.h`，随后用 UAT 编译作者 SDK 和制作编辑器插件。生成模块保留宿主的 `/Script/ModLoader` 类型路径。游戏会话负责实例化及事件分发。
 
 [sdk-build-request.schema.json](Protocol/sdk-build-request.schema.json) 定义 `UMF.SdkBuildRequest` v2。将 `schemaVersion` 设为 `2`，并移除 `developmentPlugin` 字段。
@@ -95,4 +97,4 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 
 `Built` 表示原生库与作者 Editor 插件实际构建并检查，不代表最终游戏链接、Game Target 的 SDK Runtime 或运行时 API 绑定已验证；结果明确将这些能力记为 false。Cook 后调用要求游戏中有匹配的 SDK Runtime。蓝图导出、可信宿主链接回执和玩家上下文交付仍是上游依赖。公开模块、类型和函数/参数名形成反射身份，兼容发布须保持稳定。
 
-MHT 已生成匹配的 `.sdkcontract.json`、纯 C `.modabi.h`、独立客户端入口和 v3 清单，见 [MHT 连接协议](../ModHeaderTool/README.zh-CN.md)。分别使用 Host 和 `<game>ModClient` 上下文作为库任务；连接描述明确列出宿主查询及客户端 Connect/Disconnect 符号。MDT 要求描述文件是经过哈希检查的公共 Contract 产物，核对身份与 API 签名后按声明路径复制到 Bundle 和 SDK 插件；`inspect` 检查两份文件及契约身份。装载器仍需执行连接并交付宿主批准的 token。超出现有 MDT 适配形状的 API 图会使 SDK 契约标记 `Unsupported`；内部 UE 视图的 `.modcontract.json` 仍是另一契约，不能作为 MDT 的 SDK 契约。
+MHT 已生成匹配的 `.sdkcontract.json`、纯 C `.modabi.h`、独立客户端入口和 v3 清单。分别使用 Host 和 `<game>ModClient` 上下文作为库任务。连接描述明确列出宿主查询及客户端 Connect/Disconnect 符号。MDT 要求描述文件是经过哈希检查的公共 Contract 产物，核对身份与 API 签名后按声明路径复制到 Bundle 和 SDK 插件。`inspect` 检查两份文件及契约身份。游戏接入层负责本地玩家等其他作用域的上下文交付。超出 MDT 适配形状的 API 图会使 SDK 契约标记 `Unsupported`。[MHT 连接协议](../ModHeaderTool/README.zh-CN.md)

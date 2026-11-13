@@ -71,5 +71,14 @@ struct MODAPI_API FHostAccess
 	 */
 	static TModResult<FObjectBinding> ProjectObject(const FObjectBinding& Source, UObject* Object, FName TypeId,
 	                                                const TCHAR* Signature, bool bReadOnly);
+
+	/** @brief Gets a validated Blueprint call on the game thread.
+	 * @param Binding Authorized target instance.
+	 * @param Target Object returned by Enter for this call.
+	 * @param Index Function slot in its generated type descriptor.
+	 * @return The call description or a binding failure.
+	 */
+	static TModResult<TSharedPtr<const FBlueprintCall>> ResolveBlueprintCall(const FObjectBinding& Binding,
+	                                                                         UObject& Target, int32 Index);
 };
 } // namespace Mod::API

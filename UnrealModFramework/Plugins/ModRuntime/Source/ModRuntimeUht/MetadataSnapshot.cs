@@ -131,7 +131,7 @@ internal static class MetadataSnapshot
 		}
 	}
 
-	private static bool HasDevelopmentEditor(string projectRoot, string target)
+	internal static bool HasDevelopmentEditor(string projectRoot, string target)
 	{
 		const string projectPrefix = "$(ProjectDir)/";
 		string receipt = Path.Combine(projectRoot, "Binaries", "Win64", target + ".target");

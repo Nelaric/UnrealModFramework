@@ -9,5 +9,6 @@ public class ExportCodeGenerator : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.Add("ExportMetadata");
 		PrivateDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "Json", "Projects" });
+		PrivateDependencyModuleNames.AddRange(new[] { "AssetRegistry", "BlueprintIntegration", "ModAPI", "UnrealEd" });
 	}
 }
