@@ -3,6 +3,7 @@
 #pragma once
 
 #include "Containers/Array.h"
+#include "Containers/Set.h"
 #include "Containers/UnrealString.h"
 #include "UObject/SoftObjectPath.h"
 
@@ -36,6 +37,17 @@ struct FServiceDependency
 	bool bRequired = true;
 };
 
+/// A service advertised before the package contributes any executable code.
+struct FServiceOffer
+{
+	FName Id;
+	FName TypeId;
+	FString Signature;
+	FString Version;
+	FName Permission;
+	FName Patch;
+};
+
 /// The operations supported by a game-defined content slot.
 enum class EContentAction : uint8
 {
@@ -57,14 +69,38 @@ struct FContentCandidate
 	int32 Priority = 0;
 };
 
-/// A request to instantiate a cooked class at a game-owned anchor.
+/// The effects supported at a game-defined World anchor.
+enum class EWorldPatchOperation : uint8
+{
+	/// Creates an Actor owned by the Patch.
+	SpawnActor,
+	/// Creates a scene component on the anchor's approved attachment.
+	AttachComponent,
+	/// Registers a cooked data asset with the host.
+	RegisterData,
+};
+
+/// One cooked effect and its dependencies at a game-owned anchor.
 struct FWorldPatch
 {
 	FName Id;
 	FName Anchor;
 	FName ConflictKey;
+	/// Type of effect requested.
+	EWorldPatchOperation Operation = EWorldPatchOperation::SpawnActor;
+	/// Cooked Actor class for a spawn.
 	FSoftClassPath ActorClass;
+	/// Cooked scene component class for an attachment.
+	FSoftClassPath ComponentClass;
+	/// Stable data key within this anchor.
+	FName DataId;
+	/// Cooked data asset for a registration.
+	FSoftObjectPath DataAsset;
 	TArray<FName> After;
+	/// Named, declared services that must be available before this Patch.
+	TArray<FName> RequiresServices;
+	/// Seconds an optional Patch may wait for its first anchor.
+	float WaitSeconds = 0;
 	bool bRequired = true;
 };
 
@@ -80,9 +116,15 @@ struct FPackageExtensions
 {
 	TArray<FModDependency> Mods;
 	TArray<FServiceDependency> Services;
+	TArray<FServiceOffer> Provides;
+	TArray<FString> IncompatibleMods;
+	TSet<FName> RequiredGrants;
 	TArray<FExtensionDependency> Contracts;
 	TArray<FContentCandidate> Content;
 	TArray<FWorldPatch> Patches;
+	/// Independently compiled DLL that exports UMF_RegisterExtensionsV1.
+	FString NativeExtensionFile;
+	int32 SchemaVersion = 0;
 	bool bDeclared = false;
 };
 } // namespace Mod::Loader

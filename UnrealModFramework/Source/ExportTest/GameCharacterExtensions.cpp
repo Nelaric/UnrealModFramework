@@ -10,6 +10,14 @@ float AGameCharacter::ChangeHealth(float Delta)
 void AGameCharacter::PublishHealthChanged(float)
 {
 }
+
+void AGameCharacter::PublishHealthChangeDetails(const FGameHealthChange&)
+{
+}
+
+void AGameCharacter::PublishHealthChangeSubject(const AGameCharacter*)
+{
+}
 #else
 #include "ExportTest.modextensions.h"
 
@@ -38,6 +46,11 @@ float AGameCharacter::ChangeHealth(float Delta)
 	{
 		UE_LOG(LogTemp, Verbose, TEXT("Character health changed from %g to %g."), Previous, Health);
 		PublishHealthChanged(Health);
+		FGameHealthChange Change;
+		Change.PreviousHealth = Previous;
+		Change.CurrentHealth = Health;
+		PublishHealthChangeDetails(Change);
+		PublishHealthChangeSubject(this);
 	}
 	return Result.Error == Mod::API::EError::None ? Result.Value : Health;
 }
@@ -45,6 +58,16 @@ float AGameCharacter::ChangeHealth(float Delta)
 void AGameCharacter::PublishHealthChanged(float CurrentHealth)
 {
 	Mod::Generated::ExportTest::AGameCharacter_PublishHealthChanged::Publish(*this, HealthEvent, CurrentHealth);
+}
+
+void AGameCharacter::PublishHealthChangeDetails(const FGameHealthChange& Change)
+{
+	Mod::Generated::ExportTest::AGameCharacter_PublishHealthChangeDetails::Publish(*this, HealthDetailsEvent, Change);
+}
+
+void AGameCharacter::PublishHealthChangeSubject(const AGameCharacter* Subject)
+{
+	Mod::Generated::ExportTest::AGameCharacter_PublishHealthChangeSubject::Publish(*this, HealthSubjectEvent, Subject);
 }
 
 #endif

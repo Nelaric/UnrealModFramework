@@ -92,7 +92,7 @@ void WriteBlueprintDescriptors(std::ostream& Host, const ResolvedType& Type, con
 }
 } // namespace
 
-void HostBridgeWriter::WriteHost(const GenerationModel& Model, Files& Files)
+void HostBridgeWriter::WriteHost(const GenerationModel& Model, const std::string& ContractHash, Files& Files)
 {
 	for (const auto& Module : Model.Input.Modules)
 	{
@@ -185,10 +185,11 @@ void HostBridgeWriter::WriteHost(const GenerationModel& Model, Files& Files)
 				}
 				Host << "};\n";
 			}
-			Host << "    auto Target = Mod::API::FHostAccess::Enter(Binding, Mod::API::TBindingTraits<" << API.Owner
+			Host << "    Mod::API::FServiceInvocation Invocation;\n"
+			     << "    auto Target = Mod::API::FHostAccess::Enter(Binding, Mod::API::TBindingTraits<" << API.Owner
 			     << ">::TypeId(), Mod::API::EScope::" << API.Scope << ", "
 			     << (API.Permissions.empty() ? "TConstArrayView<FName>()" : "MakeArrayView(Permissions)") << ", "
-			     << (API.bConst && !API.bFullViewMember ? "false" : "true") << ");\n"
+			     << (API.bConst && !API.bFullViewMember ? "false" : "true") << ", &Invocation);\n"
 			     << "    if (!Target.IsSuccess()) { return " << CppSignature::ResultType(API)
 			     << "::Failure(Target.GetError()); }\n";
 			if (API.Blueprint)
@@ -303,7 +304,8 @@ void HostBridgeWriter::WriteHost(const GenerationModel& Model, Files& Files)
 		        "TModResult<TArray<Mod::API::FRegistration>>::Failure(Mod::API::EError::SignatureMismatch);\n"
 		     << "        return;\n    }\n    Result = " << Namespace << "::Register(Registry);\n}\n";
 		Host << "\nstatic const Mod::API::FGeneratedHostRegistration GeneratedHostRegistration(&UMF_ModHost_"
-		     << Module.Name << ");\n";
+		     << Module.Name << ", " << GeneratedSource::Wide(Module.Name) << ", " << GeneratedSource::Wide(ContractHash)
+		     << ");\n";
 		Files[Prefix + Module.Name + ".modhost.cpp"] = Host.str();
 		Files[Prefix + Module.Name + ".modverify.cpp"] = Verify.str();
 	}

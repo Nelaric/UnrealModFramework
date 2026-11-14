@@ -61,6 +61,14 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (DisplayName = "Mod 扩展清单", FilePathFilter = "json"))
 	FFilePath ExtensionsFile;
 
+	/// SDK contract used for extension signatures and interface validation.
+	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (FilePathFilter = "json"))
+	FFilePath SdkContractFile;
+
+	/// Independently compiled Win64 callback DLL to include in the package.
+	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (FilePathFilter = "dll"))
+	FFilePath NativeExtensionFile;
+
 	/// Target UAT platform.
 	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
 	          meta = (DisplayName = "目标平台", GetOptions = "GetTargetPlatforms"))

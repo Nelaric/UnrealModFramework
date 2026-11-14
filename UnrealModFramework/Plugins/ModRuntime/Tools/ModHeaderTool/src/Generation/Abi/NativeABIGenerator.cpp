@@ -274,7 +274,9 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 		}
 		Host << "    default: return " << Prefix << "_InternalError;\n    }\n}\n"
 		     << "extern \"C\" " << NativeCode::Upper(Owner) << "_API uint32_t UMF_ModHost_" << Owner
-		     << "_RetainABI(void) { return 1; }\n"
+		     << "_RetainABI(void)\n{\n    Mod::API::FNativeAccess::RegisterHostQuery(" << NativeCode::Literal(Owner)
+		     << ", " << NativeCode::Literal(Connection.at("querySymbol").get<std::string>()) << ", &"
+		     << Connection.at("querySymbol").get<std::string>() << ");\n    return 1;\n}\n"
 		     << "static uint32_t " << Macro << "_CALL NativeRelease(uint64_t Context, uint64_t Object)\n"
 		     << "{ return NativeStatus(Mod::API::FNativeAccess::Release(Context, Object).GetError()); }\n\n";
 		Client << "namespace\n{\nstd::atomic<" << ReleaseType << "> " << Owner << "_Release{nullptr};\n";
@@ -336,10 +338,11 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 				}
 				Host << "};\n";
 			}
-			Host << "    auto Object = Mod::API::FHostAccess::Enter(Binding.GetValue(), Mod::API::TBindingTraits<"
+			Host << "    Mod::API::FServiceInvocation Invocation;\n"
+			     << "    auto Object = Mod::API::FHostAccess::Enter(Binding.GetValue(), Mod::API::TBindingTraits<"
 			     << API.Owner << ">::TypeId(), Mod::API::EScope::" << API.Scope << ", "
 			     << (API.Permissions.empty() ? "TConstArrayView<FName>()" : "MakeArrayView(Permissions)") << ", "
-			     << (API.bConst && !API.bFullViewMember ? "false" : "true") << ");\n"
+			     << (API.bConst && !API.bFullViewMember ? "false" : "true") << ", &Invocation);\n"
 			     << "    if (!Object.IsSuccess()) { return NativeStatus(Object.GetError()); }\n";
 			for (std::size_t P = 0; P < API.Parameters.size(); ++P)
 			{
@@ -453,7 +456,8 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 	Header << "#pragma pack(pop)\n\n/** @brief Returns the compiled client ABI version. */\n"
 	       << Macro << "_CLIENT_API uint32_t " << Macro << "_CALL UMF_ModClient_" << Game
 	       << "(void);\n\n#ifdef __cplusplus\n}\n#endif\n";
-	if (std::any_of(Model.APIs.begin(), Model.APIs.end(), [](const auto& Api) { return Api.Blueprint.has_value(); }))
+	if (!Model.Extensions.empty() ||
+	    std::any_of(Model.APIs.begin(), Model.APIs.end(), [](const auto& Api) { return Api.Blueprint.has_value(); }))
 	{
 		Header << "\n#ifdef __cplusplus\n"
 		       << "/** @brief Connects each client table using host symbol addresses.\n"
@@ -503,6 +507,19 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 		}
 	}
 	std::set<std::string> ViewTypes = DirectResults;
+	for (const auto& [Id, Entry] : Model.Extensions)
+	{
+		if (Entry.PayloadKind == "Object")
+		{
+			for (const auto& [Name, Type] : Model.Types)
+			{
+				if (Type.Identity.Id == Entry.PayloadTypeId)
+				{
+					ViewTypes.insert(Name);
+				}
+			}
+		}
+	}
 	for (const auto& [Name, Type] : Model.Types)
 	{
 		if (Type.bFullView || !Type.BlueprintClass.empty())
@@ -664,12 +681,15 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 		}
 		SdkAPIs.push_back(std::move(Entry));
 	}
+	const bool bExtensionsOnly = Model.APIs.empty() && !Model.Extensions.empty() && !Lifecycle.is_null() &&
+	                             Lifecycle.value("schemaVersion", 0) == 2;
 	Json Sdk{{"format", "UMF.SdkContract"},
 	         {"schemaVersion", 2},
 	         {"adapterABI", "ContextHandlesV1"},
-	         {"status", Unsupported.empty() && !ViewTypes.empty() && ((bGetter && bMethod) || bTypedMethod)
-	                        ? "Complete"
-	                        : "Unsupported"},
+	         {"status",
+	          bExtensionsOnly || (Unsupported.empty() && !ViewTypes.empty() && ((bGetter && bMethod) || bTypedMethod))
+	              ? "Complete"
+	              : "Unsupported"},
 	         {"unresolvedTypeCount", 0},
 	         {"gameId", Game},
 	         {"contractHash", ContractHash},

@@ -1,9 +1,11 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModAPIHostSubsystem.h"
 #include "Engine/World.h"
+#include "ModAPIHost.h"
 #include "ModExtensionLibrary.h"
 #include "ModExtensionSubsystem.h"
 #include "ModInstance.h"
+#include "ModLoader.h"
 #include "Modules/ModuleManager.h"
 
 namespace Mod::API
@@ -28,6 +30,42 @@ class FModAPIModule final : public IModuleInterface
 public:
 	virtual void StartupModule() override
 	{
+		Mod::Loader::IModLoaderModule::Get().ValidateExtensions().BindLambda(
+		    [](const Mod::Loader::FMountedPackage& Package, FString& OutError)
+		    {
+			    TArray<Mod::Extension::FDefinition> Definitions;
+			    Mod::Extension::FGeneratedRegistration::DescribeAll(Definitions);
+			    for (const auto& Requirement : Package.Extensions.Contracts)
+			    {
+				    const auto* Definition =
+				        Definitions.FindByPredicate([&](const auto& Entry) { return Entry.Id == Requirement.Id; });
+				    if (!Definition || Definition->Signature != Requirement.Signature)
+				    {
+					    OutError = Package.ModId + TEXT(": incompatible extension ") + Requirement.Id.ToString();
+					    return false;
+				    }
+			    }
+			    if (!Package.Extensions.Provides.IsEmpty())
+			    {
+				    FRegistry Registry;
+				    auto Types = FGeneratedHostRegistration::RegisterAll(Registry);
+				    if (!Types.IsSuccess())
+				    {
+					    OutError = TEXT("Could not register the host service catalog.");
+					    return false;
+				    }
+				    for (const auto& Offer : Package.Extensions.Provides)
+				    {
+					    if (!Registry.HasServiceType(Offer.TypeId, *Offer.Signature))
+					    {
+						    OutError =
+						        Package.ModId + TEXT(": incompatible World service type ") + Offer.TypeId.ToString();
+						    return false;
+					    }
+				    }
+			    }
+			    return true;
+		    });
 		UModInstance::SetServiceBridge(
 		    [](UModInstance& Mod, FName Id, FName TypeId, const TCHAR* Signature, uint64& Context, uint64& Object)
 		    {
@@ -40,14 +78,13 @@ public:
 		        const TArray<FString>& After, float CancelValue, FModExtensionToken& Token)
 		     {
 			     auto* Extensions = FindExtensions(Mod);
-			     if (!Extensions || Stage > EModExtensionStage::Event ||
-			         Operation > EModExtensionOperation::ModifyResult)
+			     if (!Extensions || Stage > EModExtensionStage::On || Operation > EModExtensionOperation::Replace)
 			     {
 				     return static_cast<int32>(EError::InvalidArgument);
 			     }
 			     using namespace Mod::Extension;
 			     constexpr EOperation Operations[]{EOperation::None, EOperation::ModifyInputs, EOperation::Cancel,
-			                                       EOperation::ModifyResult};
+			                                       EOperation::ModifyResult, EOperation::Replace};
 			     const auto Result = Extensions->RegisterBlueprint(Mod, Id, Key, Function, static_cast<EStage>(Stage),
 			                                                       Operations[static_cast<uint8>(Operation)],
 			                                                       {Priority, Before, After}, CancelValue);
@@ -112,6 +149,10 @@ public:
 
 	virtual void ShutdownModule() override
 	{
+		if (auto* Loader = FModuleManager::GetModulePtr<Mod::Loader::IModLoaderModule>(TEXT("ModLoader")))
+		{
+			Loader->ValidateExtensions().Unbind();
+		}
 		UModInstance::SetServiceBridge(nullptr);
 		UModExtensionLibrary::SetBridge({});
 		UModInstance::SetHostAPIBridge(nullptr, nullptr, nullptr);

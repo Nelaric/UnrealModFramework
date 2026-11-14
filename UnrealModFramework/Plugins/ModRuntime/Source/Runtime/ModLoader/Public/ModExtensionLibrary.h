@@ -18,6 +18,8 @@ enum class EModExtensionStage : uint8
 	Post,
 	/// A read-only notification.
 	Event,
+	/// Replaces the original operation through a typed Mod function.
+	On,
 };
 
 /// A requested modification of one generated Hook value.
@@ -32,6 +34,8 @@ enum class EModExtensionOperation : uint8
 	Cancel,
 	/// Replaces the returned value.
 	ModifyResult,
+	/// Supplies the sole Core replacement.
+	Replace,
 };
 
 /// Identifies a registration owned by one mod and World.
@@ -48,6 +52,20 @@ struct FModExtensionToken
 	uint64 Serial = 0;
 };
 
+/// A read-only object borrowed for one extension callback.
+USTRUCT(BlueprintType)
+struct FModPayloadObject
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FName ViewId;
+	UPROPERTY()
+	uint64 Context = 0;
+	UPROPERTY()
+	uint64 Object = 0;
+};
+
 /// Registers generated extension callbacks for cooked Mod Blueprints.
 UCLASS(MinimalAPI)
 class UModExtensionLibrary final : public UBlueprintFunctionLibrary
@@ -60,7 +78,7 @@ public:
 	 * @param Id Stable generated Hook or Event ID.
 	 * @param Key Stable identifier within the owner and stage.
 	 * @param Function Name of the matching Blueprint function.
-	 * @param Stage Pre, Post, or Event.
+	 * @param Stage Pre, Post, On, or Event.
 	 * @param Operation The requested change or observation.
 	 * @param Priority Lower values run first when unconstrained.
 	 * @param Before Mod IDs this callback precedes.

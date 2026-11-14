@@ -168,6 +168,28 @@ public:
 		return StartupResults;
 	}
 
+	TSharedRef<const FPackageSessionLease> PinPackageSession() override
+	{
+		check(IsInGameThread());
+		return SessionLease.ToSharedRef();
+	}
+
+	bool IsRestartRequired() const override
+	{
+		check(IsInGameThread());
+		return bNeedsRestart;
+	}
+
+	void RequireRestart(const FString& Reason) override
+	{
+		check(IsInGameThread());
+		if (!bNeedsRestart)
+		{
+			UE_LOG(LogModLoader, Error, TEXT("Mod runtime requires restart: %s"), *Reason);
+		}
+		bNeedsRestart = true;
+	}
+
 #if WITH_EDITOR
 	bool IsPIEActive() const
 	{
@@ -203,7 +225,8 @@ private:
 				}
 				else
 				{
-					Commit(Prepared, Result);
+					auto Results = MakeArrayView(&Result, 1);
+					CommitPackages(MakeArrayView(&Prepared, 1), Results, Policy);
 				}
 			}
 		}
@@ -232,8 +255,6 @@ private:
 		TArray<FLoadResult> Results;
 		TArray<FPreparedPackage> Prepared;
 		Prepared.SetNum(Paths.Num());
-		TMap<FString, FString> Digests;
-		TSet<FString> ConflictingIds;
 		for (int32 Index = 0; Index < Paths.Num(); ++Index)
 		{
 			FLoadResult& Result = Results.AddDefaulted_GetRef();
@@ -242,40 +263,238 @@ private:
 			{
 				Fail(Result, ELoadError::TimedOut, TEXT("Mod package preparation timed out."));
 			}
-			else if (PrepareArchive(Policy, {Deadline}, Result, Prepared[Index]))
+			else
 			{
-				const FString& ModId = Result.Package.ModId;
-				const FString& Digest = Result.Package.ArchiveSha256;
-				const FString& First = Digests.FindOrAdd(ModId, Digest);
-				if (First != Digest)
-				{
-					ConflictingIds.Add(ModId);
-				}
+				PrepareArchive(Policy, {Deadline}, Result, Prepared[Index]);
 			}
 		}
-		const bool bPreparationTimedOut = FPlatformTime::Seconds() >= Deadline;
+		if (FPlatformTime::Seconds() >= Deadline)
+		{
+			for (FLoadResult& Result : Results)
+			{
+				if (Result.IsSuccess())
+				{
+					Fail(Result, ELoadError::TimedOut,
+					     TEXT("The scan timed out before the package set could be resolved."));
+				}
+			}
+			return Results;
+		}
+		FString PlanError;
+		CommitPackages(Prepared, Results, Policy, &PlanError);
+		if (!PlanError.IsEmpty())
+		{
+			FLoadResult& Plan = Results.AddDefaulted_GetRef();
+			Plan.Path = Directory;
+			Fail(Plan, ELoadError::PlanRejected, MoveTemp(PlanError));
+		}
+		return Results;
+	}
+
+	bool AdmitPackage(const FLoadPolicy& Policy, FLoadResult& Result)
+	{
+		FMountedPackage& Package = Result.Package;
+		if (Package.Extensions.bDeclared && !SessionLease.IsUnique() && !Mounted.Contains(Package.ModId))
+		{
+			bRescanWhenSessionEnds = true;
+			return Fail(Result, ELoadError::Busy, TEXT("Extension package changes take effect in the next session."));
+		}
+		const auto* Pin = Policy.Selection.Archives.Find(Package.ModId);
+		if ((Policy.Selection.Enabled && !Policy.Selection.Enabled->Contains(Package.ModId)) ||
+		    (Pin && !Package.ArchiveSha256.Equals(*Pin, ESearchCase::IgnoreCase)))
+		{
+			return Fail(Result, ELoadError::NotSelected, TEXT("The host did not select this archive."));
+		}
+		const auto* Grants = Policy.Grants.Find(Package.ModId);
+		TArray<FName> RequiredGrants = Package.Extensions.RequiredGrants.Array();
+		for (const FServiceOffer& Offer : Package.Extensions.Provides)
+		{
+			if (!Offer.Permission.IsNone())
+			{
+				RequiredGrants.AddUnique(Offer.Permission);
+			}
+		}
+		RequiredGrants.Sort(FNameLexicalLess());
+		for (const FName Grant : RequiredGrants)
+		{
+			if (!Grants || !Grants->Contains(Grant))
+			{
+				return Fail(Result, ELoadError::Untrusted, TEXT("Missing host grant: ") + Grant.ToString());
+			}
+		}
+		if (!Package.Extensions.Contracts.IsEmpty() || !Package.Extensions.Provides.IsEmpty())
+		{
+			FString Error;
+			if (!ValidateExtensions().IsBound() || !ValidateExtensions().Execute(Package, Error))
+			{
+				return Fail(Result, ELoadError::Incompatible,
+				            Error.IsEmpty() ? TEXT("No host extension catalog is available.") : MoveTemp(Error));
+			}
+		}
+		Package.GrantedCapabilities = Policy.Grants.FindRef(Package.ModId);
+		Package.bRequiredByHost = Policy.Selection.Required.Contains(Package.ModId);
+		const auto* Release = Policy.GameplayReleases.Find(Package.ArchiveSha256);
+		Package.GameplayRelease = Release ? *Release : FGameplayRelease{Package.ArchiveSha256, Package.ArchiveSha256};
+		return true;
+	}
+
+	void CommitPackages(TConstArrayView<FPreparedPackage> Prepared, TArrayView<FLoadResult> Results,
+	                    const FLoadPolicy& Policy, FString* OutPlanError = nullptr)
+	{
+		TArray<const FMountedPackage*> Candidates;
+		TArray<int32> Pending;
+		Candidates.Reserve(Mounted.Num() + Results.Num());
+		for (const auto& Entry : Mounted)
+		{
+			if (!Entry.Value.bUnloadNotified && !Entry.Value.bSourceRemoved)
+			{
+				Candidates.Add(&Entry.Value.Package);
+				Pending.Add(INDEX_NONE);
+			}
+		}
+
 		for (int32 Index = 0; Index < Results.Num(); ++Index)
 		{
-			FLoadResult& Result = Results[Index];
-			if (!Result.IsSuccess())
+			if (Results[Index].IsSuccess() && AdmitPackage(Policy, Results[Index]) &&
+			    CheckNativeCode(Prepared[Index].NativeCode, Results[Index]))
+			{
+				Candidates.Add(&Results[Index].Package);
+				Pending.Add(Index);
+			}
+		}
+
+		const auto Reject = [&](const FString& Detail)
+		{
+			if (OutPlanError)
+			{
+				*OutPlanError = Detail;
+			}
+			for (FLoadResult& Result : Results)
+			{
+				if (Result.IsSuccess())
+				{
+					Fail(Result, ELoadError::PlanRejected, Detail);
+				}
+			}
+		};
+		for (FLoadResult& Result : Results)
+		{
+			const auto* ArchivePin = Policy.Selection.Archives.Find(Result.Package.ModId);
+			const bool bExcluded =
+			    !Result.Package.ModId.IsEmpty() &&
+			    ((Policy.Selection.Enabled && !Policy.Selection.Enabled->Contains(Result.Package.ModId)) ||
+			     (ArchivePin && !Result.Package.ArchiveSha256.Equals(*ArchivePin, ESearchCase::IgnoreCase)));
+			if (!Result.IsSuccess() && Result.Error != ELoadError::NotSelected && Result.Error != ELoadError::Busy &&
+			    Result.Package.Extensions.bDeclared && !bExcluded)
+			{
+				Reject(TEXT("Extension archive rejected: ") + FPaths::GetCleanFilename(Result.Path) + TEXT(": ") +
+				       Result.Detail);
+				return;
+			}
+		}
+		TArray<int32> Order;
+		FString Error;
+		if (!ResolvePackageOrder(Candidates, Policy.Selection, Order, Error))
+		{
+			Reject(Error);
+			return;
+		}
+		TSet<FName> NativeNames;
+		for (int32 Candidate : Order)
+		{
+			const int32 Index = Pending[Candidate];
+			if (Index == INDEX_NONE)
 			{
 				continue;
 			}
-			if (bPreparationTimedOut)
+			for (const auto& Module : Prepared[Index].NativeCode.Modules)
 			{
-				Fail(Result, ELoadError::TimedOut,
-				     TEXT("The scan timed out before the package set could be resolved."));
-			}
-			else if (ConflictingIds.Contains(Result.Package.ModId))
-			{
-				Fail(Result, ELoadError::Conflict, TEXT("More than one eligible archive declares this mod ID."));
-			}
-			else
-			{
-				Commit(Prepared[Index], Result);
+				const FName Name(*Module.Name);
+				if (NativeNames.Contains(Name))
+				{
+					Reject(TEXT("Multiple selected archives declare UE module ") + Name.ToString());
+					return;
+				}
+				NativeNames.Add(Name);
 			}
 		}
-		return Results;
+		TMap<FString, int32> Committed;
+		TArray<FString> NewPackages;
+		bool bNewNativeCode = false;
+		for (int32 Candidate : Order)
+		{
+			const int32 Index = Pending[Candidate];
+			if (Index == INDEX_NONE)
+			{
+				continue;
+			}
+			FLoadResult& Result = Results[Index];
+			if (!Error.IsEmpty())
+			{
+				Fail(Result, ELoadError::PlanRejected, Error);
+				continue;
+			}
+			Commit(Prepared[Index], Result);
+			if (!Result.IsSuccess())
+			{
+				Error = Result.Package.ModId + TEXT(": ") + Result.Detail;
+				if (OutPlanError)
+				{
+					*OutPlanError = Error;
+				}
+				continue;
+			}
+			Committed.Add(Result.Package.ModId, Index);
+			if (!Result.bAlreadyMounted)
+			{
+				NewPackages.Add(Result.Package.ModId);
+				bNewNativeCode |= !Prepared[Index].NativeCode.Modules.IsEmpty();
+			}
+		}
+		if (!Error.IsEmpty())
+		{
+			if (bNewNativeCode)
+			{
+				RequireRestart(Error);
+			}
+			for (int32 Index = NewPackages.Num() - 1; Index >= 0; --Index)
+			{
+				const FString& Id = NewPackages[Index];
+				auto* Entry = Mounted.Find(Id);
+				Entry->bSourceRemoved = true;
+				FString ReleaseError;
+				if (!bNeedsRestart && Private::ReleaseModPackages(Entry->Package.PackageNames, ReleaseError) &&
+				    Unmount(*Entry))
+				{
+					Mounted.Remove(Id);
+				}
+				else if (!bNeedsRestart)
+				{
+					RequireRestart(ReleaseError);
+				}
+				Fail(Results[Committed.FindChecked(Id)],
+				     bNeedsRestart ? ELoadError::RestartRequired : ELoadError::PlanRejected, Error);
+			}
+		}
+		for (int32 Index = 0; Index < Results.Num(); ++Index)
+		{
+			auto& Result = Results[Index];
+			const int32* CommitIndex = Committed.Find(Result.Package.ModId);
+			if (Result.IsSuccess() && (!CommitIndex || *CommitIndex != Index))
+			{
+				const auto* Existing = Mounted.Find(Result.Package.ModId);
+				const bool bSame = Existing && Existing->Package.ArchiveSha256 == Result.Package.ArchiveSha256;
+				if (bSame)
+				{
+					Result.Package = Existing->Package;
+					Result.bAlreadyMounted = true;
+				}
+				else
+				{
+					Fail(Result, ELoadError::PlanRejected, Error);
+				}
+			}
+		}
 	}
 
 	void PublishCompletion(ELoadOrigin Origin, const FString& Path, TConstArrayView<FLoadResult> Results)
@@ -338,6 +557,11 @@ private:
 			DirectoryWatch.Stop();
 			return;
 		}
+		if (bRescanWhenSessionEnds && SessionLease.IsUnique())
+		{
+			bRescanWhenSessionEnds = false;
+			DirectoryWatch.RequestRescan();
+		}
 		Private::FWatchedChanges Changes = DirectoryWatch.Tick(
 		    [this]
 		    {
@@ -349,6 +573,7 @@ private:
 			    return Sources;
 		    });
 		TArray<FLoadResult> Results;
+		TArray<FPreparedPackage> Prepared;
 		{
 			TGuardValue<bool> Loading(bLoading, true);
 			UnloadRemovedSources(Changes.RemovedSources);
@@ -365,11 +590,12 @@ private:
 					       *FPaths::GetCleanFilename(Result.Path), *Result.Package.ModId);
 					continue;
 				}
-				if (Result.IsSuccess())
-				{
-					Commit(Item.Prepared, Result);
-				}
 				Results.Add(MoveTemp(Result));
+				Prepared.Add(MoveTemp(Item.Prepared));
+			}
+			if (!Results.IsEmpty())
+			{
+				CommitPackages(Prepared, Results, WatchPolicy);
 			}
 		}
 		if (!Results.IsEmpty())
@@ -426,6 +652,10 @@ private:
 
 	void ReleaseRemovedPackages()
 	{
+		if (bNeedsRestart)
+		{
+			return;
+		}
 		TGuardValue<bool> Loading(bLoading, true);
 		TArray<FString> Unloading;
 		for (auto& [ModId, Record] : Mounted)
@@ -627,7 +857,55 @@ private:
 		GConfig->GetString(ConfigSection, TEXT("BaseReleaseVersion"), Policy.BaseReleaseVersion, GGameIni);
 		GConfig->GetString(ConfigSection, TEXT("BaseRegistrySha256"), Policy.BaseRegistrySha256, GGameIni);
 		GConfig->GetArray(ConfigSection, TEXT("TrustedPackageSha256"), Policy.TrustedPackageSha256, GGameIni);
+		TArray<FString> Settings;
+		if (GConfig->GetArray(ConfigSection, TEXT("EnabledMods"), Settings, GGameIni) > 0 ||
+		    !GConfig->GetBoolOrDefault(ConfigSection, TEXT("bEnableAllMods"), true, GGameIni))
+		{
+			auto& Enabled = Policy.Selection.Enabled.Emplace();
+			for (const FString& Id : Settings)
+			{
+				Enabled.Add(Id.ToLower());
+			}
+		}
+		GConfig->GetArray(ConfigSection, TEXT("RequiredMods"), Settings, GGameIni);
+		for (const FString& Id : Settings)
+		{
+			Policy.Selection.Required.Add(Id.ToLower());
+		}
+		GConfig->GetArray(ConfigSection, TEXT("PinnedArchives"), Settings, GGameIni);
+		for (const FString& Setting : Settings)
+		{
+			FString ModId, Digest;
+			if (Setting.Split(TEXT("="), &ModId, &Digest))
+			{
+				Policy.Selection.Archives.Add(ModId.ToLower(), Digest.ToLower());
+			}
+		}
+		GConfig->GetArray(ConfigSection, TEXT("ExtensionGrants"), Settings, GGameIni);
+		for (const FString& Setting : Settings)
+		{
+			FString ModId, Grant;
+			if (Setting.Split(TEXT("="), &ModId, &Grant) && !ModId.IsEmpty() && !Grant.IsEmpty())
+			{
+				Policy.Grants.FindOrAdd(ModId.ToLower()).Add(FName(Grant));
+			}
+		}
+		GConfig->GetArray(ConfigSection, TEXT("GameplayReleases"), Settings, GGameIni);
+		for (const FString& Setting : Settings)
+		{
+			TArray<FString> Fields;
+			Setting.ParseIntoArray(Fields, TEXT("="), false);
+			if (Fields.Num() == 3)
+			{
+				Policy.GameplayReleases.Add(Fields[0].ToLower(), {Fields[1], Fields[2].ToLower()});
+			}
+			else
+			{
+				Policy.GameplayReleases.Add(FString(), FGameplayRelease());
+			}
+		}
 		GConfig->GetBool(ConfigSection, TEXT("bAllowNativeModules"), Policy.bAllowNativeModules, GGameIni);
+		GConfig->GetBool(ConfigSection, TEXT("bAllowNativeExtensions"), Policy.bAllowNativeExtensions, GGameIni);
 		bool bEnforcePackageAllowlist = false;
 		if (GConfig->GetBool(ConfigSection, TEXT("bEnforcePackageAllowlist"), bEnforcePackageAllowlist, GGameIni))
 		{
@@ -640,6 +918,19 @@ private:
 		        : FPaths::Combine(FPaths::ProjectDir(), TEXT("Binaries"), FPlatformProcess::GetBinariesSubdirectory());
 		const FString Directory = FPaths::ConvertRelativePathToFull(FPaths::Combine(BinariesDirectory, TEXT("Mods")));
 		TArray<FLoadResult> Results;
+		if ((!Policy.Selection.Required.IsEmpty() || !Policy.Selection.Archives.IsEmpty()) &&
+		    !IPlatformFile::GetPlatformPhysical().DirectoryExists(*Directory))
+		{
+			const TArray<const FMountedPackage*> Empty;
+			TArray<int32> Order;
+			FString Error;
+			if (!ResolvePackageOrder(Empty, Policy.Selection, Order, Error))
+			{
+				FLoadResult& Result = Results.AddDefaulted_GetRef();
+				Result.Path = Directory;
+				Fail(Result, ELoadError::PlanRejected, MoveTemp(Error));
+			}
+		}
 		FString Backend;
 		if (GConfig->GetString(ConfigSection, TEXT("Backend"), Backend, GGameIni))
 		{
@@ -659,6 +950,7 @@ private:
 			FLoadResult WatchResult;
 			if (CanLoad(Policy, WatchResult))
 			{
+				WatchPolicy = Policy;
 				DirectoryWatch.Start(Directory, Policy);
 			}
 		}
@@ -747,6 +1039,11 @@ private:
 
 	bool CleanupPIE()
 	{
+		if (bNeedsRestart)
+		{
+			bPIECleanupQueued = false;
+			return false;
+		}
 		if (bLoading || bBroadcasting)
 		{
 			return false;
@@ -801,6 +1098,9 @@ private:
 	FDelegateHandle WorldTearDownHandle;
 	FTSTicker::FDelegateHandle CompletionTicker;
 	Private::FModDirectoryWatch DirectoryWatch;
+	FLoadPolicy WatchPolicy;
+	TSharedPtr<const FPackageSessionLease> SessionLease = MakeShared<FPackageSessionLease>();
+	bool bRescanWhenSessionEnds = false;
 	TArray<FLoadResult> StartupResults;
 	TMap<FString, FMountedRecord> Mounted;
 	// Registered UClasses can keep native function pointers after their content is unmounted.

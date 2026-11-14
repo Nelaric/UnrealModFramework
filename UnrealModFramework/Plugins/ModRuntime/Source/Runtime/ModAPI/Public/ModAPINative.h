@@ -21,9 +21,10 @@ struct MODAPI_API FNativeAccess
 	/** @brief Issues opaque tokens for a host-approved caller.
 	 * @param Registry The caller's registry.
 	 * @param Caller The host-issued caller and permission grant.
+	 * @param bExposeScope Whether scope-provider access is available.
 	 * @return Tokens or a thread/lifetime failure.
 	 */
-	static TModResult<FNativeContext> Open(FRegistry& Registry, const FCaller& Caller);
+	static TModResult<FNativeContext> Open(FRegistry& Registry, const FCaller& Caller, bool bExposeScope = true);
 	/** @brief Releases a native context and every object token it owns.
 	 * @param Context A token issued by Open.
 	 * @return Success or a thread/lifetime failure.
@@ -58,5 +59,23 @@ struct MODAPI_API FNativeAccess
 	 * @return Success or a thread/lifetime failure.
 	 */
 	static TModResult<void> Release(uint64 Context, uint64 Object);
+
+public:
+	/// Makes a generated host API query address available to native Mods.
+	template <class T> static void RegisterHostQuery(const char* Module, const char* Symbol, T Query)
+	{
+		StoreHostQuery(UTF8_TO_TCHAR(Module), UTF8_TO_TCHAR(Symbol), reinterpret_cast<void*>(Query));
+	}
+	/// Looks up an exact registered query on the game thread.
+	static void* FindHostQuery(const TCHAR* Module, const TCHAR* Symbol);
+	/// Withdraws query addresses when the owning host registration goes away.
+	static void ForgetHostQueries(const TCHAR* Module);
+	/// Looks up a context-owned object for a native callback adapter.
+	static TModResult<FObjectBinding> ResolveAnyObject(uint64 Context, uint64 Object);
+	/// Reads an object while its callback lease is valid.
+	static TModResult<const UObject*> ReadPayloadObject(const FObjectBinding& Binding);
+
+private:
+	static void StoreHostQuery(const TCHAR* Module, const TCHAR* Symbol, void* Query);
 };
 } // namespace Mod::API

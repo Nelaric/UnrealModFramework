@@ -14,6 +14,6 @@ class SdkPluginGenerator
 {
 public:
 	/// Generates UE SDK source from supported, already resolved projections.
-	static void GenerateSdkPlugin(const SdkRequest& Request, const fs::path& Directory);
+	static void GenerateSdkPlugin(const SdkRequest& Request, const fs::path& Directory, bool bGameHost);
 };
 } // namespace Mod::SdkTool

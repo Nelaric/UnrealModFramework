@@ -4,6 +4,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Misc/ScopeExit.h"
+#include "ModAPIHostSubsystem.h"
 #include "ModExtensionWorld.h"
 #include "ModInstance.h"
 #include "UObject/UnrealType.h"
@@ -50,6 +51,10 @@ EOperation OperationsFor(EStage Stage)
 	{
 		return EOperation::ModifyInputs | EOperation::Cancel;
 	}
+	if (Stage == EStage::On)
+	{
+		return EOperation::Wrap | EOperation::Replace;
+	}
 	return Stage == EStage::Post ? EOperation::ModifyResult : EOperation::None;
 }
 
@@ -59,10 +64,11 @@ bool SupportsStage(const FDefinition& Definition, EStage Stage)
 	{
 		return Stage == EStage::Event;
 	}
-	return (Stage == EStage::Pre && Definition.bPre) || (Stage == EStage::Post && Definition.bPost);
+	return (Stage == EStage::Pre && Definition.bPre) || (Stage == EStage::Post && Definition.bPost) ||
+	       (Stage == EStage::On && Definition.bOn);
 }
 
-FHookResult RunCore(float Value, TFunctionRef<FCoreResult(float)> Core)
+template <class T> THookResult<T> RunCore(T Value, TFunctionRef<TCoreResult<T>(T)> Core)
 {
 	const auto Result = Core(Value);
 	return {Result.Value, Result.Error, false, Result.bCommitted};
@@ -78,6 +84,7 @@ void UModExtensionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 	State = MakeShared<FWorldState>(*GetWorld(), ++WorldGeneration);
+	TickHandle = FWorldDelegates::OnWorldTickStart.AddUObject(this, &UModExtensionSubsystem::OnWorldTickStart);
 	TearDownHandle = FWorldDelegates::OnWorldBeginTearDown.AddUObject(this, &UModExtensionSubsystem::OnWorldTearDown);
 	LevelRemovedHandle =
 	    FWorldDelegates::LevelRemovedFromWorld.AddUObject(this, &UModExtensionSubsystem::OnLevelRemoved);
@@ -86,6 +93,7 @@ void UModExtensionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 void UModExtensionSubsystem::Deinitialize()
 {
 	FWorldDelegates::OnWorldBeginTearDown.Remove(TearDownHandle);
+	FWorldDelegates::OnWorldTickStart.Remove(TickHandle);
 	FWorldDelegates::LevelRemovedFromWorld.Remove(LevelRemovedHandle);
 	Stop();
 	State.Reset();
@@ -97,6 +105,27 @@ void UModExtensionSubsystem::OnWorldTearDown(UWorld* World)
 	if (World == GetWorld())
 	{
 		Stop();
+	}
+}
+
+void UModExtensionSubsystem::OnWorldTickStart(UWorld* World, ELevelTick, float)
+{
+	if (World == GetWorld() && IsReady() && State->Depth == 0)
+	{
+		const auto WorldState = State;
+		FString Error;
+		if (Mod::Loader::IModLoaderModule::Get().IsRestartRequired())
+		{
+			WorldState->Fail(EError::BindingExpired, TEXT("The Mod runtime requires a process restart."), true);
+		}
+		else if (!WorldState->ValidateServices(Error))
+		{
+			WorldState->Fail(EError::BindingExpired, MoveTemp(Error));
+		}
+		else
+		{
+			WorldState->DispatchQueuedEvents();
+		}
 	}
 }
 
@@ -137,7 +166,17 @@ bool UModExtensionSubsystem::Prepare(FWorldPolicy Policy, FString& OutError)
 	};
 	if (!WorldState->Prepare(OutError))
 	{
-		WorldState->Phase = EState::Draining;
+		WorldState->Fail(EError::NotReady, OutError,
+		                 WorldState->bPatchCommitted || Mod::Loader::IModLoaderModule::Get().IsRestartRequired());
+		return false;
+	}
+	WorldState->GameplayDigest = WorldState->CalculateGameplayDigest();
+	if (WorldState->Phase != EState::Preparing || WorldState->GameplayDigest.IsEmpty() ||
+	    (!WorldState->Policy.ExpectedGameplayDigest.IsEmpty() &&
+	     WorldState->Policy.ExpectedGameplayDigest != WorldState->GameplayDigest))
+	{
+		OutError = TEXT("The prepared World does not match the expected gameplay plan.");
+		WorldState->Fail(EError::SignatureMismatch, OutError, WorldState->bPatchCommitted);
 		return false;
 	}
 	WorldState->Phase = EState::Ready;
@@ -151,6 +190,42 @@ bool UModExtensionSubsystem::Prepare(FWorldPolicy Policy, FString& OutError)
 bool UModExtensionSubsystem::IsReady() const
 {
 	return IsInGameThread() && State && State->Phase == EState::Ready && !GetWorld()->bIsTearingDown;
+}
+
+bool UModExtensionSubsystem::MatchesGameplayDigest(const FString& Digest) const
+{
+	return IsReady() && !Digest.IsEmpty() && State->GameplayDigest == Digest;
+}
+
+FString UModExtensionSubsystem::GetGameplayDigest() const
+{
+	return IsReady() ? State->GameplayDigest : FString();
+}
+
+TMap<FString, FString> UModExtensionSubsystem::GetPackageRevisions() const
+{
+	TMap<FString, FString> Revisions;
+	if (IsReady())
+	{
+		for (const auto& Mod : State->Mods)
+		{
+			Revisions.Add(Mod.Package->ModId, Mod.Package->ArchiveSha256);
+		}
+	}
+	return Revisions;
+}
+
+FWorldFailure UModExtensionSubsystem::GetFailure() const
+{
+	return IsInGameThread() && State ? State->Failure : FWorldFailure{};
+}
+
+void UModExtensionSubsystem::SetFailureHandler(FOnWorldFailure Handler)
+{
+	if (IsInGameThread() && State && State->Phase != EState::Closed)
+	{
+		State->FailureHandler = MoveTemp(Handler);
+	}
 }
 
 void UModExtensionSubsystem::Stop()
@@ -205,22 +280,76 @@ TModResult<FSubscription> UModExtensionSubsystem::Register(UModInstance& Owner, 
 	}
 	Handler.ModId = Owner.GetModId();
 	Handler.Owner = &Owner;
-	if (!State->Admit(Definition) || !State->HasGrant(Handler.ModId, Definition.Permission) ||
+	if (GetWorld()->bIsTearingDown || !State->HasGrant(Handler.ModId, Definition.Permission) ||
 	    (EnumHasAnyFlags(Handler.Operations, EOperation::ModifyInputs) &&
 	     !State->HasGrant(Handler.ModId, Definition.ModifyInputsPermission)) ||
 	    (EnumHasAnyFlags(Handler.Operations, EOperation::Cancel) &&
 	     !State->HasGrant(Handler.ModId, Definition.CancelPermission)) ||
 	    (EnumHasAnyFlags(Handler.Operations, EOperation::ModifyResult) &&
 	     !State->HasGrant(Handler.ModId, Definition.ModifyResultPermission)) ||
+	    (EnumHasAnyFlags(Handler.Operations, EOperation::Wrap) &&
+	     !State->HasGrant(Handler.ModId, FName(Definition.Id.ToString() + TEXT(".Wrap")))) ||
+	    (EnumHasAnyFlags(Handler.Operations, EOperation::Replace) &&
+	     !State->HasGrant(Handler.ModId, FName(Definition.Id.ToString() + TEXT(".Replace")))) ||
 	    !EnumHasAllFlags(Definition.Operations & OperationsFor(Handler.Stage), Handler.Operations))
 	{
 		return Fail(EError::PermissionDenied);
 	}
 	if (!SupportsStage(Definition, Handler.Stage) || Handler.Key.IsNone() || !ValidOrder(Handler) ||
 	    !FMath::IsFinite(Handler.CancelValue) || !IsModHandlerLive(Handler, GetWorld()) ||
-	    (Handler.Stage == EStage::Event ? !Handler.Event : !Handler.Hook))
+	    !Handler.UsesScalar(Definition.Scalar) || !Handler.HasCallback())
 	{
 		return Fail(EError::InvalidArgument);
+	}
+	if (Definition.Payload.IsObject())
+	{
+		if (!State->APIRegistry || Definition.Payload.TypeId.IsNone() || Definition.Payload.Signature.IsEmpty())
+		{
+			return Fail(EError::SignatureMismatch);
+		}
+		const FObjectKey OwnerKey(&Owner);
+		if (!State->Callers.Contains(OwnerKey))
+		{
+			auto Caller =
+			    State->APIRegistry->CreateCaller(State->APIScope, State->Policy.Grants.FindRef(Handler.ModId));
+			if (!Caller.IsSuccess())
+			{
+				return Fail(Caller.GetError());
+			}
+			State->Callers.Add(OwnerKey, MoveTemp(Caller.GetValue()));
+		}
+		Handler.Project = [WeakState = TWeakPtr<FWorldState>(State), OwnerKey, Type = Definition.Payload](
+		                      const FPayload& Value, const TSharedRef<const uint8>& Lifetime) -> TModResult<FPayload>
+		{
+			using FProjection = TModResult<FPayload>;
+			const auto World = WeakState.Pin();
+			if (!World || !World->APIHostOwner.IsValid() || World->APIHostOwner->GetRegistry() != World->APIRegistry ||
+			    !World->Callers.Contains(OwnerKey))
+			{
+				return FProjection::Failure(EError::BindingExpired);
+			}
+			FPayload Projected = FPayload::FromObject(Value.GetObject());
+			if (const auto* Object = Value.GetObject())
+			{
+				auto Binding = World->APIRegistry->BindPayload(
+				    World->Callers.FindChecked(OwnerKey), *const_cast<UObject*>(Object), Type.TypeId, *Type.Signature);
+				if (!Binding.IsSuccess())
+				{
+					return FProjection::Failure(Binding.GetError());
+				}
+				auto Borrow = Binding.GetValue().Borrow(Lifetime);
+				if (!Borrow.IsSuccess())
+				{
+					return FProjection::Failure(Borrow.GetError());
+				}
+				Projected.SetView(MoveTemp(Borrow.GetValue()));
+			}
+			else if (!Value.IsNullObject())
+			{
+				return FProjection::Failure(EError::ObjectUnavailable);
+			}
+			return FProjection::Success(MoveTemp(Projected));
+		};
 	}
 	const auto Added = (*Found)->Add(MoveTemp(Handler));
 	if (!Added.IsSuccess())
@@ -262,6 +391,26 @@ void UModExtensionSubsystem::Unregister(UModInstance& Owner, const FSubscription
 	}
 }
 
+ESubscriptionStatus UModExtensionSubsystem::GetSubscriptionStatus(const UModInstance& Owner,
+                                                                  const FSubscription& Token) const
+{
+	if (!IsInGameThread() || !State || State->Generation != Token.Generation || !State->Owns(Owner))
+	{
+		return ESubscriptionStatus::Inactive;
+	}
+	const auto* Channel = State->Channels.Find(Token.Id);
+	if (!Channel)
+	{
+		return ESubscriptionStatus::Inactive;
+	}
+	if ((*Channel)->Contains(Owner, Token.Serial, true))
+	{
+		return ESubscriptionStatus::Active;
+	}
+	return (*Channel)->Contains(Owner, Token.Serial, false) ? ESubscriptionStatus::Pending
+	                                                        : ESubscriptionStatus::Inactive;
+}
+
 TModResult<void> UModExtensionSubsystem::Provide(UModInstance& Owner, const FService& Service, UObject* Instance)
 {
 	using FResult = TModResult<void>;
@@ -289,6 +438,18 @@ TModResult<void> UModExtensionSubsystem::Provide(UModInstance& Owner, const FSer
 	{
 		return Fail(EError::InvalidArgument);
 	}
+	const auto& Manifest = State->Mods[State->Instances.FindChecked(FObjectKey(&Owner))].Package->Extensions;
+	if (Manifest.SchemaVersion >= 2 && !Manifest.Provides.ContainsByPredicate(
+	                                       [&Service](const auto& Offer)
+	                                       {
+		                                       return Offer.Id == Service.Id && Offer.TypeId == Service.TypeId &&
+		                                              Offer.Signature == Service.Signature &&
+		                                              Offer.Version == Service.Version &&
+		                                              Offer.Permission == Service.Permission && Offer.Patch.IsNone();
+	                                       }))
+	{
+		return Fail(EError::SignatureMismatch);
+	}
 	if (!State->HasGrant(ModId, Service.Permission))
 	{
 		return Fail(EError::PermissionDenied);
@@ -297,8 +458,8 @@ TModResult<void> UModExtensionSubsystem::Provide(UModInstance& Owner, const FSer
 	{
 		return Fail(EError::Conflict);
 	}
-	auto Registration =
-	    State->APIRegistry->RegisterService(Service.Id, Service.TypeId, *Service.Signature, State->APIScope, Instance);
+	auto Registration = State->APIRegistry->RegisterService(Service.Id, Service.TypeId, *Service.Signature,
+	                                                        State->APIScope, Instance, State);
 	if (!Registration.IsSuccess())
 	{
 		return Fail(Registration.GetError());
@@ -318,9 +479,15 @@ void UModExtensionSubsystem::Withdraw(UModInstance& Owner, FName Id)
 	{
 		return;
 	}
-	if (const auto* Entry = State->Services.Find(Id); Entry && Entry->Owner.Get() == &Owner)
+	const auto WorldState = State;
+	if (const auto* Entry = WorldState->Services.Find(Id); Entry && Entry->Owner.Get() == &Owner)
 	{
-		State->Services.Remove(Id);
+		WorldState->Services.Remove(Id);
+		FString Error;
+		if (WorldState->Phase == EState::Ready && !WorldState->ValidateServices(Error))
+		{
+			WorldState->Fail(EError::BindingExpired, MoveTemp(Error));
+		}
 	}
 }
 
@@ -332,7 +499,9 @@ TModResult<Mod::API::FObjectBinding> UModExtensionSubsystem::Bind(UModInstance& 
 	{
 		return FResult::Failure(EError::WrongThread);
 	}
-	if (!State || !State->APIRegistry || !Signature || (State->Phase != EState::Ready && !State->bBindingServices) ||
+	if (!State || !State->APIRegistry || !Signature ||
+	    (State->Phase != EState::Ready && !State->bBindingServices &&
+	     (!State->CleanupOwner || State->CleanupOwner.GetValue() != FObjectKey(&Consumer))) ||
 	    !State->Owns(Consumer))
 	{
 		return FResult::Failure(EError::NotReady);
@@ -340,7 +509,8 @@ TModResult<Mod::API::FObjectBinding> UModExtensionSubsystem::Bind(UModInstance& 
 	const auto& Package = *State->Mods[State->Instances.FindChecked(FObjectKey(&Consumer))].Package;
 	const auto* Need = Package.Extensions.Services.FindByPredicate([Id](const auto& Item) { return Item.Id == Id; });
 	const auto* Entry = State->Services.Find(Id);
-	if (!Need || !Entry || Entry->ModId != Need->Provider || !Entry->Owner.IsValid())
+	if (!Need || !Entry || Entry->ModId != Need->Provider ||
+	    (Entry->PatchIndex == INDEX_NONE && !Entry->Owner.IsValid()))
 	{
 		return FResult::Failure(EError::NotRegistered);
 	}
@@ -400,18 +570,27 @@ FHookResult UModExtensionSubsystem::Invoke(UObject& Source, FName Id, FEndpoint&
                                            TFunctionRef<bool(float)> ValidateInput,
                                            TFunctionRef<bool(float)> ValidateResult)
 {
+	return InvokeScalar<float>(Source, Id, Endpoint, Value, Core, ValidateInput, ValidateResult);
+}
+
+template <class T>
+THookResult<T> UModExtensionSubsystem::InvokeScalar(UObject& Source, FName Id, FEndpoint& Endpoint, T Value,
+                                                    TFunctionRef<TCoreResult<T>(T)> Core,
+                                                    TFunctionRef<bool(T)> ValidateInput,
+                                                    TFunctionRef<bool(T)> ValidateResult)
+{
 	if (!IsInGameThread())
 	{
-		return {0, EError::WrongThread};
+		return {T{}, EError::WrongThread};
 	}
 	if (!IsValid(&Source))
 	{
-		return {0, EError::ObjectUnavailable};
+		return {T{}, EError::ObjectUnavailable};
 	}
 	UWorld* World = Source.GetWorld();
 	if (World && World->bIsTearingDown)
 	{
-		return {0, EError::BindingExpired};
+		return {T{}, EError::BindingExpired};
 	}
 	auto WorldState = FindState(World, Id, Endpoint);
 	if (!WorldState)
@@ -421,7 +600,7 @@ FHookResult UModExtensionSubsystem::Invoke(UObject& Source, FName Id, FEndpoint&
 	}
 	if (WorldState && (WorldState->Phase == EState::Draining || WorldState->Phase == EState::Closed))
 	{
-		return {0, EError::BindingExpired};
+		return {T{}, EError::BindingExpired};
 	}
 	if (!WorldState || WorldState->Phase == EState::New)
 	{
@@ -429,7 +608,7 @@ FHookResult UModExtensionSubsystem::Invoke(UObject& Source, FName Id, FEndpoint&
 	}
 	if (WorldState->Phase != EState::Ready)
 	{
-		return {0, EError::NotReady};
+		return {T{}, EError::NotReady};
 	}
 	auto Channel = Endpoint.Channel.Pin();
 	if (!Channel)
@@ -439,7 +618,11 @@ FHookResult UModExtensionSubsystem::Invoke(UObject& Source, FName Id, FEndpoint&
 	}
 	if (!Channel || Channel->GetDefinition().Kind != EKind::Hook)
 	{
-		return {0, EError::NotRegistered};
+		return {T{}, EError::NotRegistered};
+	}
+	if (Channel->GetDefinition().Scalar != ScalarType<T>())
+	{
+		return {T{}, EError::SignatureMismatch};
 	}
 	if (!WorldState->Admit(Channel->GetDefinition()))
 	{
@@ -450,10 +633,26 @@ FHookResult UModExtensionSubsystem::Invoke(UObject& Source, FName Id, FEndpoint&
 	{
 		WorldState->FinishDispatch();
 	};
-	return Channel->Invoke(Source, Value, Core, ValidateInput, ValidateResult);
+	if constexpr (std::is_same_v<T, FPayload>)
+	{
+		const auto& Payload = Channel->GetDefinition().Payload;
+		if (!Payload.Matches(Value, World))
+		{
+			return {T{}, EError::SignatureMismatch};
+		}
+		return Channel->Invoke<T>(
+		    Source, Value, Core, [&](const T& Input) { return Payload.Matches(Input, World) && ValidateInput(Input); },
+		    [&](const T& Result) { return Payload.Matches(Result, World) && ValidateResult(Result); });
+	}
+	return Channel->Invoke<T>(Source, Value, Core, ValidateInput, ValidateResult);
 }
 
 EError UModExtensionSubsystem::Emit(UObject& Source, FName Id, FEndpoint& Endpoint, float Value)
+{
+	return EmitScalar<float>(Source, Id, Endpoint, Value);
+}
+
+template <class T> EError UModExtensionSubsystem::EmitScalar(UObject& Source, FName Id, FEndpoint& Endpoint, T Value)
 {
 	if (!IsInGameThread())
 	{
@@ -481,6 +680,10 @@ EError UModExtensionSubsystem::Emit(UObject& Source, FName Id, FEndpoint& Endpoi
 		return EError::NotRegistered;
 	}
 	const auto& Definition = Channel->GetDefinition();
+	if (Definition.Scalar != ScalarType<T>())
+	{
+		return EError::SignatureMismatch;
+	}
 	const auto* Mod = Cast<UModInstance>(&Source);
 	if (!WorldState->Admit(Definition) ||
 	    (Mod && (!WorldState->Owns(*Mod) || Definition.PublishPermission.IsNone() ||
@@ -488,9 +691,43 @@ EError UModExtensionSubsystem::Emit(UObject& Source, FName Id, FEndpoint& Endpoi
 	{
 		return EError::PermissionDenied;
 	}
-	if (!FMath::IsFinite(Value))
+	if constexpr (std::is_same_v<T, FPayload>)
 	{
-		return EError::InvalidArgument;
+		if (!Definition.Payload.Matches(Value, World))
+		{
+			return EError::SignatureMismatch;
+		}
+	}
+	else if constexpr (std::is_floating_point_v<T>)
+	{
+		if (!FMath::IsFinite(Value))
+		{
+			return EError::InvalidArgument;
+		}
+	}
+	if (Definition.bQueued)
+	{
+		constexpr int32 Capacity = 256;
+		if (WorldState->QueuedEvents.Num() >= Capacity)
+		{
+			return EError::QueueFull;
+		}
+		WorldState->QueuedEvents.Add(
+		    [Channel, WeakSource = TWeakObjectPtr<UObject>(&Source), Value]()
+		    {
+			    if (auto* LiveSource = WeakSource.Get())
+			    {
+				    if constexpr (std::is_same_v<T, FPayload>)
+				    {
+					    if (!Channel->GetDefinition().Payload.Matches(Value, LiveSource->GetWorld()))
+					    {
+						    return;
+					    }
+				    }
+				    Channel->Emit(*LiveSource, Value);
+			    }
+		    });
+		return EError::None;
 	}
 	++WorldState->Depth;
 	ON_SCOPE_EXIT
@@ -499,3 +736,18 @@ EError UModExtensionSubsystem::Emit(UObject& Source, FName Id, FEndpoint& Endpoi
 	};
 	return Channel->Emit(Source, Value);
 }
+
+#define UMF_INSTANTIATE_EXTENSION(Scalar)                                                                              \
+	template MODAPI_API THookResult<Scalar> UModExtensionSubsystem::InvokeScalar(                                      \
+	    UObject&, FName, FEndpoint&, Scalar, TFunctionRef<TCoreResult<Scalar>(Scalar)>, TFunctionRef<bool(Scalar)>,    \
+	    TFunctionRef<bool(Scalar)>);                                                                                   \
+	template MODAPI_API EError UModExtensionSubsystem::EmitScalar(UObject&, FName, FEndpoint&, Scalar)
+
+UMF_INSTANTIATE_EXTENSION(float);
+UMF_INSTANTIATE_EXTENSION(double);
+UMF_INSTANTIATE_EXTENSION(int32);
+UMF_INSTANTIATE_EXTENSION(int64);
+UMF_INSTANTIATE_EXTENSION(bool);
+UMF_INSTANTIATE_EXTENSION(uint8);
+UMF_INSTANTIATE_EXTENSION(FPayload);
+#undef UMF_INSTANTIATE_EXTENSION
