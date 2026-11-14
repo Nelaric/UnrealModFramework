@@ -20,10 +20,28 @@
       "type": "object",
       "required": ["schemaVersion", "module", "resource", "resourceHash"],
       "properties": {
-        "schemaVersion": { "const": 1 },
+        "schemaVersion": { "enum": [1, 2] },
         "module": { "const": "ModLoader" },
         "resource": { "const": "Contract/ModLifecycle.json" },
         "resourceHash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "extensions": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "version", "scope", "thread", "signatureHash", "inputType", "resultType"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^(hook|event)/[a-z0-9_./-]+$" },
+          "kind": { "enum": ["Hook", "Event"] },
+          "version": { "type": "string" },
+          "scope": { "const": "World" },
+          "thread": { "const": "GameThread" },
+          "signatureHash": { "$ref": "#/$defs/hash" },
+          "inputType": { "const": "float" },
+          "resultType": { "enum": ["float", "void"] }
+        }
       }
     },
     "types": {
@@ -34,7 +52,8 @@
           "id": { "type": "string", "minLength": 1 },
           "kind": { "const": "ObjectReference" },
           "cppName": { "type": "string", "pattern": "^F[A-Za-z0-9_]+$" },
-          "view": { "const": "Full" }
+          "view": { "const": "Full" },
+          "serviceSignature": { "$ref": "#/$defs/hash" }
         }
       }
     },

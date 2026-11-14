@@ -21,6 +21,7 @@ struct FModPackageRequest
 	FString OutputFile;
 	FString HostTargetReceipt;
 	FString HostEngineDirectory;
+	FString ExtensionsFile;
 	bool bPackageProject = false;
 	bool bUseIoStore = true;
 	bool bIncludeEngineContent = false;

@@ -54,7 +54,7 @@ Integers are explicitly unsigned little endian; C++ struct memory is never seria
 | Header offset | Bytes | Field |
 | --- | --- | --- |
 | 0 | 8 | `UMFMOD` followed by two zero bytes |
-| 8 | 2 | Major version `1` for content and `2` for native code with content |
+| 8 | 2 | Major version `1` for content, `2` for native code with content, or `3` for packages with an extension manifest |
 | 10 | 2 | Minor version `0` |
 | 12 | 4 | Header size `64` |
 | 16 | 8 | Manifest offset `64` |
@@ -63,6 +63,16 @@ Integers are explicitly unsigned little endian; C++ struct memory is never seria
 | 40 | 8 | Index length |
 | 48 | 8 | Total file length |
 | 56 | 8 | Flags, always `0` |
+
+Select **Mod 扩展清单** in the packaging settings or set `extensionsFile` in the build request. Packages with an extension manifest use archive version 3. The extension manifest uses `schemaVersion: 1` and accepts the following optional arrays.
+
+- `contracts` entries carry a generated Hook/Event `id` and the SDK's `signatureHash` in the `signature` field.
+- `dependencies` entries carry `modId`, optional inclusive `minimum` and exclusive `before` versions, and optional `required` (true by default).
+- `services` entries carry `id`, the provider's Mod ID as `provider`, the generated `typeId` and calling table `signature`, and the same optional version range and requirement flag.
+- `content` entries carry `slot`, `id`, `action` (`provide`, `replace` or `disable`) and optional `priority`. Provide and replace require an `asset` soft object path within the mod package.
+- `patches` entries carry `id`, `anchor`, and `actorClass`. Optional fields are `conflictKey`, `required`, and an `after` list of Patch IDs on the same anchor.
+
+In a Mod instance's **On Mod Register** event, call **Register Mod Extension** with the generated ID. An observer takes one Float. An input or result modifier takes and returns one Float. A cancellation callback takes a Float and returns a Bool, and the registration supplies the complete cancellation value. Use the returned token to unsubscribe. A provider registers its World service during **On Mod Register** with **Provide Mod Service** or the C++ `Provide` method. Supply a service object implementing the host's generated World interface, the interface `id` and `serviceSignature` from the SDK type contract, and the provided service version. The consumer's **On Mod Bind** event can acquire its typed reference with the SDK's generated **Acquire Service** node.
 
 `UMF.ModPackage` matches the header's major version and records Mod identity, version, plugin/package root, build options, and base release fingerprints. Index `entries` are ordered by case-sensitive path and contain `path`, `offset`, `size`, `storage: "None"`, and exact payload `sha256`. Absolute paths, traversal, and case-insensitive duplicates are rejected.
 

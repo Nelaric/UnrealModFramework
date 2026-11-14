@@ -1,5 +1,6 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "DeclarationAnalyzer.h"
+#include "ModHeaderTool/src/Analysis/ExtensionBinding.h"
 
 #include "ModHeaderTool/src/Analysis/AnalysisArguments.h"
 #include "ModHeaderTool/src/Analysis/ClangLibrary.h"
@@ -230,10 +231,6 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 						continue;
 					}
 					auto& Macro = *Invocation;
-					if (Macro.Name != "MOD_EXPORT_API")
-					{
-						CursorSource::Fail(Macro, "code generation currently supports API declarations only.");
-					}
 					Macro.Fields = MetadataParser::ParseMetadata(Macro, Source.Text);
 					const auto Diagnostics = MetadataValidator::ValidateMetadata(Macro, &Options, Source.Text);
 					if (!Diagnostics.empty())
@@ -261,6 +258,11 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 					if (Candidate.kind != CXCursor_CXXMethod)
 					{
 						CursorSource::Fail(Macro, "active marker has no supported member declaration.");
+					}
+					if (Macro.Name != "MOD_EXPORT_API")
+					{
+						AddExtension(Model, BindExtension(Model, Clang, Source, std::move(Macro), Candidate));
+						continue;
 					}
 					API API;
 					try

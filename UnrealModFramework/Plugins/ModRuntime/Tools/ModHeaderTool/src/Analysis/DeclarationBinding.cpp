@@ -42,9 +42,17 @@ std::optional<bool> ReadAnnotations(const ExportMacro& Macro, const std::string&
 {
 	Detail::Lexer Lexer(Macro.File, Text, Begin, false);
 	bool bReflected = false;
+	bool bExportSpecifier = false;
 	for (auto Token = Lexer.Read(); Token.Begin < End; Token = Lexer.Read())
 	{
-		if (Token.Kind != Detail::Token::EKind::Identifier || Token.Text != "UFUNCTION")
+		if (!bExportSpecifier && Token.Kind == Detail::Token::EKind::Identifier && Token.Text.ends_with("_API") &&
+		    Token.Text.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") == std::string_view::npos)
+		{
+			// Monolithic targets expand module export specifiers to nothing.
+			bExportSpecifier = true;
+			continue;
+		}
+		if (bExportSpecifier || Token.Kind != Detail::Token::EKind::Identifier || Token.Text != "UFUNCTION")
 		{
 			return std::nullopt;
 		}

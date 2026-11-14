@@ -13,7 +13,7 @@ class LifecycleExport
 {
 public:
 	static constexpr const char* LifecyclePath = "Contract/ModLifecycle.json";
-	static constexpr const char* LifecycleClasses[] = {"ModInstance", "ModInstanceSubSystem"};
+	static constexpr const char* LifecycleClasses[] = {"ModInstance", "ModInstanceSubSystem", "ModExtensionLibrary"};
 	static std::string ExportLifecycleDeclarations(const fs::path& Source);
 };
 } // namespace Mod::HeaderTool

@@ -37,4 +37,24 @@ struct FExportedAPI
  * @return Declarations owned by that asset.
  */
 BLUEPRINTINTEGRATION_API TArray<FExportedAPI> ReadAPIs(const UBlueprint& Blueprint);
+
+/// A saved Blueprint extension declaration and its explicit point usage.
+struct FExportedExtension
+{
+	FGuid Guid;
+	FName Name;
+	FString Version;
+	FName Permission;
+	bool bHook = false;
+	bool bAuthorityOnly = true;
+	bool bSupportedPayload = false;
+	bool bHasPoint = false;
+	FString Scope;
+	FString PublishRule;
+	TArray<FString> Stages;
+	TArray<FString> Operations;
+};
+
+/// Reads a Blueprint's declared Hook and Event records after compiling it.
+BLUEPRINTINTEGRATION_API TArray<FExportedExtension> ReadExtensions(const UBlueprint& Blueprint);
 } // namespace Mod::BlueprintIntegration

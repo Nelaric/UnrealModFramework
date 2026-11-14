@@ -240,6 +240,78 @@ bool ReadSize(const FJsonObject& Object, const TCHAR* Key, uint64& OutSize)
 	return static_cast<double>(OutSize) == Number;
 }
 
+bool ReadExtensionManifest(const FModPackageRequest& Request, const TMap<FName, FString>& Migrated,
+                           TSharedPtr<FJsonObject>& Extensions)
+{
+	if (Request.ExtensionsFile.IsEmpty())
+	{
+		return true;
+	}
+	double Version = 0;
+	TUniquePtr<FArchive> File(IFileManager::Get().CreateFileReader(*Request.ExtensionsFile));
+	if (!File || File->TotalSize() <= 0 || File->TotalSize() > MaxManifestSize ||
+	    !ReadJson(*File, File->TotalSize(), Extensions) ||
+	    !Extensions->TryGetNumberField(TEXT("schemaVersion"), Version) || Version != 1)
+	{
+		return false;
+	}
+	for (const auto& Field : Extensions->Values)
+	{
+		if (Field.Key == TEXT("schemaVersion"))
+		{
+			continue;
+		}
+		const bool bContent = Field.Key == TEXT("content");
+		const bool bPatch = Field.Key == TEXT("patches");
+		const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
+		if ((!bContent && !bPatch && Field.Key != TEXT("dependencies") && Field.Key != TEXT("services") &&
+		     Field.Key != TEXT("contracts")) ||
+		    !Field.Value->TryGetArray(Entries) || Entries->Num() > 256)
+		{
+			return false;
+		}
+		for (const auto& Value : *Entries)
+		{
+			const TSharedPtr<FJsonObject>* Entry = nullptr;
+			if (!Value->TryGetObject(Entry))
+			{
+				return false;
+			}
+			if (!bContent && !bPatch)
+			{
+				continue;
+			}
+			const TCHAR* Key = bContent ? TEXT("asset") : TEXT("actorClass");
+			FString Path, Action;
+			if (bContent && (*Entry)->TryGetStringField(TEXT("action"), Action) && Action == TEXT("disable"))
+			{
+				if ((*Entry)->HasField(Key))
+				{
+					return false;
+				}
+				continue;
+			}
+			if (!(*Entry)->TryGetStringField(Key, Path) || !FPackageName::IsValidObjectPath(Path) ||
+			    Path.Contains(TEXT(":")))
+			{
+				return false;
+			}
+			const FString Package = FPackageName::ObjectPathToPackageName(Path);
+			if (const FString* Moved = Migrated.Find(FName(Package)))
+			{
+				Path = *Moved + Path.Mid(Package.Len());
+				(*Entry)->SetStringField(Key, Path);
+			}
+			if (!Path.StartsWith(TEXT("/") + Request.PluginName + TEXT("/"), ESearchCase::CaseSensitive) ||
+			    (bPatch && !Path.EndsWith(TEXT("_C"))))
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 bool VerifyArchive(const FString& Path, uint16 Version)
 {
 	TUniquePtr<FArchive> File(IFileManager::Get().CreateFileReader(*Path));
@@ -425,6 +497,10 @@ TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
 	{
 		Json->SetStringField(TEXT("pluginName"), PluginName);
 	}
+	if (!ExtensionsFile.IsEmpty())
+	{
+		Json->SetStringField(TEXT("extensionsFile"), ExtensionsFile);
+	}
 	Json->SetStringField(TEXT("modVersion"), ModVersion);
 	Json->SetStringField(TEXT("gameId"), GameId);
 	Json->SetStringField(TEXT("baseReleaseVersion"), BaseReleaseVersion);
@@ -450,6 +526,8 @@ bool FModPackageRequest::FromSettings(const UModPackagingSettings& Settings, FMo
 		                                              ? FPaths::ConvertRelativePathToFull(FPaths::EngineDir())
 		                                              : Settings.HostEngineDirectory.Path);
 	}
+	OutRequest.ExtensionsFile =
+	    Settings.ExtensionsFile.FilePath.IsEmpty() ? FString() : FullPath(Settings.ExtensionsFile.FilePath);
 	OutRequest.ModVersion = Settings.ModVersion;
 	OutRequest.GameId = Settings.GameId;
 	OutRequest.BaseReleaseVersion = Settings.BaseReleaseVersion;
@@ -488,6 +566,16 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 	{
 		OutError = LOCTEXT("BadRequest", "Mod 打包请求损坏或版本不受支持。");
 		return false;
+	}
+	if (Json->HasField(TEXT("extensionsFile")))
+	{
+		if (!Json->TryGetStringField(TEXT("extensionsFile"), OutRequest.ExtensionsFile) ||
+		    OutRequest.ExtensionsFile.IsEmpty())
+		{
+			OutError = LOCTEXT("InvalidExtensionPath", "Mod 扩展清单路径无效。");
+			return false;
+		}
+		OutRequest.ExtensionsFile = FullPath(OutRequest.ExtensionsFile);
 	}
 	OutRequest.bPackageProject = Version == 2;
 	if (OutRequest.bPackageProject)
@@ -645,6 +733,12 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 		return Fail(StageError);
 	}
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(Request.PluginName);
+	TSharedPtr<FJsonObject> Extensions;
+	if (!ReadExtensionManifest(Request, ProjectStage.MigratedPackages, Extensions))
+	{
+		return Fail(TEXT(
+		    "Invalid extension manifest or content path. Expected schemaVersion 1 and assets in the mod package."));
+	}
 	const FString CookProject =
 	    Request.bPackageProject ? ProjectStage.CookProject : FullPath(FPaths::GetProjectFilePath());
 	const FString CookPlugin = Request.bPackageProject ? ProjectStage.CookPlugin : Plugin->GetDescriptorFileName();
@@ -777,7 +871,11 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	Paths.Sort([](const FString& Left, const FString& Right)
 	           { return Left.Compare(Right, ESearchCase::CaseSensitive) < 0; });
 	TSharedRef<FJsonObject> Manifest = MakeShared<FJsonObject>();
-	const uint16 ArchiveVersion = Request.bPackageProject ? 2 : 1;
+	const uint16 ArchiveVersion = Extensions ? 3 : Request.bPackageProject ? 2 : 1;
+	if (Extensions)
+	{
+		Manifest->SetObjectField(TEXT("extensions"), Extensions);
+	}
 	Manifest->SetStringField(TEXT("format"), TEXT("UMF.ModPackage"));
 	Manifest->SetNumberField(TEXT("schemaVersion"), ArchiveVersion);
 	Manifest->SetStringField(TEXT("modId"), Request.PluginName.ToLower());

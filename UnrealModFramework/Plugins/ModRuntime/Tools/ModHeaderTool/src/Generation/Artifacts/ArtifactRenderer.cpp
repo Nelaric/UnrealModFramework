@@ -3,6 +3,7 @@
 
 #include "ModHeaderTool/src/Generation/Abi/NativeABIGenerator.h"
 #include "ModHeaderTool/src/Generation/Artifacts/GeneratedSource.h"
+#include "ModHeaderTool/src/Generation/Artifacts/ExtensionWriter.h"
 #include "ModHeaderTool/src/Generation/Artifacts/HostBridgeWriter.h"
 #include "ModHeaderTool/src/Generation/Artifacts/LifecycleExport.h"
 #include "ModHeaderTool/src/Generation/Artifacts/Projection.h"
@@ -20,9 +21,32 @@ GeneratedBatch ArtifactRenderer::RenderArtifacts(GenerationModel& Model)
 	GeneratedBatch Batch;
 	SdkViewWriter::WriteSdk(Model, Batch.Files);
 	HostBridgeWriter::WriteHost(Model, Batch.Files);
+	WriteExtensions(Model, Batch.Files);
 	Batch.NativeABI =
 	    NativeABIGenerator::WriteNativeABI(Model, Batch.Files, Projection.ContractHash, Projection.ProjectionHash,
 	                                       Projection.Lifecycle, Projection.ErrorHeader);
+	const auto ContractPath = "Contract/" + Model.Input.GameId + ".sdkcontract.json";
+	if (Projection.Contract.contains("extensions") || !Projection.Lifecycle.is_null())
+	{
+		auto Sdk = Json::parse(Batch.Files.at(ContractPath));
+		if (Projection.Contract.contains("extensions"))
+		{
+			Sdk["extensions"] = Projection.Contract.at("extensions");
+		}
+		for (auto& Type : Sdk.at("types"))
+		{
+			for (const auto& Description : Projection.Contract.at("types"))
+			{
+				if (!Projection.Lifecycle.is_null() && Description.at("typeId") == Type.at("id") &&
+				    Description.at("scope") == "World")
+				{
+					Type["serviceSignature"] = Description.at("callingTableHash");
+					break;
+				}
+			}
+		}
+		Batch.Files[ContractPath] = Sdk.dump(2) + '\n';
+	}
 	for (auto& [Path, Text] : Batch.Files)
 	{
 		if (Path.ends_with(".h") || Path.ends_with(".cpp"))

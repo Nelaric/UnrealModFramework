@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModBlueprintExports.h"
 
+#include "BlueprintActionDatabase.h"
+
 #include "ModBlueprintExportGraphSchema.h"
 #include "ModExportMetadataOptions.h"
 #include "ModExportMetadataSchema.h"
@@ -512,6 +514,10 @@ UModBlueprintExports* UModBlueprintExports::FindOrAdd(UBlueprint* Blueprint)
 
 void UModBlueprintExports::RefreshSearchIndex(UBlueprint* Blueprint)
 {
+	if (Blueprint && !IsRunningCommandlet())
+	{
+		FBlueprintActionDatabase::Get().RefreshAssetActions(Blueprint);
+	}
 	if (Blueprint && Blueprint->IsAsset() && !Blueprint->bBeingCompiled && !Blueprint->bIsRegeneratingOnLoad)
 	{
 		FFindInBlueprintSearchManager::Get().AddOrUpdateBlueprintSearchMetadata(

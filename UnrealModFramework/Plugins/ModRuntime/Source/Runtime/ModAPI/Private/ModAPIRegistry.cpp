@@ -49,6 +49,7 @@ struct FTypeState : FRegistrationState
 
 struct FProviderState : FRegistrationState
 {
+	FName Service;
 	TSharedPtr<FScopeState> Scope;
 	TSharedPtr<FTypeState> Type;
 	TWeakObjectPtr<UObject> Object;
@@ -491,6 +492,22 @@ TModResult<void> FRegistry::RevokeCaller(const FCaller& Caller)
 
 TModResult<FRegistration> FRegistry::RegisterProvider(FName TypeId, const FScope& Scope, UObject* Instance)
 {
+	return RegisterProvider(NAME_None, TypeId, nullptr, Scope, Instance);
+}
+
+TModResult<FRegistration> FRegistry::RegisterService(FName Service, FName TypeId, const TCHAR* Signature,
+                                                     const FScope& Scope, UObject* Instance)
+{
+	if (Service.IsNone() || !Signature)
+	{
+		return TModResult<FRegistration>::Failure(EError::InvalidArgument);
+	}
+	return RegisterProvider(Service, TypeId, Signature, Scope, Instance);
+}
+
+TModResult<FRegistration> FRegistry::RegisterProvider(FName Service, FName TypeId, const TCHAR* Signature,
+                                                      const FScope& Scope, UObject* Instance)
+{
 	if (!IsInGameThread())
 	{
 		return TModResult<FRegistration>::Failure(EError::WrongThread);
@@ -499,6 +516,10 @@ TModResult<FRegistration> FRegistry::RegisterProvider(FName TypeId, const FScope
 	if (!Type || !(*Type)->bActive)
 	{
 		return TModResult<FRegistration>::Failure(EError::NotRegistered);
+	}
+	if (Signature && (*Type)->Descriptor.Signature != Signature)
+	{
+		return TModResult<FRegistration>::Failure(EError::SignatureMismatch);
 	}
 	if (!OwnsScope(State, Scope.State) || (*Type)->Descriptor.Scope != Scope.State->Kind || !IsValid(Instance) ||
 	    ((*Type)->Descriptor.Class && !Instance->IsA((*Type)->Descriptor.Class)))
@@ -524,12 +545,13 @@ TModResult<FRegistration> FRegistry::RegisterProvider(FName TypeId, const FScope
 	    { return !Provider->bActive || !Provider->Type->bActive || !ScopeAlive(Provider->Scope); });
 	for (const auto& Provider : State->Providers)
 	{
-		if (Provider->Type == *Type && Provider->Scope == Scope.State)
+		if (Provider->Service == Service && Provider->Type == *Type && Provider->Scope == Scope.State)
 		{
 			return TModResult<FRegistration>::Failure(EError::InvalidArgument);
 		}
 	}
 	TSharedPtr<FProviderState> Provider = MakeShared<FProviderState>();
+	Provider->Service = Service;
 	Provider->Scope = Scope.State;
 	Provider->Type = *Type;
 	Provider->Object = Instance;
@@ -557,6 +579,22 @@ TModResult<FRegistration> FRegistry::RegisterLocalPlayerProvider(FName TypeId, c
 
 TModResult<FObjectBinding> FRegistry::BindProvider(FName TypeId, const TCHAR* Signature, const FCaller& Caller)
 {
+	return BindProvider(NAME_None, TypeId, Signature, Caller);
+}
+
+TModResult<FObjectBinding> FRegistry::BindService(FName Service, FName TypeId, const TCHAR* Signature,
+                                                  const FCaller& Caller)
+{
+	if (Service.IsNone())
+	{
+		return TModResult<FObjectBinding>::Failure(EError::InvalidArgument);
+	}
+	return BindProvider(Service, TypeId, Signature, Caller);
+}
+
+TModResult<FObjectBinding> FRegistry::BindProvider(FName Service, FName TypeId, const TCHAR* Signature,
+                                                   const FCaller& Caller)
+{
 	if (!IsInGameThread())
 	{
 		return TModResult<FObjectBinding>::Failure(EError::WrongThread);
@@ -580,7 +618,8 @@ TModResult<FObjectBinding> FRegistry::BindProvider(FName TypeId, const TCHAR* Si
 	        : Caller.State->Scope;
 	for (const auto& Provider : State->Providers)
 	{
-		if (Provider->bActive && Provider->Type == *Type && Provider->Scope == TargetScope)
+		if (Provider->bActive && Provider->Service == Service && Provider->Type == *Type &&
+		    Provider->Scope == TargetScope)
 		{
 			FObjectBinding Binding;
 			Binding.State = MakeBinding(State, Caller.State, TargetScope, *Type, Provider->Object.Get());
@@ -744,6 +783,10 @@ TModResult<FObjectBinding> FHostAccess::ProjectObject(const FObjectBinding& Sour
 	}
 	FObjectBinding Result;
 	Result.State = MakeBinding(Registry, Source.State->Caller, WorldScope, *Type, Object);
+	if (Source.State->Provider && !Source.State->Provider->Service.IsNone())
+	{
+		Result.State->Provider = Source.State->Provider;
+	}
 	Result.State->bReadOnly = bReadOnly || ((*Type)->Descriptor.bFullView && Source.State->bReadOnly);
 	return TModResult<FObjectBinding>::Success(MoveTemp(Result));
 }
@@ -811,7 +854,8 @@ TModResult<FObjectBinding> FNativeAccess::Resolve(uint64 Context, uint64 Target,
 			        : Entry->Caller->Scope;
 			for (const auto& Provider : Entry->Registry->Providers)
 			{
-				if (Provider->bActive && Provider->Type == *Type && Provider->Scope == Scope)
+				if (Provider->bActive && Provider->Service.IsNone() && Provider->Type == *Type &&
+				    Provider->Scope == Scope)
 				{
 					FObjectBinding Value;
 					Value.State = MakeBinding(Entry->Registry, Entry->Caller, Scope, *Type, Provider->Object.Get());
@@ -881,7 +925,8 @@ TModResult<uint64> FNativeAccess::Publish(uint64 Context, FObjectBinding Binding
 			It.RemoveCurrent();
 		}
 		else if (Existing->Object == Binding.State->Object && Existing->Type == Binding.State->Type &&
-		         Existing->Scope == Binding.State->Scope && Existing->bReadOnly == Binding.State->bReadOnly)
+		         Existing->Scope == Binding.State->Scope && Existing->Provider == Binding.State->Provider &&
+		         Existing->bReadOnly == Binding.State->bReadOnly)
 		{
 			return TModResult<uint64>::Success(It.Key());
 		}

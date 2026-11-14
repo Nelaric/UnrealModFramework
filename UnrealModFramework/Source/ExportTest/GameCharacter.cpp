@@ -4,14 +4,39 @@
 #include "Animation/AnimClassInterface.h"
 #include "Animation/Skeleton.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/World.h"
+#include "ModExtensionSubsystem.h"
+
+void AGameCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	auto* Extensions = GetWorld()->GetSubsystem<UModExtensionSubsystem>();
+	if (Extensions && Extensions->IsReady())
+	{
+		const auto Choice = Extensions->ResolveContent(TEXT("character.mesh"), TEXT("character.mannequin"));
+		if (Choice.Status == Mod::Extension::EContentStatus::Available)
+		{
+			SetMesh(Cast<USkeletalMesh>(Choice.Path.ResolveObject()));
+		}
+		else if (Choice.Status == Mod::Extension::EContentStatus::Disabled)
+		{
+			GetMesh()->SetSkeletalMeshAsset(nullptr);
+		}
+	}
+}
+
+float AGameCharacter::ApplyHealth(float Delta)
+{
+	if (FMath::IsFinite(Delta) && Delta != 0.0f)
+	{
+		Health = FMath::Clamp(Health + Delta, 0.0f, FMath::Max(MaxHealth, 0.0f));
+	}
+	return Health;
+}
 
 float AGameCharacter::AddHealth(float Amount)
 {
-	if (FMath::IsFinite(Amount) && Amount > 0.0f)
-	{
-		Health = FMath::Clamp(Health + Amount, 0.0f, FMath::Max(MaxHealth, 0.0f));
-	}
-	return Health;
+	return FMath::IsFinite(Amount) && Amount > 0.0f ? ChangeHealth(Amount) : Health;
 }
 
 bool AGameCharacter::SetMesh(USkeletalMesh* NewMesh)

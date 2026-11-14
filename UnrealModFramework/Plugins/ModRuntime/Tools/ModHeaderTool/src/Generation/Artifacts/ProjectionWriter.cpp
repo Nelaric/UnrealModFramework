@@ -176,11 +176,28 @@ Projection ProjectionWriter::BuildProjection(GenerationModel& Model)
 	if (!Model.LifecycleSource.empty())
 	{
 		Projection.LifecycleExport = LifecycleExport::ExportLifecycleDeclarations(Model.LifecycleSource);
-		Projection.Lifecycle = {{"schemaVersion", 1},
+		Projection.Lifecycle = {{"schemaVersion", 2},
 		                        {"module", "ModLoader"},
 		                        {"resource", LifecycleExport::LifecyclePath},
 		                        {"resourceHash", Hash::HashBytes(Projection.LifecycleExport)}};
 		Projection.Contract["modLifecycle"] = Projection.Lifecycle;
+	}
+	if (!Model.Extensions.empty())
+	{
+		auto& Extensions = Projection.Contract["extensions"] = Json::array();
+		for (const auto& [Id, Entry] : Model.Extensions)
+		{
+			auto Descriptor = Entry.Describe();
+			Descriptor["signatureHash"] = Entry.Signature();
+			Extensions.push_back(std::move(Descriptor));
+			Projection.Sources.push_back(
+			    {{"exportId", Id},
+			     {"module", Entry.Module},
+			     {"sourceSignature", Entry.SourceSignature},
+			     {"file", GenerationPaths::NormalizeInput(Model.Input, Path::PathToUtf8(Entry.Macro.File))},
+			     {"line", Entry.Macro.Line},
+			     {"column", Entry.Macro.Column}});
+		}
 	}
 	Json Compatibility = Projection.Contract;
 	for (auto& API : Compatibility["exports"])
@@ -188,8 +205,10 @@ Projection ProjectionWriter::BuildProjection(GenerationModel& Model)
 		API.erase("metadata");
 	}
 	Projection.ContractHash = Hash::HashBytes(Compatibility.dump());
-	Projection.ProjectionHash = Hash::HashBytes(Types.dump() + "UObjectAPIProjection1:ContextHandlesV1" +
-	                                            (Projection.Lifecycle.is_null() ? "" : Projection.Lifecycle.dump()));
+	Projection.ProjectionHash =
+	    Hash::HashBytes(Types.dump() + "UObjectAPIProjection1:ContextHandlesV1" +
+	                    (Projection.Lifecycle.is_null() ? "" : Projection.Lifecycle.dump()) +
+	                    (Model.Extensions.empty() ? "" : Projection.Contract["extensions"].dump()));
 	return Projection;
 }
 } // namespace Mod::HeaderTool

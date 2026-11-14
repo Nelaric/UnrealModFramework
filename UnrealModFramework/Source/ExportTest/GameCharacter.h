@@ -5,12 +5,13 @@
 #include "Engine/SkeletalMesh.h"
 #include "GameFramework/Character.h"
 #include "ModExportMacros.h"
+#include "ModExtension.h"
 
 #include "GameCharacter.generated.h"
 
 /// A host character exposing bounded health and appearance changes.
-UCLASS()
-class EXPORTTEST_API AGameCharacter : public ACharacter
+UCLASS(MinimalAPI)
+class AGameCharacter : public ACharacter
 {
 	GENERATED_BODY()
 
@@ -21,7 +22,7 @@ public:
 	 * @return The resulting health.
 	 */
 	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldWrite))
-	float AddHealth(float Amount);
+	EXPORTTEST_API float AddHealth(float Amount);
 
 	/** @brief Sets the character's skeletal mesh on the game thread.
 	 * @param NewMesh A loaded mesh with a skeleton
@@ -32,7 +33,7 @@ public:
 	 */
 	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldWrite))
 	UFUNCTION(BlueprintCallable, Category = "Character|Appearance")
-	bool SetMesh(USkeletalMesh* NewMesh);
+	EXPORTTEST_API bool SetMesh(USkeletalMesh* NewMesh);
 
 	/** @brief Restores the skeletal mesh saved before the first replacement.
 	 * @return Whether called on the game
@@ -40,9 +41,26 @@ public:
 	 */
 	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldWrite))
 	UFUNCTION(BlueprintCallable, Category = "Character|Appearance")
-	bool RestoreMesh();
+	EXPORTTEST_API bool RestoreMesh();
+
+public:
+	MOD_EXPORT_HOOK(ExportId = "hook/game.character/change-health", Permission = "Health.Change",
+	                AllowedStages = (Pre, Post), AllowedOperations = (ModifyInputs, Cancel, ModifyResult))
+	UFUNCTION(BlueprintCallable, Category = "Character|Health")
+	EXPORTTEST_API float ChangeHealth(float Delta);
+
+	MOD_EXPORT_EVENT(ExportId = "event/game.character/health-changed", SourceScope = World, PublishRule = Immediate,
+	                 Permission = "Health.Observe")
+	EXPORTTEST_API void PublishHealthChanged(float CurrentHealth);
+
+protected:
+	void BeginPlay() override;
 
 private:
+	float ApplyHealth(float Delta);
+	Mod::Extension::FEndpoint HealthHook;
+	Mod::Extension::FEndpoint HealthEvent;
+
 	UPROPERTY(VisibleInstanceOnly, Category = "Health")
 	float Health = 100.0f;
 

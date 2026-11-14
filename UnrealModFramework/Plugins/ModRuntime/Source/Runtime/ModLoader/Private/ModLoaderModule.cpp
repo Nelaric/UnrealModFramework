@@ -47,9 +47,11 @@ struct FDeferredCompletion
 struct FMountedRecord
 {
 	FMountedPackage Package;
+	TSharedPtr<const FMountedPackage> Lease;
 	Private::FMountedResources Resources;
 	FString SourcePath;
 	bool bUnloadNotified = false;
+	bool bSourceRemoved = false;
 };
 } // namespace
 
@@ -134,7 +136,7 @@ public:
 			Result.Reserve(Mounted.Num());
 			for (const TPair<FString, FMountedRecord>& Entry : Mounted)
 			{
-				if (!Entry.Value.bUnloadNotified)
+				if (!Entry.Value.bUnloadNotified && !Entry.Value.bSourceRemoved)
 				{
 					Result.Add(Entry.Value.Package);
 				}
@@ -143,6 +145,27 @@ public:
 			            { return Left.ModId < Right.ModId; });
 		}
 		return Result;
+	}
+
+	TSharedPtr<const FMountedPackage> PinMountedPackage(const FString& ModId) override
+	{
+		check(IsInGameThread());
+		auto* Record = Mounted.Find(ModId);
+		if (!Record || Record->bUnloadNotified || Record->bSourceRemoved)
+		{
+			return nullptr;
+		}
+		if (!Record->Lease)
+		{
+			Record->Lease = MakeShared<FMountedPackage>(Record->Package);
+		}
+		return Record->Lease;
+	}
+
+	TArray<FLoadResult> GetStartupResults() const override
+	{
+		check(IsInGameThread());
+		return StartupResults;
 	}
 
 #if WITH_EDITOR
@@ -293,6 +316,7 @@ private:
 		{
 			return true;
 		}
+		ReleaseRemovedPackages();
 		TickWatchedDirectory();
 		TArray<FDeferredCompletion> Pending;
 		FDeferredCompletion Completion;
@@ -381,14 +405,35 @@ private:
 	void UnloadRemovedSources(const TMap<FString, FString>& RemovedSources)
 	{
 		IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
-		TArray<FString> Unloading;
 		for (const TPair<FString, FString>& Entry : RemovedSources)
 		{
 			FMountedRecord* Record = Mounted.Find(Entry.Key);
 			if (Record && FPaths::IsSamePath(Record->SourcePath, Entry.Value) && !Files.FileExists(*Entry.Value))
 			{
-				NotifyBeforeUnload(*Record);
-				Unloading.Add(Entry.Key);
+				if (!Record->bSourceRemoved)
+				{
+					Record->bSourceRemoved = true;
+					if (Record->Lease && !Record->Lease.IsUnique())
+					{
+						UE_LOG(LogModLoader, Display, TEXT("Mod %s remains mounted until active World leases end."),
+						       *Entry.Key);
+					}
+				}
+			}
+		}
+		ReleaseRemovedPackages();
+	}
+
+	void ReleaseRemovedPackages()
+	{
+		TGuardValue<bool> Loading(bLoading, true);
+		TArray<FString> Unloading;
+		for (auto& [ModId, Record] : Mounted)
+		{
+			if (Record.bSourceRemoved && (!Record.Lease || Record.Lease.IsUnique()))
+			{
+				NotifyBeforeUnload(Record);
+				Unloading.Add(ModId);
 			}
 		}
 		for (const FString& ModId : Unloading)
@@ -398,6 +443,7 @@ private:
 			if (!Private::ReleaseModPackages(Record.Package.PackageNames, Reason))
 			{
 				UE_LOG(LogModLoader, Warning, TEXT("Mod %s is still mounted. %s"), *ModId, *Reason);
+				Record.bSourceRemoved = false;
 			}
 			else if (Unmount(Record))
 			{
@@ -621,6 +667,7 @@ private:
 			Results = LoadDirectoryImpl(Directory, Policy, true);
 		}
 		LogLoadResults(Results);
+		StartupResults = Results;
 #if WITH_EDITOR
 		if (IsPIEActive())
 		{
@@ -677,6 +724,7 @@ private:
 		{
 			DirectoryWatch.Stop();
 			PIEStartupResults.Reset();
+			StartupResults.Reset();
 			bPIECleanupQueued = true;
 		}
 	}
@@ -702,6 +750,13 @@ private:
 		if (bLoading || bBroadcasting)
 		{
 			return false;
+		}
+		for (const auto& [ModId, Record] : Mounted)
+		{
+			if (Record.Lease && !Record.Lease.IsUnique())
+			{
+				return false;
+			}
 		}
 		bPIECleanupQueued = false;
 		if (Mounted.IsEmpty())
@@ -746,6 +801,7 @@ private:
 	FDelegateHandle WorldTearDownHandle;
 	FTSTicker::FDelegateHandle CompletionTicker;
 	Private::FModDirectoryWatch DirectoryWatch;
+	TArray<FLoadResult> StartupResults;
 	TMap<FString, FMountedRecord> Mounted;
 	// Registered UClasses can keep native function pointers after their content is unmounted.
 	TMap<FString, FString> ResidentNativeArchives;

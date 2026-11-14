@@ -43,10 +43,15 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	    Request.Contract.contains("errorHeader")
 	        ? WrapperErrors{"MOD_ERROR_INVALIDARGUMENT", "MOD_ERROR_WRONGTHREAD", "MOD_ERROR_OBJECTUNAVAILABLE"}
 	        : WrapperErrors{"-1", "-3", "-2"};
-	std::map<std::string, std::string> Types;
+	std::map<std::string, std::string> Types, ServiceTypes;
 	for (const Json& Type : Request.Contract.at("types"))
 	{
-		Types[JsonDocument::Text(Type, "id")] = JsonDocument::Text(Type, "cppName");
+		const std::string Id = JsonDocument::Text(Type, "id");
+		Types[Id] = JsonDocument::Text(Type, "cppName");
+		if (!Request.LifecycleArtifact.is_null() && Type.contains("serviceSignature"))
+		{
+			ServiceTypes[Id] = JsonDocument::Text(Type, "serviceSignature");
+		}
 	}
 	std::map<std::string, std::string> BlueprintProviders;
 	for (const auto& API : Request.Contract.at("apis"))
@@ -61,7 +66,7 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	std::ostringstream Header;
 	Header << "// Copyright (c) 2026 Nelaric Contributors\n/" << "** @file " << Plugin << "API.h */\n#pragma once\n\n"
 	       << "#include \"CoreMinimal.h\"\n#include \"Kismet/BlueprintFunctionLibrary.h\"\n";
-	if (!BlueprintProviders.empty() && !Request.LifecycleArtifact.is_null())
+	if ((!BlueprintProviders.empty() || !ServiceTypes.empty()) && !Request.LifecycleArtifact.is_null())
 	{
 		Header << "#include \"ModInstance.h\"\n";
 	}
@@ -122,7 +127,7 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	{
 		Source << "#include \"" << Include << "\"\n";
 	}
-	if (!BlueprintProviders.empty())
+	if (!BlueprintProviders.empty() || !ServiceTypes.empty())
 	{
 		const std::string Game = JsonDocument::Text(Request.Contract, "gameId");
 		Header << "\t" << CppLiteral::LineDoc << " Connects the generated client tables on the game thread.\n"
@@ -149,6 +154,21 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 				    << "\tOutObject = " << Type << "::FromNative(Context, Object);\n\treturn true;\n}\n\n";
 			}
 		}
+	}
+	for (const auto& [Id, Signature] : ServiceTypes)
+	{
+		const auto& Type = Types.at(Id);
+		Header << "\t" << CppLiteral::LineDoc << " Binds a declared World service on the game thread.\n"
+		       << "\tUFUNCTION(BlueprintCallable, Category = \"Mod|Service\")\n"
+		       << "\tstatic bool AcquireService_" << Type << "(UModInstance* Mod, FName ServiceId, " << Type
+		       << "& OutObject);\n\n";
+		Source << "bool " << LibraryClass << "::AcquireService_" << Type << "(UModInstance* Mod, FName ServiceId, "
+		       << Type << "& OutObject)\n{\n\tOutObject = {};\n\tuint64 Context = 0;\n\tuint64 Object = 0;\n"
+		       << "\tif (!IsInGameThread() || !IsValid(Mod) || ConnectHost(&UModInstance::ResolveHostAPI) != 0) "
+		          "{ return false; }\n"
+		       << "\tif (!Mod->AcquireModService(ServiceId, FName(TEXT(" << CppLiteral::Literal(Id) << ")), TEXT("
+		       << CppLiteral::Literal(Signature) << "), Context, Object)) { return false; }\n"
+		       << "\tOutObject = " << Type << "::FromNative(Context, Object);\n\treturn true;\n}\n\n";
 	}
 	Source << "\n";
 	for (const Json& API : Request.Contract.at("apis"))
@@ -239,7 +259,7 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	{
 		Build << ", " << CppLiteral::Literal(Dependency);
 	}
-	if (!BlueprintProviders.empty() && !Request.LifecycleArtifact.is_null())
+	if ((!BlueprintProviders.empty() || !ServiceTypes.empty()) && !Request.LifecycleArtifact.is_null())
 	{
 		Build << ", \"ModLoader\"";
 	}
@@ -287,17 +307,24 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 			throw std::runtime_error("The Mod lifecycle export changed during SDK generation.");
 		}
 		const Json Projection = Json::parse(Export);
-		JsonDocument::RequireFormat(Projection, "UMF.ModLifecycleExport");
+		JsonDocument::RequireFormat(Projection, "UMF.ModLifecycleExport", {1, 2});
 		const Json& Declarations = Projection.at("declarations");
-		if (!Declarations.is_object() || Declarations.size() != 2)
+		const auto& Lifecycle = Request.Contract.at("modLifecycle");
+		const bool bHasExtensions = Lifecycle.value("schemaVersion", 0) == 2;
+		if (Projection.at("schemaVersion") != Lifecycle.at("schemaVersion") || !Declarations.is_object() ||
+		    Declarations.size() != (bHasExtensions ? 3 : 2))
 		{
-			throw std::runtime_error("The global Mod lifecycle export must declare both SDK base classes.");
+			throw std::runtime_error("The Mod lifecycle export does not match its SDK contract.");
 		}
 		// Match the game's /Script/ModLoader package for Blueprint DLC imports.
 		const fs::path LifecycleModule = Directory / "Source" / "ModLoader";
-		const std::map<std::string, std::string> LifecycleIncludes{
+		std::map<std::string, std::string> LifecycleIncludes{
 		    {"ModInstance", "#include \"Engine/GameInstance.h\"\n#include \"UObject/Object.h\"\n"},
 		    {"ModInstanceSubSystem", "#include \"ModInstance.h\"\n"}};
+		if (bHasExtensions)
+		{
+			LifecycleIncludes.emplace("ModExtensionLibrary", "#include \"Kismet/BlueprintFunctionLibrary.h\"\n");
+		}
 		for (const auto& [Name, Includes] : LifecycleIncludes)
 		{
 			const std::string& Declaration = Declarations.at(Name).get_ref<const std::string&>();
@@ -327,6 +354,12 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 		                           "#include \"Modules/ModuleManager.h\"\n\n"
 		                           "IMPLEMENT_MODULE(FDefaultModuleImpl, ModLoader);\n";
 		const auto& Instance = Declarations.at("ModInstance").get_ref<const std::string&>();
+		if (Instance.find("GetWorld() const override;") != std::string::npos)
+		{
+			ModuleSource += "\nUWorld* UModInstance::GetWorld() const\n{\n"
+			                "\tconst auto* Game = GetTypedOuter<UGameInstance>();\n"
+			                "\treturn Game ? Game->GetWorld() : nullptr;\n}\n";
+		}
 		if (Instance.find("GetModId() const;") != std::string::npos)
 		{
 			ModuleSource += "\nFString UModInstance::GetModId() const\n{\n\treturn {};\n}\n";
@@ -337,9 +370,39 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 			    "\nbool UModInstance::AcquireWorldAPI(FName, const TCHAR*, uint64& Context, uint64& Object)\n"
 			    "{\n\tContext = 0;\n\tObject = 0;\n\treturn false;\n}\n";
 		}
+		if (Instance.find("AcquireModService(") != std::string::npos)
+		{
+			ModuleSource +=
+			    "\nbool UModInstance::AcquireModService(FName, FName, const TCHAR*, uint64& Context, uint64& Object)\n"
+			    "{\n\tContext = 0;\n\tObject = 0;\n\treturn false;\n}\n";
+		}
 		if (Instance.find("ResolveHostAPI(") != std::string::npos)
 		{
 			ModuleSource += "\nvoid* UModInstance::ResolveHostAPI(const char*, const char*)\n{\n\treturn nullptr;\n}\n";
+		}
+		if (bHasExtensions)
+		{
+			ModuleSource +=
+			    "\n#include \"ModExtensionLibrary.h\"\n"
+			    "int32 UModExtensionLibrary::RegisterModExtension(UModInstance*, FName, FName, FName, "
+			    "EModExtensionStage, EModExtensionOperation, int32, const TArray<FString>&, "
+			    "const TArray<FString>&, float, FModExtensionToken& Token)\n"
+			    "{\n\tToken = {};\n\treturn -1;\n}\n"
+			    "void UModExtensionLibrary::UnregisterModExtension(UModInstance*, const FModExtensionToken&) {}\n";
+			const auto& ExtensionLibrary = Declarations.at("ModExtensionLibrary").get_ref<const std::string&>();
+			if (ExtensionLibrary.find("ProvideModService(") != std::string::npos)
+			{
+				ModuleSource +=
+				    "int32 UModExtensionLibrary::ProvideModService(UModInstance*, FName, FName, const FString&, "
+				    "const FString&, FName, UObject*) { return -1; }\n"
+				    "void UModExtensionLibrary::WithdrawModService(UModInstance*, FName) {}\n";
+			}
+			if (ExtensionLibrary.find("AcquireModService(") != std::string::npos)
+			{
+				ModuleSource +=
+				    "bool UModExtensionLibrary::AcquireModService(UModInstance*, FName, FName, const FString&, "
+				    "int64& Context, int64& Object)\n{\n\tContext = 0;\n\tObject = 0;\n\treturn false;\n}\n";
+			}
 		}
 		GeneratedFile::WriteSource(LifecycleModule / "Private" / "ModLoaderModule.cpp", ModuleSource);
 		Modules.push_back({{"Name", "ModLoader"}, {"Type", "Runtime"}, {"LoadingPhase", "Default"}});

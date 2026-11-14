@@ -58,13 +58,37 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 	if (Contract.contains("modLifecycle"))
 	{
 		const Json& Lifecycle = Contract.at("modLifecycle");
-		if (!Lifecycle.is_object() || Lifecycle.value("schemaVersion", 0) != 1 ||
+		if (!Lifecycle.is_object() ||
+		    (Lifecycle.value("schemaVersion", 0) != 1 && Lifecycle.value("schemaVersion", 0) != 2) ||
 		    JsonDocument::Text(Lifecycle, "module") != "ModLoader" ||
 		    JsonDocument::Text(Lifecycle, "resource") != "Contract/ModLifecycle.json")
 		{
 			throw std::runtime_error("Unsupported global Mod lifecycle projection.");
 		}
 		Mod::BuildTool::Hash::RequireDigest(JsonDocument::Text(Lifecycle, "resourceHash"), "modLifecycle.resourceHash");
+	}
+	if (Contract.contains("extensions"))
+	{
+		const auto& Extensions = Contract.at("extensions");
+		if (!Extensions.is_array() || Extensions.size() > 1024 || !Contract.contains("modLifecycle") ||
+		    Contract.at("modLifecycle").value("schemaVersion", 0) != 2)
+		{
+			throw std::runtime_error("SDK extension declarations require lifecycle projection v2.");
+		}
+		std::set<std::string> Ids;
+		for (const auto& Entry : Extensions)
+		{
+			const auto Id = JsonDocument::Text(Entry, "id");
+			const auto Kind = JsonDocument::Text(Entry, "kind");
+			const bool bHook = Kind == "Hook";
+			if ((Kind != "Event" && !bHook) || !Id.starts_with(bHook ? "hook/" : "event/") || !Ids.insert(Id).second ||
+			    Entry.value("scope", "") != "World" || Entry.value("thread", "") != "GameThread" ||
+			    Entry.value("inputType", "") != "float" || Entry.value("resultType", "") != (bHook ? "float" : "void"))
+			{
+				throw std::runtime_error("Unsupported SDK extension: " + Id);
+			}
+			Mod::BuildTool::Hash::RequireDigest(JsonDocument::Text(Entry, "signatureHash"), "extension signature");
+		}
 	}
 	const Json& Types = Contract.at("types");
 	const Json& APIs = Contract.at("apis");
@@ -74,7 +98,7 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 		throw std::runtime_error("SDK types/APIs must be bounded, nonempty arrays.");
 	}
 	std::set<std::string> TypeIds;
-	std::set<std::string> Names;
+	std::set<std::string> Names, ServiceFunctions;
 	const std::string Plugin = JsonDocument::Text(Request.Document, "pluginName");
 	for (const std::string& Name :
 	     {"F" + Plugin + "PlayerContext", "E" + Plugin + "CallOutcome", "U" + Plugin + "Library"})
@@ -84,6 +108,18 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 	for (const Json& Type : Types)
 	{
 		const std::string Name = JsonDocument::Text(Type, "cppName");
+		if (Type.contains("serviceSignature"))
+		{
+			if (!Contract.contains("modLifecycle") || Contract.at("modLifecycle").value("schemaVersion", 0) != 2)
+			{
+				throw std::runtime_error("A World service view requires lifecycle projection v2.");
+			}
+			Mod::BuildTool::Hash::RequireDigest(JsonDocument::Text(Type, "serviceSignature"), "service signature");
+			if (!ServiceFunctions.insert(PortableNames::Fold("AcquireService_" + Name)).second)
+			{
+				throw std::runtime_error("Duplicate generated service binding name.");
+			}
+		}
 		PortableNames::Identifier(Name);
 		if (Type.value("kind", "") != "ObjectReference" || Name.front() != 'F' ||
 		    !TypeIds.insert(JsonDocument::Text(Type, "id")).second || !Names.insert(PortableNames::Fold(Name)).second)
@@ -220,9 +256,13 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 			throw std::runtime_error("Unsupported projected API shape: " + Shape);
 		}
 	}
-	if (!BlueprintProviders.empty())
+	if (!BlueprintProviders.empty() || !ServiceFunctions.empty())
 	{
 		bool bReservedName = Functions.contains("connecthost");
+		for (const auto& Function : ServiceFunctions)
+		{
+			bReservedName |= Functions.contains(Function);
+		}
 		if (Contract.contains("modLifecycle"))
 		{
 			for (const Json& Type : Types)
@@ -236,7 +276,7 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 		}
 		if (bReservedName)
 		{
-			throw std::runtime_error("An API name conflicts with a generated Blueprint SDK method.");
+			throw std::runtime_error("An API name conflicts with a generated SDK binding method.");
 		}
 	}
 	if (!bHasTypedMethod && (!bHasGetter || !bHasMethod))

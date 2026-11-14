@@ -113,7 +113,8 @@ void UModLifecycleSubsystem::HandlePIEMapReady(UGameInstance* GameInstance)
 
 void UModLifecycleSubsystem::Activate(const FMountedPackage& Package)
 {
-	if (!bActive || Package.LifecycleClasses.IsEmpty() || ActivatedModIds.Contains(Package.ModId))
+	if (!bActive || Package.Extensions.bDeclared || Package.LifecycleClasses.IsEmpty() ||
+	    ActivatedModIds.Contains(Package.ModId))
 	{
 		return;
 	}
