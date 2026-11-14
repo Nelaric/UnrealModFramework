@@ -2,6 +2,7 @@
 #include "ArtifactRenderer.h"
 
 #include "ModHeaderTool/src/Generation/Abi/NativeABIGenerator.h"
+#include "ModHeaderTool/src/Files/TextFile.h"
 #include "ModHeaderTool/src/Generation/Artifacts/GeneratedSource.h"
 #include "ModHeaderTool/src/Generation/Artifacts/ExtensionWriter.h"
 #include "ModHeaderTool/src/Generation/Artifacts/HostBridgeWriter.h"
@@ -20,7 +21,7 @@ GeneratedBatch ArtifactRenderer::RenderArtifacts(GenerationModel& Model)
 	auto Projection = ProjectionWriter::BuildProjection(Model);
 	GeneratedBatch Batch;
 	SdkViewWriter::WriteSdk(Model, Batch.Files);
-	HostBridgeWriter::WriteHost(Model, Batch.Files);
+	HostBridgeWriter::WriteHost(Model, Projection.ContractHash, Batch.Files);
 	WriteExtensions(Model, Batch.Files);
 	Batch.NativeABI =
 	    NativeABIGenerator::WriteNativeABI(Model, Batch.Files, Projection.ContractHash, Projection.ProjectionHash,
@@ -56,6 +57,8 @@ GeneratedBatch ArtifactRenderer::RenderArtifacts(GenerationModel& Model)
 	}
 	if (!Projection.Lifecycle.is_null())
 	{
+		Batch.Files["SDK/Public/ModExtensionABI.h"] =
+		    TextFile::ReadTextFile(Model.LifecycleSource / "ModExtensionABI.h");
 		Batch.Files[LifecycleExport::LifecyclePath] = std::move(Projection.LifecycleExport);
 	}
 	Batch.Files["Contract/" + Model.Input.GameId + ".modcontract.json"] = Projection.Contract.dump(2) + '\n';

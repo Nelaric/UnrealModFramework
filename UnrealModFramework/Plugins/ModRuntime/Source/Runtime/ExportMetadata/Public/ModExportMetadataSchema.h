@@ -23,6 +23,8 @@ inline constexpr const char* DefaultHookStage = "Post";
 inline constexpr std::array<std::string_view, 3> HookStages = {"Pre", "On", "Post"};
 /// Authority policies for synchronous World extensions.
 inline constexpr std::array<std::string_view, 2> ExtensionAuthorities = {"Server", "Any"};
+/// Policies for retiring an Event subscription during dispatch.
+inline constexpr std::array<std::string_view, 2> EventUnsubscribeRules = {"Deferred", "Immediate"};
 
 /// A Hook operation and the stage that must be open to allow it.
 struct FHookOperationSpec
@@ -120,9 +122,10 @@ inline constexpr std::array<FFieldSpec, 6> APIFields = {{
     {"CompatibleNames", EFieldType::FunctionNameList, nullptr, false},
 }};
 /// Fields belonging to Event declarations.
-inline constexpr std::array<FFieldSpec, 7> EventFields = {{
+inline constexpr std::array<FFieldSpec, 8> EventFields = {{
     {"SourceScope", EFieldType::Choice, "EventSourceScopes", true},
     {"PublishRule", EFieldType::Choice, "EventPublishRules", true},
+    {"UnsubscribeRule", EFieldType::Choice, "EventUnsubscribeRules", false},
     {"PayloadType", EFieldType::StructType, nullptr, false},
     {"ExportId", EFieldType::NonEmptyText, nullptr, false},
     {"Permission", EFieldType::NonEmptyText, nullptr, false},

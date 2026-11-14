@@ -164,6 +164,24 @@ void Merge(GenerationModel& Model, const fs::path& Snapshot)
 			Extension Entry;
 			const auto Guid = ExportNameRules::Fold(GenerationFields::Required(Item, "guid"));
 			Entry.bHook = Item.at("hook").get<bool>();
+			Entry.bQueued = !Entry.bHook && Item.value("queued", false);
+			Entry.bImmediateUnsubscribe = !Entry.bHook && Item.value("immediateUnsubscribe", false);
+			if (Item.contains("objectPath"))
+			{
+				Entry.PayloadKind = "Object";
+				Entry.PayloadPath = GenerationFields::Required(Item, "objectPath");
+				Entry.PayloadTypeId = GenerationFields::Required(Item, "objectViewId");
+			}
+			else if (Item.contains("structPath"))
+			{
+				Entry.PayloadKind = "Struct";
+				Entry.PayloadPath = GenerationFields::Required(Item, "structPath");
+				Entry.PayloadLayout = GenerationFields::Required(Item, "structLayout");
+			}
+			else
+			{
+				Entry.Scalar = Scalar(Item.value("scalarProperty", "FloatProperty")).Public;
+			}
 			Entry.Id = std::string(Entry.bHook ? "hook/" : "event/") + Guid;
 			Entry.Module = Type.Module;
 			Entry.BlueprintClass = Type.BlueprintClass;
@@ -173,7 +191,8 @@ void Merge(GenerationModel& Model, const fs::path& Snapshot)
 			Entry.Location = Source + ":" + Entry.Name;
 			Entry.Macro.File = Asset;
 			Entry.bAuthorityOnly = Item.at("authorityOnly").get<bool>();
-			Entry.SourceSignature = "Blueprint:" + std::string(Entry.bHook ? "float(float)" : "void(float)");
+			const auto& PayloadType = Entry.PayloadKind.empty() ? Entry.Scalar : Entry.PayloadPath;
+			Entry.SourceSignature = "Blueprint:" + (Entry.bHook ? PayloadType : "void") + "(" + PayloadType + ")";
 			if (!IsGuid(Guid) || !Guids.insert(Guid).second || !Validator::IsVersion(Entry.Version))
 			{
 				throw std::runtime_error(Entry.Location + ": invalid or duplicate extension identity.");
@@ -185,10 +204,11 @@ void Merge(GenerationModel& Model, const fs::path& Snapshot)
 				Entry.OutputRole = GenerationFields::Required(Item, "outputRole");
 				Entry.bPre = Item.at("pre").get<bool>();
 				Entry.bPost = Item.at("post").get<bool>();
+				Entry.bOn = Item.value("on", false);
 				const auto Operations = Item.at("operations").get<int>();
-				if (Operations < 0 || Operations > 7 || (!Entry.bPre && !Entry.bPost) ||
+				if (Operations < 0 || Operations > 31 || (!Entry.bPre && !Entry.bPost && !Entry.bOn) ||
 				    (!Entry.bPre && (Operations & 3)) || (!Entry.bPost && (Operations & 4)) ||
-				    (Entry.OutputRole != "Return" && Entry.OutputRole != "Output"))
+				    (!Entry.bOn && (Operations & 24)) || (Entry.OutputRole != "Return" && Entry.OutputRole != "Output"))
 				{
 					throw std::runtime_error(Entry.Location + ": invalid Hook policy or signature.");
 				}

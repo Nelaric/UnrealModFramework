@@ -148,14 +148,14 @@ template <class FRead> bool ReadArray(const FJsonObject& Json, const TCHAR* Fiel
 	return true;
 }
 
-bool ReadPatchOrder(const FJsonObject& Json, TArray<FName>& Out)
+bool ReadNames(const FJsonObject& Json, const TCHAR* Field, TArray<FName>& Out)
 {
 	const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
-	if (!Json.HasField(TEXT("after")))
+	if (!Json.HasField(Field))
 	{
 		return true;
 	}
-	if (!Json.TryGetArrayField(TEXT("after"), Values) || Values->Num() > 32)
+	if (!Json.TryGetArrayField(Field, Values) || Values->Num() > 32)
 	{
 		return false;
 	}
@@ -190,20 +190,77 @@ bool Private::ReadExtensions(const FJsonObject& Manifest, FLoadResult& Result)
 	const TSharedPtr<FJsonObject>* Extensions = nullptr;
 	double Version = 0;
 	if (!Manifest.TryGetObjectField(TEXT("extensions"), Extensions) || !Extensions->IsValid() ||
-	    !(*Extensions)->TryGetNumberField(TEXT("schemaVersion"), Version) || Version != 1)
+	    !(*Extensions)->TryGetNumberField(TEXT("schemaVersion"), Version) || (Version != 1 && Version != 2))
 	{
-		return Fail(Result, ELoadError::InvalidArchive, TEXT("Expected package extensions schema 1."));
+		return Fail(Result, ELoadError::InvalidArchive, TEXT("Unsupported package extensions schema."));
 	}
+	const bool bOffers = Version == 2;
 	for (const auto& Field : (*Extensions)->Values)
 	{
 		if (Field.Key != TEXT("schemaVersion") && Field.Key != TEXT("dependencies") && Field.Key != TEXT("services") &&
-		    Field.Key != TEXT("content") && Field.Key != TEXT("patches") && Field.Key != TEXT("contracts"))
+		    Field.Key != TEXT("content") && Field.Key != TEXT("patches") && Field.Key != TEXT("contracts") &&
+		    !(bOffers && (Field.Key == TEXT("provides") || Field.Key == TEXT("incompatible") ||
+		                  (Field.Key == TEXT("requiredGrants") || Field.Key == TEXT("nativeExtension")))))
 		{
 			return Fail(Result, ELoadError::InvalidArchive, TEXT("Unknown package extension field: ") + Field.Key);
 		}
 	}
 	auto& Out = Package.Extensions;
 	Out.bDeclared = true;
+	Out.SchemaVersion = static_cast<int32>(Version);
+	if (bOffers)
+	{
+		if ((*Extensions)->HasField(TEXT("nativeExtension")) &&
+		    (!(*Extensions)->TryGetStringField(TEXT("nativeExtension"), Out.NativeExtensionFile) ||
+		     !IsId(Out.NativeExtensionFile) || !Out.NativeExtensionFile.EndsWith(TEXT(".dll")) ||
+		     Out.NativeExtensionFile.Contains(TEXT("/")) || Out.NativeExtensionFile.Contains(TEXT(".."))))
+		{
+			return Fail(Result, ELoadError::InvalidArchive, TEXT("Invalid independent extension DLL name."));
+		}
+		if (!ReadArray(
+		        **Extensions, TEXT("provides"),
+		        [&Out](const FJsonObject& Json)
+		        {
+			        FServiceOffer Entry;
+			        if (!Name(Json, TEXT("id"), Entry.Id) || !Name(Json, TEXT("typeId"), Entry.TypeId) ||
+			            !Signature(Json, Entry.Signature) || !Json.TryGetStringField(TEXT("version"), Entry.Version) ||
+			            !FVersionRange{}.Contains(Entry.Version) ||
+			            (Json.HasField(TEXT("permission")) && !Name(Json, TEXT("permission"), Entry.Permission)) ||
+			            (Json.HasField(TEXT("patch")) && !Name(Json, TEXT("patch"), Entry.Patch)) ||
+			            Out.Provides.ContainsByPredicate([&Entry](const auto& Offer) { return Offer.Id == Entry.Id; }))
+			        {
+				        return false;
+			        }
+			        Out.Provides.Add(MoveTemp(Entry));
+			        return true;
+		        }) ||
+		    !ReadArray(**Extensions, TEXT("incompatible"),
+		               [&](const FJsonObject& Json)
+		               {
+			               FString Id;
+			               if (!Json.TryGetStringField(TEXT("modId"), Id) || !IsId(Id, true) || Id == Package.ModId ||
+			                   Out.IncompatibleMods.Contains(Id))
+			               {
+				               return false;
+			               }
+			               Out.IncompatibleMods.Add(MoveTemp(Id));
+			               return true;
+		               }) ||
+		    !ReadArray(**Extensions, TEXT("requiredGrants"),
+		               [&](const FJsonObject& Json)
+		               {
+			               FName Grant;
+			               if (!Name(Json, TEXT("id"), Grant) || Out.RequiredGrants.Contains(Grant))
+			               {
+				               return false;
+			               }
+			               Out.RequiredGrants.Add(Grant);
+			               return true;
+		               }))
+		{
+			return Fail(Result, ELoadError::InvalidArchive, TEXT("Invalid extension service offer or admission rule."));
+		}
+	}
 	TSet<FString> Mods;
 	TSet<FName> Services, Patches, Contracts;
 	TSet<TPair<FName, FName>> Content;
@@ -289,27 +346,76 @@ bool Private::ReadExtensions(const FJsonObject& Manifest, FLoadResult& Result)
 		               Entry.Asset = FSoftObjectPath(Path);
 		               return true;
 	               }) ||
-	    !ReadArray(**Extensions, TEXT("patches"),
-	               [&](const FJsonObject& Json)
-	               {
-		               auto& Entry = Out.Patches.AddDefaulted_GetRef();
-		               FString Path;
-		               if (!Name(Json, TEXT("id"), Entry.Id) || Patches.Contains(Entry.Id) ||
-		                   !Name(Json, TEXT("anchor"), Entry.Anchor) ||
-		                   (Json.HasField(TEXT("conflictKey")) &&
-		                    !Name(Json, TEXT("conflictKey"), Entry.ConflictKey)) ||
-		                   !Asset(Json, TEXT("actorClass"), Package.PackageRoot, Path) || !Path.EndsWith(TEXT("_C")) ||
-		                   !Required(Json, Entry.bRequired) || !ReadPatchOrder(Json, Entry.After) ||
-		                   Entry.After.Contains(Entry.Id))
-		               {
-			               return false;
-		               }
-		               Patches.Add(Entry.Id);
-		               Entry.ActorClass = FSoftClassPath(Path);
-		               return true;
-	               }))
+	    !ReadArray(
+	        **Extensions, TEXT("patches"),
+	        [&](const FJsonObject& Json)
+	        {
+		        auto& Entry = Out.Patches.AddDefaulted_GetRef();
+		        double WaitSeconds = 0;
+		        const bool bActor = Json.HasField(TEXT("actorClass"));
+		        const bool bComponent = Json.HasField(TEXT("componentClass"));
+		        const bool bData = Json.HasField(TEXT("dataAsset"));
+		        if (!Name(Json, TEXT("id"), Entry.Id) || Patches.Contains(Entry.Id) ||
+		            !Name(Json, TEXT("anchor"), Entry.Anchor) ||
+		            (Json.HasField(TEXT("conflictKey")) && !Name(Json, TEXT("conflictKey"), Entry.ConflictKey)) ||
+		            static_cast<int>(bActor) + static_cast<int>(bComponent) + static_cast<int>(bData) != 1 ||
+		            (!bOffers && !bActor) || (Json.HasField(TEXT("dataId")) != bData) ||
+		            !Required(Json, Entry.bRequired) || !ReadNames(Json, TEXT("after"), Entry.After) ||
+		            Entry.After.Contains(Entry.Id) ||
+		            (bOffers && !ReadNames(Json, TEXT("requiresServices"), Entry.RequiresServices)) ||
+		            (Json.HasField(TEXT("waitSeconds")) &&
+		             (!bOffers || Entry.bRequired || !Json.TryGetNumberField(TEXT("waitSeconds"), WaitSeconds) ||
+		              !FMath::IsFinite(WaitSeconds) || WaitSeconds <= 0 || WaitSeconds > 3600)))
+		        {
+			        return false;
+		        }
+		        Patches.Add(Entry.Id);
+		        FString Path;
+		        if (bData)
+		        {
+			        if (!Name(Json, TEXT("dataId"), Entry.DataId) ||
+			            !Asset(Json, TEXT("dataAsset"), Package.PackageRoot, Path))
+			        {
+				        return false;
+			        }
+			        Entry.Operation = EWorldPatchOperation::RegisterData;
+			        Entry.DataAsset = FSoftObjectPath(Path);
+		        }
+		        else
+		        {
+			        if (!Asset(Json, bActor ? TEXT("actorClass") : TEXT("componentClass"), Package.PackageRoot, Path) ||
+			            !Path.EndsWith(TEXT("_C")))
+			        {
+				        return false;
+			        }
+			        if (bActor)
+			        {
+				        Entry.ActorClass = FSoftClassPath(Path);
+			        }
+			        else
+			        {
+				        Entry.Operation = EWorldPatchOperation::AttachComponent;
+				        Entry.ComponentClass = FSoftClassPath(Path);
+			        }
+		        }
+		        Entry.WaitSeconds = static_cast<float>(WaitSeconds);
+		        return true;
+	        }))
 	{
 		return Fail(Result, ELoadError::InvalidArchive, TEXT("Invalid dependency, content, service or World Patch."));
+	}
+	for (const FServiceOffer& Offer : Out.Provides)
+	{
+		if (Offer.Patch.IsNone())
+		{
+			continue;
+		}
+		const auto* Patch =
+		    Out.Patches.FindByPredicate([&Offer](const FWorldPatch& Entry) { return Entry.Id == Offer.Patch; });
+		if (!Patch || Patch->Operation != EWorldPatchOperation::SpawnActor)
+		{
+			return Fail(Result, ELoadError::InvalidArchive, TEXT("A service offer requires an Actor-spawning Patch."));
+		}
 	}
 	return true;
 }

@@ -2,6 +2,7 @@
 #include "ModAPIRegistry.h"
 
 #include "ModAPIHost.h"
+#include "ModExtensionWorld.h"
 #include "ModAPINative.h"
 
 #include "Components/ActorComponent.h"
@@ -50,6 +51,9 @@ struct FTypeState : FRegistrationState
 struct FProviderState : FRegistrationState
 {
 	FName Service;
+	bool bAllowBeforeBeginPlay = false;
+	TWeakPtr<FModExtensionWorld> ExtensionWorld;
+	bool bManagedService = false;
 	TSharedPtr<FScopeState> Scope;
 	TSharedPtr<FTypeState> Type;
 	TWeakObjectPtr<UObject> Object;
@@ -73,6 +77,8 @@ struct FBindingState
 	TSharedPtr<FProviderState> Provider;
 	TWeakObjectPtr<UObject> Object;
 	bool bReadOnly = false;
+	bool bBorrowed = false;
+	TWeakPtr<const uint8> BorrowLifetime;
 };
 
 namespace
@@ -87,6 +93,12 @@ struct FNativeState
 };
 
 TMap<uint64, FNativeState> NativeContexts;
+TMap<TPair<FString, FString>, void*>& GetNativeQueries()
+{
+	// Generated registrations can be destroyed after ordinary static storage.
+	static auto* Queries = new TMap<TPair<FString, FString>, void*>();
+	return *Queries;
+}
 uint64 NextNativeToken = 1;
 
 uint64 AllocateNativeToken()
@@ -133,7 +145,8 @@ FNativeState* FindNativeContext(uint64 Context)
 	return Entry;
 }
 
-EError CheckObject(UObject* Object, const TSharedPtr<FScopeState>& Scope, bool bAllowWorldless)
+EError CheckObject(UObject* Object, const TSharedPtr<FScopeState>& Scope, bool bAllowWorldless,
+                   bool bAllowBeforeBeginPlay = false)
 {
 	if (!IsValid(Object))
 	{
@@ -159,7 +172,7 @@ EError CheckObject(UObject* Object, const TSharedPtr<FScopeState>& Scope, bool b
 		return EError::ScopeMismatch;
 	}
 	if (const AActor* Actor = Cast<AActor>(Object);
-	    Actor && (Actor->IsActorBeingDestroyed() || !Actor->HasActorBegunPlay()))
+	    Actor && (Actor->IsActorBeingDestroyed() || (!bAllowBeforeBeginPlay && !Actor->HasActorBegunPlay())))
 	{
 		return EError::ObjectUnavailable;
 	}
@@ -174,7 +187,8 @@ EError CheckBinding(const TSharedPtr<FBindingState>& Binding)
 	}
 	if (!Binding || !Binding->Registry->bActive || !CallerAlive(Binding->Registry, Binding->Caller) ||
 	    !OwnsScope(Binding->Registry, Binding->Scope) || !Binding->Type->bActive ||
-	    (Binding->Provider && !Binding->Provider->bActive))
+	    (Binding->Provider && !Binding->Provider->bActive) ||
+	    (Binding->bBorrowed && !Binding->BorrowLifetime.IsValid()))
 	{
 		return EError::BindingExpired;
 	}
@@ -188,7 +202,9 @@ EError CheckBinding(const TSharedPtr<FBindingState>& Binding)
 	{
 		return EError::ObjectUnavailable;
 	}
-	return CheckObject(Binding->Object.Get(), Binding->Scope, Binding->Type->Descriptor.bAllowWorldless);
+	return CheckObject(Binding->Object.Get(), Binding->Scope, Binding->Type->Descriptor.bAllowWorldless,
+	                   Binding->Provider && Binding->Provider->bAllowBeforeBeginPlay &&
+	                       Binding->Provider->Object == Binding->Object && !Binding->Scope->World->HasBegunPlay());
 }
 
 using FBlueprintCalls = TArray<TSharedPtr<const FBlueprintCall>>;
@@ -275,7 +291,9 @@ void FRegistration::Reset()
 
 FGeneratedHostRegistration* FGeneratedHostRegistration::First = nullptr;
 
-FGeneratedHostRegistration::FGeneratedHostRegistration(FRegister InRegister) : Next(First), Register(InRegister)
+FGeneratedHostRegistration::FGeneratedHostRegistration(FRegister InRegister, const TCHAR* InModule,
+                                                       const TCHAR* InExportHash)
+    : Next(First), Register(InRegister), Module(InModule), ExportHash(InExportHash)
 {
 	First = this;
 }
@@ -288,12 +306,28 @@ FGeneratedHostRegistration::~FGeneratedHostRegistration()
 		Link = &(*Link)->Next;
 	}
 	*Link = Next;
+	if (Module && IsInGameThread())
+	{
+		FNativeAccess::ForgetHostQueries(Module);
+	}
 	for (const auto& Type : ActiveTypes)
 	{
 		if (const auto State = Type.Pin(); State && State->bActive)
 		{
 			check(IsInGameThread());
 			State->bActive = false;
+		}
+	}
+}
+
+void FGeneratedHostRegistration::DescribeContracts(TArray<FString>& Digests)
+{
+	check(IsInGameThread());
+	for (const auto* Host = First; Host; Host = Host->Next)
+	{
+		if (Host->ExportHash)
+		{
+			Digests.AddUnique(Host->ExportHash);
 		}
 	}
 }
@@ -496,17 +530,37 @@ TModResult<FRegistration> FRegistry::RegisterProvider(FName TypeId, const FScope
 }
 
 TModResult<FRegistration> FRegistry::RegisterService(FName Service, FName TypeId, const TCHAR* Signature,
-                                                     const FScope& Scope, UObject* Instance)
+                                                     const FScope& Scope, UObject* Instance,
+                                                     TWeakPtr<FModExtensionWorld> World)
 {
 	if (Service.IsNone() || !Signature)
 	{
 		return TModResult<FRegistration>::Failure(EError::InvalidArgument);
 	}
-	return RegisterProvider(Service, TypeId, Signature, Scope, Instance);
+	return RegisterProvider(Service, TypeId, Signature, Scope, Instance, false, MoveTemp(World));
+}
+
+TModResult<FRegistration> FRegistry::RegisterStagedService(FName Service, FName TypeId, const TCHAR* Signature,
+                                                           const FScope& Scope, UObject* Instance,
+                                                           TWeakPtr<FModExtensionWorld> World)
+{
+	if (Service.IsNone() || !Signature)
+	{
+		return TModResult<FRegistration>::Failure(EError::InvalidArgument);
+	}
+	return RegisterProvider(Service, TypeId, Signature, Scope, Instance, true, MoveTemp(World));
+}
+
+bool FRegistry::HasServiceType(FName TypeId, const TCHAR* Signature) const
+{
+	const auto* Type = State->Types.Find(TypeId);
+	return Type && (*Type)->bActive && (*Type)->Descriptor.Scope == EScope::World &&
+	       (*Type)->Descriptor.Signature == Signature;
 }
 
 TModResult<FRegistration> FRegistry::RegisterProvider(FName Service, FName TypeId, const TCHAR* Signature,
-                                                      const FScope& Scope, UObject* Instance)
+                                                      const FScope& Scope, UObject* Instance,
+                                                      bool bAllowBeforeBeginPlay, TWeakPtr<FModExtensionWorld> World)
 {
 	if (!IsInGameThread())
 	{
@@ -531,7 +585,8 @@ TModResult<FRegistration> FRegistry::RegisterProvider(FName Service, FName TypeI
 	{
 		return TModResult<FRegistration>::Failure(EError::ObjectUnavailable);
 	}
-	if (const EError Error = CheckObject(Instance, Scope.State, (*Type)->Descriptor.bAllowWorldless);
+	if (const EError Error =
+	        CheckObject(Instance, Scope.State, (*Type)->Descriptor.bAllowWorldless, bAllowBeforeBeginPlay);
 	    Error != EError::None)
 	{
 		return TModResult<FRegistration>::Failure(Error);
@@ -552,6 +607,9 @@ TModResult<FRegistration> FRegistry::RegisterProvider(FName Service, FName TypeI
 	}
 	TSharedPtr<FProviderState> Provider = MakeShared<FProviderState>();
 	Provider->Service = Service;
+	Provider->bAllowBeforeBeginPlay = bAllowBeforeBeginPlay;
+	Provider->bManagedService = World.IsValid();
+	Provider->ExtensionWorld = MoveTemp(World);
 	Provider->Scope = Scope.State;
 	Provider->Type = *Type;
 	Provider->Object = Instance;
@@ -637,6 +695,47 @@ TModResult<FObjectBinding> FRegistry::BindProvider(FName Service, FName TypeId, 
 	return TModResult<FObjectBinding>::Failure(EError::NotRegistered);
 }
 
+TModResult<FObjectBinding> FRegistry::BindPayload(const FCaller& Caller, UObject& Object, FName TypeId,
+                                                  const TCHAR* Signature)
+{
+	using FResult = TModResult<FObjectBinding>;
+	if (!IsInGameThread())
+	{
+		return FResult::Failure(EError::WrongThread);
+	}
+	if (!CallerAlive(State, Caller.State))
+	{
+		return FResult::Failure(EError::BindingExpired);
+	}
+	const auto* Type = State->Types.Find(TypeId);
+	if (!Type || (*Type)->Descriptor.Signature != Signature || (*Type)->Descriptor.Scope != EScope::World)
+	{
+		return FResult::Failure(EError::SignatureMismatch);
+	}
+	FObjectBinding Binding;
+	Binding.State = MakeBinding(State, Caller.State, Caller.State->Scope, *Type, &Object);
+	Binding.State->bReadOnly = true;
+	if (const EError Error = CheckBinding(Binding.State); Error != EError::None)
+	{
+		return FResult::Failure(Error);
+	}
+	return FResult::Success(MoveTemp(Binding));
+}
+
+TModResult<FObjectBinding> FObjectBinding::Borrow(TWeakPtr<const uint8> Lifetime) const
+{
+	using FResult = TModResult<FObjectBinding>;
+	if (const EError Error = CheckBinding(State); Error != EError::None)
+	{
+		return FResult::Failure(Error);
+	}
+	FObjectBinding Copy;
+	Copy.State = MakeShared<FBindingState>(*State);
+	Copy.State->bBorrowed = true;
+	Copy.State->BorrowLifetime = MoveTemp(Lifetime);
+	return FResult::Success(MoveTemp(Copy));
+}
+
 TModResult<const void*> FObjectBinding::ResolveCalls(FName TypeId, const TCHAR* Signature) const
 {
 	if (const EError Error = CheckBinding(State); Error != EError::None)
@@ -650,8 +749,18 @@ TModResult<const void*> FObjectBinding::ResolveCalls(FName TypeId, const TCHAR* 
 	return TModResult<const void*>::Success(State->Type->Descriptor.Calls);
 }
 
+FServiceInvocation::~FServiceInvocation()
+{
+	if (World)
+	{
+		Target.Reset();
+		World->FinishDispatch();
+	}
+}
+
 TModResult<UObject*> FHostAccess::Enter(const FObjectBinding& Binding, FName TypeId, EScope Scope,
-                                        TConstArrayView<FName> Permissions, bool bMutable)
+                                        TConstArrayView<FName> Permissions, bool bMutable,
+                                        FServiceInvocation* Invocation)
 {
 	if (const EError Error = CheckBinding(Binding.State); Error != EError::None)
 	{
@@ -672,6 +781,28 @@ TModResult<UObject*> FHostAccess::Enter(const FObjectBinding& Binding, FName Typ
 		{
 			return TModResult<UObject*>::Failure(EError::PermissionDenied);
 		}
+	}
+	if (Target->Provider && Target->Provider->bManagedService)
+	{
+		auto World = Target->Provider->ExtensionWorld.Pin();
+		if (!World)
+		{
+			return TModResult<UObject*>::Failure(EError::NotReady);
+		}
+		const FCaller* Cleaning = World->CleanupOwner ? World->Callers.Find(World->CleanupOwner.GetValue()) : nullptr;
+		if (World->Phase != FModExtensionWorld::EState::Ready &&
+		    !(World->Phase == FModExtensionWorld::EState::Preparing && World->bBindingServices) &&
+		    !(Cleaning && Cleaning->State == Target->Caller))
+		{
+			return TModResult<UObject*>::Failure(EError::NotReady);
+		}
+		if (!Invocation || Invocation->World)
+		{
+			return TModResult<UObject*>::Failure(EError::InvalidArgument);
+		}
+		++World->Depth;
+		Invocation->Target.Reset(Target->Object.Get());
+		Invocation->World = MoveTemp(World);
 	}
 	return TModResult<UObject*>::Success(Target->Object.Get());
 }
@@ -787,11 +918,64 @@ TModResult<FObjectBinding> FHostAccess::ProjectObject(const FObjectBinding& Sour
 	{
 		Result.State->Provider = Source.State->Provider;
 	}
-	Result.State->bReadOnly = bReadOnly || ((*Type)->Descriptor.bFullView && Source.State->bReadOnly);
+	Result.State->bBorrowed = Source.State->bBorrowed;
+	Result.State->BorrowLifetime = Source.State->BorrowLifetime;
+	Result.State->bReadOnly =
+	    bReadOnly || (Source.State->bReadOnly && ((*Type)->Descriptor.bFullView || Source.State->bBorrowed));
 	return TModResult<FObjectBinding>::Success(MoveTemp(Result));
 }
 
-TModResult<FNativeContext> FNativeAccess::Open(FRegistry& Registry, const FCaller& Caller)
+void FNativeAccess::StoreHostQuery(const TCHAR* Module, const TCHAR* Symbol, void* Query)
+{
+	check(IsInGameThread());
+	GetNativeQueries().Add(TPair<FString, FString>(Module, Symbol), Query);
+}
+
+void* FNativeAccess::FindHostQuery(const TCHAR* Module, const TCHAR* Symbol)
+{
+	return IsInGameThread() ? GetNativeQueries().FindRef(TPair<FString, FString>(Module, Symbol)) : nullptr;
+}
+
+void FNativeAccess::ForgetHostQueries(const TCHAR* Module)
+{
+	check(IsInGameThread());
+	for (auto Iter = GetNativeQueries().CreateIterator(); Iter; ++Iter)
+	{
+		if (Iter.Key().Key == Module)
+		{
+			Iter.RemoveCurrent();
+		}
+	}
+}
+
+TModResult<FObjectBinding> FNativeAccess::ResolveAnyObject(uint64 Context, uint64 Object)
+{
+	using FResult = TModResult<FObjectBinding>;
+	if (!IsInGameThread())
+	{
+		return FResult::Failure(EError::WrongThread);
+	}
+	const auto* Entry = FindNativeContext(Context);
+	const auto* Binding = Entry ? Entry->Objects.Find(Object) : nullptr;
+	if (const EError Error = CheckBinding(Binding ? Binding->State : nullptr); Error != EError::None)
+	{
+		return FResult::Failure(Error);
+	}
+	return FResult::Success(*Binding);
+}
+
+TModResult<const UObject*> FNativeAccess::ReadPayloadObject(const FObjectBinding& Binding)
+{
+	using FResult = TModResult<const UObject*>;
+	if (const auto Error = CheckBinding(Binding.State); Error != EError::None)
+	{
+		return FResult::Failure(Error);
+	}
+	return Binding.State->bBorrowed ? FResult::Success(Binding.State->Object.Get())
+	                                : FResult::Failure(EError::ReadOnly);
+}
+
+TModResult<FNativeContext> FNativeAccess::Open(FRegistry& Registry, const FCaller& Caller, bool bExposeScope)
 {
 	if (!IsInGameThread())
 	{
@@ -811,9 +995,9 @@ TModResult<FNativeContext> FNativeAccess::Open(FRegistry& Registry, const FCalle
 	FNativeState Entry;
 	Entry.Registry = Registry.State;
 	Entry.Caller = Caller.State;
-	Entry.Scope = Scope;
+	Entry.Scope = bExposeScope ? Scope : 0;
 	NativeContexts.Add(Context, MoveTemp(Entry));
-	return TModResult<FNativeContext>::Success({Context, Scope});
+	return TModResult<FNativeContext>::Success({Context, bExposeScope ? Scope : 0});
 }
 
 TModResult<void> FNativeAccess::Close(uint64 Context)
@@ -925,6 +1109,8 @@ TModResult<uint64> FNativeAccess::Publish(uint64 Context, FObjectBinding Binding
 			It.RemoveCurrent();
 		}
 		else if (Existing->Object == Binding.State->Object && Existing->Type == Binding.State->Type &&
+		         Existing->bBorrowed == Binding.State->bBorrowed &&
+		         (!Existing->bBorrowed || Existing->BorrowLifetime.Pin() == Binding.State->BorrowLifetime.Pin()) &&
 		         Existing->Scope == Binding.State->Scope && Existing->Provider == Binding.State->Provider &&
 		         Existing->bReadOnly == Binding.State->bReadOnly)
 		{

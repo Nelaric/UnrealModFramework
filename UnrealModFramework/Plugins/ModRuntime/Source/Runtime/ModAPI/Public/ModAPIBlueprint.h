@@ -34,6 +34,8 @@ struct FBlueprintParameter
 	FName PropertyClass;
 	/// Parameter direction and result convention.
 	EBlueprintParameter Role;
+	/// Exact reflected type path for a projected parameter.
+	FName TypePath = NAME_None;
 
 	bool operator==(const FBlueprintParameter& Other) const = default;
 };
@@ -53,13 +55,14 @@ class MODAPI_API FBlueprintCall
 public:
 	/** @brief Describes a synchronous Blueprint function on the game thread.
 	 * @param Function The compiled Blueprint function.
+	 * @param bProjected Whether to describe supported reflected structs.
 	 * @return The ordered parameter descriptions or a signature error.
 	 */
-	static TModResult<TArray<FBlueprintParameter>> Describe(const UFunction& Function);
+	static TModResult<TArray<FBlueprintParameter>> Describe(const UFunction& Function, bool bProjected = false);
 
 public:
-	static TModResult<TSharedPtr<const FBlueprintCall>> Bind(UClass& DeclaringClass, UClass& ActualClass,
-	                                                         const FBlueprintFunction& Expected);
+	static TModResult<TSharedPtr<const FBlueprintCall>>
+	Bind(UClass& DeclaringClass, UClass& ActualClass, const FBlueprintFunction& Expected, bool bProjected = false);
 	static void Invalidate();
 	bool IsCurrent() const;
 	const FProperty* GetParameter(int32 Index) const

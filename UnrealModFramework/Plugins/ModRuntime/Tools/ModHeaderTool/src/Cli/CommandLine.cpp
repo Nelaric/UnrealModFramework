@@ -62,7 +62,7 @@ Usage:
   ModHeaderTool check-options <file.uproject|directory> <metadata-options.json>
   ModHeaderTool --help
 
-generate resolves active API markers with libclang and an actual compilation
+generate resolves active API, Hook, and Event markers with libclang and a compilation
 database. The build input pins modules, translation units, stable type identities,
 Target context and analysis arguments. It emits SDK views, concrete host bridges,
 compile verification, a contract and a complete manifest at fixed output paths.
@@ -73,9 +73,11 @@ and lifecycle source paths for the current target.
 The backend supports public UObject instance methods on GameThread, scalar
 and UObject pointer inputs, and scalar/void or World-scoped UObject pointer returns.
 FullView selects parameter classes for public instance method generation.
-Object returns use the explicitly selected ErrorIfNull projection. Other forms,
-Event and Hook generation are rejected. An optional Blueprint export snapshot
-adds synchronous scalar instance APIs extracted by the Editor commandlet.
+Object returns use the explicitly selected ErrorIfNull projection.
+World Hook and Event contracts support float, double, int32, int64, bool, and byte.
+A Hook takes one scalar and returns the same type. An Event takes one scalar
+and returns void. A Blueprint export snapshot adds scalar API, Hook, and Event
+declarations extracted by the Editor commandlet.
 
 When a project directory is supplied, it must contain exactly one .uproject.
 Scans Plugins, Source, and Directories from the optional <project>.modexpot JSON.

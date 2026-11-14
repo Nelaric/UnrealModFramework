@@ -3,9 +3,29 @@
 #pragma once
 
 #include "ModAPIRegistry.h"
+#include "UObject/StrongObjectPtr.h"
+
+struct FModExtensionWorld;
 
 namespace Mod::API
 {
+/// Keeps the World and target alive for one generated service call.
+class MODAPI_API FServiceInvocation
+{
+public:
+	/// Starts without owning a service call.
+	FServiceInvocation() = default;
+	/// Releases the call at the World dispatch boundary.
+	~FServiceInvocation();
+
+private:
+	FServiceInvocation(const FServiceInvocation&) = delete;
+	FServiceInvocation& operator=(const FServiceInvocation&) = delete;
+	friend struct FHostAccess;
+	TSharedPtr<FModExtensionWorld> World;
+	TStrongObjectPtr<UObject> Target;
+};
+
 /// Publishes a generated module's registration entry point until unload.
 class MODAPI_API FGeneratedHostRegistration
 {
@@ -15,8 +35,13 @@ public:
 
 	/** @brief Publishes an entry point for future game instances.
 	 * @param InRegister The generated entry point in the owning module.
+	 * @param InModule The module that owns the native query, when present.
+	 * @param InExportHash The generated export contract digest, when present.
 	 */
-	explicit FGeneratedHostRegistration(FRegister InRegister);
+	explicit FGeneratedHostRegistration(FRegister InRegister, const TCHAR* InModule = nullptr,
+	                                    const TCHAR* InExportHash = nullptr);
+	/// Collects the distinct export digests registered by this host.
+	static void DescribeContracts(TArray<FString>& Digests);
 	/// Withdraws the entry point and invalidates its live type registrations.
 	~FGeneratedHostRegistration();
 
@@ -25,11 +50,14 @@ private:
 	FGeneratedHostRegistration& operator=(const FGeneratedHostRegistration&) = delete;
 
 	friend class ::UModAPIHostSubsystem;
+	friend class FModAPIModule;
 	static TModResult<TArray<FRegistration>> RegisterAll(FRegistry& Registry);
 
 	static FGeneratedHostRegistration* First;
 	FGeneratedHostRegistration* Next;
 	FRegister Register;
+	const TCHAR* Module;
+	const TCHAR* ExportHash;
 	TArray<TWeakPtr<FRegistrationState>> ActiveTypes;
 };
 
@@ -42,10 +70,12 @@ struct MODAPI_API FHostAccess
 	 * @param Scope Required scope kind.
 	 * @param Permissions Required exact permission identifiers.
 	 * @param bMutable Whether the source member may mutate its target.
+	 * @param Invocation Holds the service call until the bridge returns.
 	 * @return The host object or a recoverable validation failure.
 	 */
 	static TModResult<UObject*> Enter(const FObjectBinding& Binding, FName TypeId, EScope Scope,
-	                                  TConstArrayView<FName> Permissions, bool bMutable);
+	                                  TConstArrayView<FName> Permissions, bool bMutable,
+	                                  FServiceInvocation* Invocation = nullptr);
 	/** @brief Checks a borrowed UE object argument on the game thread.
 	 * @param Binding The target of the current invocation.
 	 * @param Object The supplied object, which may be null.

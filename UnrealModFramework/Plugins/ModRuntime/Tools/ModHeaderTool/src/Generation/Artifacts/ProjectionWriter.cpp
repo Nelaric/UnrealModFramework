@@ -15,6 +15,7 @@
 #include "ModHeaderTool/src/Metadata/MetadataValue.h"
 #include "ModHeaderTool/src/Scan/ExportMacro.h"
 
+#include <algorithm>
 #include <nlohmann/json.hpp>
 #include <set>
 #include <stdexcept>
@@ -185,8 +186,21 @@ Projection ProjectionWriter::BuildProjection(GenerationModel& Model)
 	if (!Model.Extensions.empty())
 	{
 		auto& Extensions = Projection.Contract["extensions"] = Json::array();
-		for (const auto& [Id, Entry] : Model.Extensions)
+		for (auto& [Id, Entry] : Model.Extensions)
 		{
+			if (Entry.PayloadKind == "Object")
+			{
+				const auto View = std::ranges::find_if(Model.Types,
+				                                       [&](const auto& Item) {
+					                                       return Item.second.Identity.Id == Entry.PayloadTypeId &&
+					                                              Item.second.Identity.Scope == "World";
+				                                       });
+				if (View == Model.Types.end())
+				{
+					throw std::runtime_error(Entry.Location + ": object payload has no generated World view.");
+				}
+				Entry.PayloadViewSignature = View->second.Signature;
+			}
 			auto Descriptor = Entry.Describe();
 			Descriptor["signatureHash"] = Entry.Signature();
 			Extensions.push_back(std::move(Descriptor));

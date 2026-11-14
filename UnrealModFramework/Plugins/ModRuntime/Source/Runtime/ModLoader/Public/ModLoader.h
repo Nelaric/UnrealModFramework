@@ -3,6 +3,8 @@
 #pragma once
 
 #include "Containers/Array.h"
+#include "Containers/Map.h"
+#include "Containers/Set.h"
 #include "Containers/UnrealString.h"
 #include "Delegates/Delegate.h"
 #include "Misc/Optional.h"
@@ -70,6 +72,30 @@ enum class ELoadError : uint8
 	MountFailed,
 	/// Engine mount state requires a process restart.
 	RestartRequired,
+	/// This candidate was excluded by the host's package selection.
+	NotSelected,
+	/// The host could not prepare the selected dependency graph.
+	PlanRejected,
+};
+
+/// Host selection applied before mounting or freezing a session.
+struct FPackageSelection
+{
+	/// An unset filter enables all eligible candidates.
+	TOptional<TSet<FString>> Enabled;
+	/// Packages whose absence blocks preparation.
+	TSet<FString> Required;
+	/// Exact archive selections, keyed by lowercase Mod ID.
+	TMap<FString, FString> Archives;
+};
+
+/// Shared release identity assigned by the host to specific archive bytes.
+struct FGameplayRelease
+{
+	/// Stable ID shared by compatible target artifacts.
+	FString ReleaseId;
+	/// SHA-256 of their shared gameplay contract.
+	FString CompatibilityDigest;
 };
 
 /// Release identity and trust settings supplied by the game.
@@ -91,6 +117,14 @@ struct FLoadPolicy
 	TOptional<bool> bEnforcePackageAllowlist;
 	/// Enables compatible UE code packages for this host release.
 	bool bAllowNativeModules = false;
+	/// Enables hash-verified independent Win64 extension DLLs.
+	bool bAllowNativeExtensions = false;
+	/// Selection for this load and its directory watcher.
+	FPackageSelection Selection;
+	/// Capabilities granted at process admission.
+	TMap<FString, TSet<FName>> Grants;
+	/// Host-published gameplay release identities keyed by archive SHA-256.
+	TMap<FString, FGameplayRelease> GameplayReleases;
 };
 
 /// Content described by a mounted mod package.
@@ -114,6 +148,36 @@ struct FMountedPackage
 	TArray<FString> LifecycleClasses;
 	/// Verified extension requirements and content declarations.
 	FPackageExtensions Extensions;
+	/// Capabilities granted by the policy that admitted this archive.
+	TSet<FName> GrantedCapabilities;
+	/// Shared release identity, defaulting to the exact archive digest.
+	FGameplayRelease GameplayRelease;
+	/// Whether the admission policy requires this package to be present.
+	bool bRequiredByHost = false;
+	/// Verified absolute path of an optional independent extension DLL.
+	FString NativeExtensionPath;
+	/// SHA-256 from the verified native payload index.
+	FString NativeExtensionDigest;
+};
+
+/** @brief Resolves a package set in dependency order.
+ * @param Candidates Verified package records in arbitrary order.
+ * @param Selection Host filters, requirements and exact pins.
+ * @param OutOrder Indices of the selected records in load order.
+ * @param OutError Conflict or dependency details when resolution fails.
+ * @return Whether the entire selected plan is consistent.
+ */
+MODLOADER_API bool ResolvePackageOrder(TConstArrayView<const FMountedPackage*> Candidates,
+                                       const FPackageSelection& Selection, TArray<int32>& OutOrder, FString& OutError);
+
+/// Hashes canonical UTF-8 plan data with SHA-256.
+MODLOADER_API FString HashPackagePlan(const FString& CanonicalPlan);
+/// Verifies a cached native extension before opening its module.
+MODLOADER_API bool VerifyNativeExtension(const FMountedPackage& Package);
+
+/// Keeps extension admission fixed while a GameInstance has a live session.
+struct FPackageSessionLease
+{
 };
 
 /// Outcome for one input path, including its mounted content on success.
@@ -213,6 +277,14 @@ public:
 public:
 	virtual TSharedPtr<const FMountedPackage> PinMountedPackage(const FString& ModId) = 0;
 	virtual TArray<FLoadResult> GetStartupResults() const = 0;
+	virtual TSharedRef<const FPackageSessionLease> PinPackageSession() = 0;
+	virtual bool IsRestartRequired() const = 0;
+	virtual void RequireRestart(const FString& Reason) = 0;
+	DECLARE_DELEGATE_RetVal_TwoParams(bool, FValidateExtensions, const FMountedPackage&, FString&);
+	FValidateExtensions& ValidateExtensions()
+	{
+		return ExtensionValidator;
+	}
 
 protected:
 	void BroadcastLoadCompleted(ELoadOrigin Origin, const FString& Path, TConstArrayView<FLoadResult> Results)
@@ -228,5 +300,6 @@ protected:
 private:
 	FOnLoadCompleted LoadCompleted;
 	FOnBeforeUnload BeforeUnload;
+	FValidateExtensions ExtensionValidator;
 };
 } // namespace Mod::Loader

@@ -219,6 +219,12 @@ int32 UModExportOptionsCommandlet::Main(const FString& Params)
 		Authorities.Add(UTF8_TO_TCHAR(Authority.data()));
 	}
 	Options->SetArrayField(TEXT("ExtensionAuthorities"), JsonStrings(Authorities));
+	TArray<FString> UnsubscribeRules;
+	for (const std::string_view Rule : Schema::EventUnsubscribeRules)
+	{
+		UnsubscribeRules.Add(UTF8_TO_TCHAR(Rule.data()));
+	}
+	Options->SetArrayField(TEXT("EventUnsubscribeRules"), JsonStrings(UnsubscribeRules));
 	TArray<FString> Operations;
 	for (const Schema::FHookOperationSpec& Operation : Schema::HookOperations)
 	{

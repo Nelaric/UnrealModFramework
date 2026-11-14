@@ -126,9 +126,9 @@ bool WriteExtension(const FExportedExtension& Entry, UBlueprint& Blueprint, TSet
 		       *Blueprint.GetPathName(), *Entry.Name.ToString());
 		return true;
 	}
-	if (!Entry.Guid.IsValid() || Ids.Contains(Entry.Guid) || !Entry.bSupportedPayload)
+	if (!Entry.Guid.IsValid() || Ids.Contains(Entry.Guid) || !Entry.bSupportedPayload || Entry.ScalarProperty.IsNone())
 	{
-		return Fail(TEXT("Expected a unique scalar declaration for the connected extension node."));
+		return Fail(TEXT("Expected a unique supported declaration for the connected extension node."));
 	}
 	auto Json = MakeShared<FJsonObject>();
 	Json->SetStringField(TEXT("guid"), Entry.Guid.ToString(EGuidFormats::Digits).ToLower());
@@ -136,24 +136,38 @@ bool WriteExtension(const FExportedExtension& Entry, UBlueprint& Blueprint, TSet
 	Json->SetStringField(TEXT("version"), Entry.Version);
 	Json->SetStringField(TEXT("permission"), Entry.Permission.IsNone() ? FString() : Entry.Permission.ToString());
 	Json->SetBoolField(TEXT("hook"), Entry.bHook);
+	Json->SetStringField(TEXT("scalarProperty"), Entry.ScalarProperty.ToString());
 	Json->SetBoolField(TEXT("authorityOnly"), Entry.bAuthorityOnly);
+	if (!Entry.StructPath.IsEmpty())
+	{
+		Json->SetStringField(TEXT("structPath"), Entry.StructPath);
+		Json->SetStringField(TEXT("structLayout"), Entry.StructLayout);
+	}
+	if (!Entry.ObjectPath.IsEmpty())
+	{
+		Json->SetStringField(TEXT("objectPath"), Entry.ObjectPath);
+		Json->SetStringField(TEXT("objectViewId"), Entry.ObjectViewId.ToString().ToLower());
+	}
 	if (Entry.bHook)
 	{
 		UFunction* Function = Blueprint.GeneratedClass->FindFunctionByName(Entry.Name, EIncludeSuperFlag::ExcludeSuper);
-		if (!Function || Entry.Stages.Contains(TEXT("On")) || Entry.Stages.IsEmpty())
+		if (!Function || Entry.Stages.IsEmpty())
 		{
-			return Fail(TEXT("Expected a compiled original graph and Pre/Post stages."));
+			return Fail(TEXT("Expected a compiled original graph and at least one stage."));
 		}
-		const auto Shape = FBlueprintCall::Describe(*Function);
+		const auto Shape =
+		    FBlueprintCall::Describe(*Function, !Entry.StructPath.IsEmpty() || !Entry.ObjectPath.IsEmpty());
 		if (!Shape.IsSuccess() || Shape.GetValue().Num() != 2)
 		{
-			return Fail(TEXT("Hook original graph must take one Float and produce one Float."));
+			return Fail(TEXT("Hook original graph must take and return the declared payload."));
 		}
 		const auto& Parameters = Shape.GetValue();
-		if (Parameters[0].PropertyClass != TEXT("FloatProperty") || Parameters[0].Role != EBlueprintParameter::Input ||
-		    Parameters[1].PropertyClass != TEXT("FloatProperty") || Parameters[1].Role == EBlueprintParameter::Input)
+		const FName TypePath(*(Entry.ObjectPath.IsEmpty() ? Entry.StructPath : Entry.ObjectPath));
+		if (Parameters[0].PropertyClass != Entry.ScalarProperty || Parameters[0].Role != EBlueprintParameter::Input ||
+		    Parameters[1].PropertyClass != Entry.ScalarProperty || Parameters[1].Role == EBlueprintParameter::Input ||
+		    Parameters[0].TypePath != TypePath || Parameters[1].TypePath != TypePath)
 		{
-			return Fail(TEXT("Hook original graph must take one Float and produce one Float."));
+			return Fail(TEXT("Hook original graph must take and return the declared payload."));
 		}
 		Json->SetStringField(TEXT("input"), Parameters[0].Name.ToString());
 		Json->SetStringField(TEXT("output"), Parameters[1].Name.ToString());
@@ -161,14 +175,26 @@ bool WriteExtension(const FExportedExtension& Entry, UBlueprint& Blueprint, TSet
 		                     Parameters[1].Role == EBlueprintParameter::Return ? TEXT("Return") : TEXT("Output"));
 		Json->SetBoolField(TEXT("pre"), Entry.Stages.Contains(TEXT("Pre")));
 		Json->SetBoolField(TEXT("post"), Entry.Stages.Contains(TEXT("Post")));
+		Json->SetBoolField(TEXT("on"), Entry.Stages.Contains(TEXT("On")));
 		const int32 Operations = (Entry.Operations.Contains(TEXT("ModifyInputs")) ? 1 : 0) |
 		                         (Entry.Operations.Contains(TEXT("Cancel")) ? 2 : 0) |
-		                         (Entry.Operations.Contains(TEXT("ModifyResult")) ? 4 : 0);
+		                         (Entry.Operations.Contains(TEXT("ModifyResult")) ? 4 : 0) |
+		                         (Entry.Operations.Contains(TEXT("Wrap")) ? 8 : 0) |
+		                         (Entry.Operations.Contains(TEXT("Replace")) ? 16 : 0);
 		Json->SetNumberField(TEXT("operations"), Operations);
 	}
-	else if (Entry.Scope != TEXT("World") || Entry.PublishRule != TEXT("Immediate"))
+	else if (Entry.Scope != TEXT("World") ||
+	         (Entry.PublishRule != TEXT("Immediate") && Entry.PublishRule != TEXT("NextTick")))
 	{
-		return Fail(TEXT("Event must select World scope and Immediate publication."));
+		return Fail(TEXT("Event must select World scope and a supported publication rule."));
+	}
+	if (!Entry.bHook && Entry.PublishRule == TEXT("NextTick"))
+	{
+		Json->SetBoolField(TEXT("queued"), true);
+	}
+	if (!Entry.bHook && Entry.bImmediateUnsubscribe)
+	{
+		Json->SetBoolField(TEXT("immediateUnsubscribe"), true);
 	}
 	Ids.Add(Entry.Guid);
 	Output.Add(MakeShared<FJsonValueObject>(Json));
