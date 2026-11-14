@@ -27,6 +27,7 @@ obj/
 .gradle/
 
 # Local agent instructions, workspaces, and caches
+/AGENTS.md
 .agents/
 .agent/
 .codex/
