@@ -1,0 +1,14 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.6",
+  "DisableEnginePluginsByDefault": true,
+  "Modules": [
+    { "Name": "BenchmarkMod", "Type": "Runtime", "LoadingPhase": "Default" },
+    { "Name": "BenchmarkModEditor", "Type": "Editor", "LoadingPhase": "Default" }
+  ],
+  "Plugins": [
+    { "Name": "ModRuntime", "Enabled": true },
+    { "Name": "Niagara", "Enabled": true },
+    { "Name": "ModDevelopmentSDKEditor", "Enabled": true }
+  ]
+}

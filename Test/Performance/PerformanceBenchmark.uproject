@@ -1,0 +1,17 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.6",
+  "Description": "Standalone UnrealModFramework call benchmark.",
+  "DisableEnginePluginsByDefault": true,
+  "Modules": [
+    { "Name": "PerformanceBenchmark", "Type": "Runtime", "LoadingPhase": "Default" },
+    { "Name": "PerformanceBenchmarkEditor", "Type": "Editor", "LoadingPhase": "Default" }
+  ],
+  "Plugins": [
+    { "Name": "ModRuntime", "Enabled": true },
+    { "Name": "Niagara", "Enabled": true },
+    { "Name": "AnimationData", "Enabled": true },
+    { "Name": "ACLPlugin", "Enabled": true },
+    { "Name": "FullBodyIK", "Enabled": true }
+  ]
+}
