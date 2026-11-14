@@ -32,7 +32,7 @@ std::string LifecycleExport::ExportLifecycleDeclarations(const fs::path& Source)
 		std::erase(Declaration, '\r');
 		Declarations[Name] = std::move(Declaration);
 	}
-	return Json{{"format", "UMF.ModLifecycleExport"}, {"schemaVersion", 1}, {"declarations", Declarations}}.dump(2) +
+	return Json{{"format", "UMF.ModLifecycleExport"}, {"schemaVersion", 2}, {"declarations", Declarations}}.dump(2) +
 	       '\n';
 }
 } // namespace Mod::HeaderTool

@@ -155,9 +155,46 @@ void Merge(GenerationModel& Model, const fs::path& Snapshot)
 		Model.Dependencies.insert(Asset);
 		Type.Symbol = "T_" + Hash::HashBytes(Type.Identity.Id).substr(0, 16);
 		Type.Identity.CppName = "Mod::Generated::FBlueprint_" + Type.Symbol;
-		if (!Record.at("apis").is_array() || Record.at("apis").empty())
+		if (!Record.at("apis").is_array() || (Record.contains("extensions") && !Record.at("extensions").is_array()))
 		{
-			throw std::runtime_error(Source + ": expected an array of Blueprint API declarations.");
+			throw std::runtime_error(Source + ": expected arrays of Blueprint declarations.");
+		}
+		for (const auto& Item : Record.value("extensions", Json::array()))
+		{
+			Extension Entry;
+			const auto Guid = ExportNameRules::Fold(GenerationFields::Required(Item, "guid"));
+			Entry.bHook = Item.at("hook").get<bool>();
+			Entry.Id = std::string(Entry.bHook ? "hook/" : "event/") + Guid;
+			Entry.Module = Type.Module;
+			Entry.BlueprintClass = Type.BlueprintClass;
+			Entry.Name = GenerationFields::Required(Item, "name");
+			Entry.Version = GenerationFields::Required(Item, "version");
+			Entry.Permission = Item.at("permission").get<std::string>();
+			Entry.Location = Source + ":" + Entry.Name;
+			Entry.Macro.File = Asset;
+			Entry.bAuthorityOnly = Item.at("authorityOnly").get<bool>();
+			Entry.SourceSignature = "Blueprint:" + std::string(Entry.bHook ? "float(float)" : "void(float)");
+			if (!IsGuid(Guid) || !Guids.insert(Guid).second || !Validator::IsVersion(Entry.Version))
+			{
+				throw std::runtime_error(Entry.Location + ": invalid or duplicate extension identity.");
+			}
+			if (Entry.bHook)
+			{
+				Entry.Input = GenerationFields::Required(Item, "input");
+				Entry.Output = GenerationFields::Required(Item, "output");
+				Entry.OutputRole = GenerationFields::Required(Item, "outputRole");
+				Entry.bPre = Item.at("pre").get<bool>();
+				Entry.bPost = Item.at("post").get<bool>();
+				const auto Operations = Item.at("operations").get<int>();
+				if (Operations < 0 || Operations > 7 || (!Entry.bPre && !Entry.bPost) ||
+				    (!Entry.bPre && (Operations & 3)) || (!Entry.bPost && (Operations & 4)) ||
+				    (Entry.OutputRole != "Return" && Entry.OutputRole != "Output"))
+				{
+					throw std::runtime_error(Entry.Location + ": invalid Hook policy or signature.");
+				}
+				Entry.Operations = static_cast<std::uint8_t>(Operations);
+			}
+			AddExtension(Model, std::move(Entry));
 		}
 		for (const auto& Entry : Record.at("apis"))
 		{
@@ -168,6 +205,10 @@ void Merge(GenerationModel& Model, const fs::path& Snapshot)
 			}
 			Type.APIs.push_back(Model.APIs.size());
 			Model.APIs.push_back(std::move(Api));
+		}
+		if (Type.APIs.empty())
+		{
+			continue;
 		}
 		const auto Key = Type.Identity.CppName;
 		if (!Model.Types.emplace(Key, std::move(Type)).second)

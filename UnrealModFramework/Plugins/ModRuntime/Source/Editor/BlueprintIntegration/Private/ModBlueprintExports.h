@@ -100,6 +100,15 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Event", meta = (GetOptions = "GetPublishRules"))
 	FString PublishRule;
 
+	UPROPERTY(EditAnywhere, Category = "Event")
+	bool bScalarPayload = false;
+
+	UPROPERTY(EditAnywhere, Category = "Event")
+	FName SubscribePermission;
+
+	UPROPERTY(EditAnywhere, Category = "Event")
+	bool bAuthorityOnly = true;
+
 	UFUNCTION()
 	TArray<FString> GetSourceScopes() const;
 
@@ -142,6 +151,12 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "Hook")
 	TArray<EModBlueprintHookOperation> AllowedOperations;
+
+	UPROPERTY(EditAnywhere, Category = "Hook")
+	FName Permission;
+
+	UPROPERTY(EditAnywhere, Category = "Hook")
+	bool bAuthorityOnly = true;
 
 	UPROPERTY()
 	TObjectPtr<UEdGraph> OriginalGraph;

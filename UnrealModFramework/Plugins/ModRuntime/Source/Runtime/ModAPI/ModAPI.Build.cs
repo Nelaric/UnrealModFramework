@@ -7,7 +7,6 @@ public class ModAPI : ModuleRules
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine" });
-		PrivateDependencyModuleNames.Add("ModLoader");
+		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ModLoader" });
 	}
 }

@@ -54,7 +54,7 @@ UnrealEditor-Cmd <作者工程.uproject> -run=ModPackage -Request=<Request.json>
 | Header 偏移 | 长度 | 字段 |
 | --- | --- | --- |
 | 0 | 8 | `UMFMOD` 后跟两个零字节 |
-| 8 | 2 | 内容包为主版本 `1`，含原生代码的内容包为主版本 `2` |
+| 8 | 2 | 内容包为主版本 `1`，含原生代码的内容包为 `2`，带扩展清单的包为 `3` |
 | 10 | 2 | 次版本 `0` |
 | 12 | 4 | Header 字节数 `64` |
 | 16 | 8 | Manifest 偏移 `64` |
@@ -63,6 +63,16 @@ UnrealEditor-Cmd <作者工程.uproject> -run=ModPackage -Request=<Request.json>
 | 40 | 8 | Index 字节数 |
 | 48 | 8 | 文件总字节数 |
 | 56 | 8 | Flags，必须为 `0` |
+
+在打包设置选择 **Mod 扩展清单**，或在打包请求中填写 `extensionsFile`。带清单的包使用归档 v3，扩展清单自身使用 `schemaVersion: 1`。按需提供以下数组。
+
+- `contracts` 每项包含生成的 Hook/Event `id` 和 SDK 中的 `signatureHash`，在清单字段 `signature` 中填写该摘要。
+- `dependencies` 每项包含 `modId`，可选的 `minimum`、`before` 和 `required`。版本下界包含，版本上界排除，默认必需。
+- `services` 每项包含服务 `id`、提供者 Mod 的 `provider`、生成的 `typeId` 和调用表 `signature`，并可声明相同的版本范围与必需性。
+- `content` 每项包含 `slot`、`id`、`action` 和可选的 `priority`。操作支持 `provide`、`replace` 和 `disable`。提供和替换要求 `asset` 为本包的软对象路径。
+- `patches` 每项包含 `id`、`anchor`、`actorClass`，并可填写 `conflictKey`、`required` 和同一锚点下的 `after` Patch ID 数组。
+
+用 `UModInstance` 的 **On Mod Register** 调用 **Register Mod Extension**，按 SDK 中的 ID 注册。观察函数接收一个 Float。修改输入或结果的函数接收并返回一个 Float。取消函数接收 Float 并返回 Bool，取消时使用注册中提供的完整结果值。返回的订阅令牌可用于退订。跨 Mod 服务由拥有者在 **On Mod Register** 通过 **Provide Mod Service** 节点或 C++ 的 `Provide` 登记。登记时填写实现宿主 World 接口的服务对象、SDK 类型契约中的 `id` 和 `serviceSignature`，以及服务版本。消费者在 **On Mod Bind** 使用 SDK 生成的 **Acquire Service** 节点。该节点返回同一 SDK 类型化 API 使用的引用。
 
 Manifest 格式为 `UMF.ModPackage`，其版本与 Header 主版本一致，记录 ModId、版本、插件与包根、实际构建配置及基础发布指纹。Index 的 `entries` 按区分大小写的路径升序排列，每项有 `path`、`offset`、`size`、`storage: "None"`、精确载荷 `sha256`。条目路径不得绝对、穿越目录或存在大小写冲突。
 

@@ -98,7 +98,7 @@ MetadataOptions MetadataOptionsReader::LoadMetadataOptions(const Project& Projec
 		}
 	}
 	for (const char* Key : {"APIScopes", "APIThreads", "APIPermissions", "APIFailureRules", "EventSourceScopes",
-	                        "EventPublishRules", "HookStages", "HookOperations"})
+	                        "EventPublishRules", "HookStages", "HookOperations", "ExtensionAuthorities"})
 	{
 		if (!Result.Choices.contains(Key))
 		{

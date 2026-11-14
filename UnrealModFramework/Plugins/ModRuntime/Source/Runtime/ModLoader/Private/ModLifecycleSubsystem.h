@@ -19,7 +19,7 @@ struct FActiveModInstance
 	TObjectPtr<UModInstance> Instance;
 };
 
-UCLASS()
+UCLASS(MinimalAPI)
 class UModLifecycleSubsystem final : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()

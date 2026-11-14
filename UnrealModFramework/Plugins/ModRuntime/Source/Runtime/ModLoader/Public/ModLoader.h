@@ -6,6 +6,8 @@
 #include "Containers/UnrealString.h"
 #include "Delegates/Delegate.h"
 #include "Misc/Optional.h"
+#include "ModPackageExtensions.h"
+#include "Templates/SharedPointer.h"
 #include "Modules/ModuleInterface.h"
 #include "UObject/NameTypes.h"
 
@@ -110,6 +112,8 @@ struct FMountedPackage
 	TArray<FName> PackageNames;
 	/// Cooked Blueprint class paths for the mod's session entry points.
 	TArray<FString> LifecycleClasses;
+	/// Verified extension requirements and content declarations.
+	FPackageExtensions Extensions;
 };
 
 /// Outcome for one input path, including its mounted content on success.
@@ -205,6 +209,10 @@ public:
 	{
 		return BeforeUnload;
 	}
+
+public:
+	virtual TSharedPtr<const FMountedPackage> PinMountedPackage(const FString& ModId) = 0;
+	virtual TArray<FLoadResult> GetStartupResults() const = 0;
 
 protected:
 	void BroadcastLoadCompleted(ELoadOrigin Origin, const FString& Path, TConstArrayView<FLoadResult> Results)

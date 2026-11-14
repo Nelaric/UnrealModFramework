@@ -22,8 +22,9 @@ public:
 	static API Bind(GenerationModel& Model, ClangLibrary& Clang, ExportMacro Macro, const Source& Source,
 	                CXCursor Method);
 
+	static bool CheckGap(const ExportMacro& Macro, const Source& Source, std::size_t DeclarationBegin);
+
 private:
 	static std::string Field(const ExportMacro& Macro, std::string_view Name);
-	static bool CheckGap(const ExportMacro& Macro, const Source& Source, std::size_t DeclarationBegin);
 };
 } // namespace Mod::HeaderTool

@@ -21,6 +21,8 @@ add_library(ModHeaderToolCore STATIC
     src/Analysis/DeclarationBinding.h
     src/Analysis/EngineHeader.cpp
     src/Analysis/EngineHeader.h
+    src/Analysis/ExtensionBinding.cpp
+    src/Analysis/ExtensionBinding.h
     src/Analysis/FullView.cpp
     src/Analysis/FullView.h
     src/Analysis/FullViewSelection.cpp
@@ -77,6 +79,8 @@ add_library(ModHeaderToolCore STATIC
     src/Generation/Artifacts/ArtifactRenderer.h
     src/Generation/Artifacts/CppSignature.cpp
     src/Generation/Artifacts/CppSignature.h
+    src/Generation/Artifacts/ExtensionWriter.cpp
+    src/Generation/Artifacts/ExtensionWriter.h
     src/Generation/Artifacts/GeneratedBatch.cpp
     src/Generation/Artifacts/GeneratedBatch.h
     src/Generation/Artifacts/GeneratedSource.cpp
@@ -109,6 +113,8 @@ add_library(ModHeaderToolCore STATIC
     src/Generation/Artifacts/ProjectionWriter.h
     src/Generation/Artifacts/SdkViewWriter.cpp
     src/Generation/Artifacts/SdkViewWriter.h
+    src/Generation/Extension.cpp
+    src/Generation/Extension.h
     src/Generation/ExportNameRules.cpp
     src/Generation/ExportNameRules.h
     src/Generation/ExportNames.cpp

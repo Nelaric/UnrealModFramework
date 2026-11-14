@@ -29,6 +29,12 @@ enum class EError : uint8
 	ReadOnly,
 	/// A registration or scope argument is invalid or already in use.
 	InvalidArgument,
+	/// The extension recursively entered the same operation.
+	ReentrantCall,
+	/// The extension World has not published its initial plan.
+	NotReady,
+	/// A set of extension declarations cannot be resolved.
+	Conflict,
 };
 } // namespace Mod::API
 

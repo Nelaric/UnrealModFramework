@@ -165,7 +165,15 @@ public:
 	 */
 	TModResult<FObjectBinding> BindProvider(FName TypeId, const TCHAR* Signature, const FCaller& Caller);
 
+public:
+	TModResult<FRegistration> RegisterService(FName Service, FName TypeId, const TCHAR* Signature, const FScope& Scope,
+	                                          UObject* Instance);
+	TModResult<FObjectBinding> BindService(FName Service, FName TypeId, const TCHAR* Signature, const FCaller& Caller);
+
 private:
+	TModResult<FRegistration> RegisterProvider(FName Service, FName TypeId, const TCHAR* Signature, const FScope& Scope,
+	                                           UObject* Instance);
+	TModResult<FObjectBinding> BindProvider(FName Service, FName TypeId, const TCHAR* Signature, const FCaller& Caller);
 	FRegistry(const FRegistry&) = delete;
 	FRegistry& operator=(const FRegistry&) = delete;
 

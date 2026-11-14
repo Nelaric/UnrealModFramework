@@ -72,7 +72,12 @@ Json SdkBundle::InspectSdk(const fs::path& Directory)
 		{
 			throw std::runtime_error("The SDK lifecycle export does not match the contract.");
 		}
-		for (const char* Header : {"ModInstance.h", "ModInstanceSubSystem.h"})
+		std::vector<const char*> Headers{"ModInstance.h", "ModInstanceSubSystem.h"};
+		if (Lifecycle.value("schemaVersion", 0) == 2)
+		{
+			Headers.push_back("ModExtensionLibrary.h");
+		}
+		for (const char* Header : Headers)
 		{
 			if (!fs::is_regular_file(
 			        Mod::BuildTool::Path::ResolveGeneratedPath(Root, PluginRoot + "Source/ModLoader/Public/" + Header)))

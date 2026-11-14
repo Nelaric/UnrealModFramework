@@ -112,6 +112,11 @@ public:
 	static void* ResolveHostQuery(const char* Module, const char* Symbol);
 	TModResult<Mod::API::FWorldCaller> AuthorizeWorldCaller(UModInstance& Mod, FName TypeId, const TCHAR* Signature);
 	void RevokeModCallers(UModInstance& Mod);
+	MODAPI_API Mod::API::FRegistry* GetRegistry() const
+	{
+		return Registry.Get();
+	}
+	MODAPI_API TModResult<Mod::API::FScope> FindOrOpenWorldScope(UWorld* World);
 
 private:
 	struct FPlayerScope
@@ -123,7 +128,6 @@ private:
 	};
 
 	TModResult<FPlayerScope*> OpenPlayerScope(ULocalPlayer* Player, UWorld* World);
-	TModResult<Mod::API::FScope> FindOrOpenWorldScope(UWorld* World);
 	void CloseLocalPlayer(ULocalPlayer* Player);
 	void OnWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
 	void ReleasePlayerScope(const TWeakObjectPtr<ULocalPlayer>& Player, const FPlayerScope& Entry);

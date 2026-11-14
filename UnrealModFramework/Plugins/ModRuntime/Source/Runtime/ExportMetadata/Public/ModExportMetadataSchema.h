@@ -12,7 +12,7 @@ namespace Mod::ExportMetadata
 namespace Schema
 {
 /// Version of the resolved UE metadata option snapshot.
-inline constexpr int SnapshotVersion = 4;
+inline constexpr int SnapshotVersion = 5;
 /// Default location relative to the project root.
 inline constexpr const char* SnapshotPath = "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json";
 /// Default declaration export version.
@@ -21,6 +21,8 @@ inline constexpr const char* DefaultExportVersion = "1.0.0";
 inline constexpr const char* DefaultHookStage = "Post";
 /// Supported Hook stages in the metadata contract.
 inline constexpr std::array<std::string_view, 3> HookStages = {"Pre", "On", "Post"};
+/// Authority policies for synchronous World extensions.
+inline constexpr std::array<std::string_view, 2> ExtensionAuthorities = {"Server", "Any"};
 
 /// A Hook operation and the stage that must be open to allow it.
 struct FHookOperationSpec
@@ -118,14 +120,21 @@ inline constexpr std::array<FFieldSpec, 6> APIFields = {{
     {"CompatibleNames", EFieldType::FunctionNameList, nullptr, false},
 }};
 /// Fields belonging to Event declarations.
-inline constexpr std::array<FFieldSpec, 3> EventFields = {{
+inline constexpr std::array<FFieldSpec, 7> EventFields = {{
     {"SourceScope", EFieldType::Choice, "EventSourceScopes", true},
     {"PublishRule", EFieldType::Choice, "EventPublishRules", true},
     {"PayloadType", EFieldType::StructType, nullptr, false},
+    {"ExportId", EFieldType::NonEmptyText, nullptr, false},
+    {"Permission", EFieldType::NonEmptyText, nullptr, false},
+    {"PublishPermission", EFieldType::NonEmptyText, nullptr, false},
+    {"Authority", EFieldType::Choice, "ExtensionAuthorities", false, "Server"},
 }};
 /// Fields belonging to Hook declarations.
-inline constexpr std::array<FFieldSpec, 3> HookFields = {{
+inline constexpr std::array<FFieldSpec, 6> HookFields = {{
     {"ContextType", EFieldType::StructType, nullptr, false},
+    {"ExportId", EFieldType::NonEmptyText, nullptr, false},
+    {"Permission", EFieldType::NonEmptyText, nullptr, false},
+    {"Authority", EFieldType::Choice, "ExtensionAuthorities", false, "Server"},
     {"AllowedStages", EFieldType::ChoiceList, "HookStages", false, DefaultHookStage},
     {"AllowedOperations", EFieldType::ChoiceList, "HookOperations", false},
 }};

@@ -57,6 +57,10 @@ public:
 	                  ToolTip = "选择包含 Binaries、Build 和 Source 的 Engine 目录。留空使用当前编辑器的 Engine。"))
 	FDirectoryPath HostEngineDirectory;
 
+	/// Optional JSON describing this package's World extensions.
+	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (DisplayName = "Mod 扩展清单", FilePathFilter = "json"))
+	FFilePath ExtensionsFile;
+
 	/// Target UAT platform.
 	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
 	          meta = (DisplayName = "目标平台", GetOptions = "GetTargetPlatforms"))

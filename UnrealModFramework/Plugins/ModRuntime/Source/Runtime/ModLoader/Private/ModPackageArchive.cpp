@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModPackageArchive.h"
 
+#include "ModPackageExtensions.h"
+
 #include "Algo/AllOf.h"
 #include "Containers/StringConv.h"
 #include "Dom/JsonObject.h"
@@ -155,7 +157,7 @@ bool ReadLayout(TConstArrayView<uint8> Header, uint64 FileSize, FArchiveLayout& 
 {
 	const uint8 Version = Header[8];
 	const uint64 VersionAndHeaderSize = (HeaderSize << 32) | Version;
-	if (FMemory::Memcmp(Header.GetData(), Magic, sizeof(Magic)) != 0 || (Version != 1 && Version != 2) ||
+	if (FMemory::Memcmp(Header.GetData(), Magic, sizeof(Magic)) != 0 || (Version < 1 || Version > 3) ||
 	    ReadUInt64(Header.GetData() + 8) != VersionAndHeaderSize || ReadUInt64(Header.GetData() + 16) != HeaderSize ||
 	    ReadUInt64(Header.GetData() + 48) != FileSize || ReadUInt64(Header.GetData() + 56) != 0)
 	{
@@ -312,6 +314,7 @@ bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, con
                   FLoadResult& Result, FArchiveContents& Contents, FPreparedPackage& OutPackage)
 {
 	FMountedPackage& Package = Result.Package;
+	Package.Extensions.bDeclared = Layout.Version == 3;
 	const TSharedPtr<FJsonObject>* Profile = nullptr;
 	if (!IsSchema(Manifest, TEXT("UMF.ModPackage"), Layout.Version) ||
 	    !HasText(Manifest, TEXT("cookReceipt"), ReceiptPath) ||
@@ -354,8 +357,18 @@ bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, con
 	}
 	Package.Backend = Policy.Backend;
 	Contents.CookPlatform = HostCookPlatform;
-	return ReadLifecycleClasses(Manifest, Result) &&
-	       (Layout.Version == 1 || ReadNativeCode(Manifest, Policy, Result, OutPackage.NativeCode));
+	if (Layout.Version < 3 && Manifest.HasField(TEXT("extensions")))
+	{
+		return Fail(Result, ELoadError::InvalidArchive, TEXT("Extension declarations require archive version 3."));
+	}
+	if (Layout.Version == 1 && Manifest.HasField(TEXT("nativeCode")))
+	{
+		return Fail(Result, ELoadError::InvalidArchive,
+		            TEXT("Native module declarations require archive version 2 or 3."));
+	}
+	const bool bHasNativeCode = Layout.Version == 2 || Manifest.HasField(TEXT("nativeCode"));
+	return ReadLifecycleClasses(Manifest, Result) && (Layout.Version != 3 || ReadExtensions(Manifest, Result)) &&
+	       (!bHasNativeCode || (Layout.Version > 1 && ReadNativeCode(Manifest, Policy, Result, OutPackage.NativeCode)));
 }
 
 bool ReadIndex(const FJsonObject& Index, const FArchiveLayout& Layout, FLoadResult& Result, FArchiveContents& Contents,

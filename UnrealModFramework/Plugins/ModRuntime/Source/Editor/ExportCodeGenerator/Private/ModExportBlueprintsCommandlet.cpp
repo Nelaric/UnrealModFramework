@@ -24,6 +24,7 @@ namespace
 using Mod::API::EBlueprintParameter;
 using Mod::API::FBlueprintCall;
 using Mod::BlueprintIntegration::FExportedAPI;
+using Mod::BlueprintIntegration::FExportedExtension;
 using Mod::ExportMetadata::EOptionKind;
 using Mod::ExportMetadata::FOptions;
 
@@ -111,6 +112,69 @@ bool WriteAPI(const FExportedAPI& API, UBlueprint& Blueprint, TSet<FGuid>& Ids, 
 	return true;
 }
 
+bool WriteExtension(const FExportedExtension& Entry, UBlueprint& Blueprint, TSet<FGuid>& Ids,
+                    TArray<TSharedPtr<FJsonValue>>& Output)
+{
+	const auto Fail = [&](const TCHAR* Reason)
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s: %s: %s"), *Blueprint.GetPathName(), *Entry.Name.ToString(), Reason);
+		return false;
+	};
+	if (!Entry.bHasPoint)
+	{
+		UE_LOG(LogTemp, Display, TEXT("%s: %s is declared; connect its extension node to export it."),
+		       *Blueprint.GetPathName(), *Entry.Name.ToString());
+		return true;
+	}
+	if (!Entry.Guid.IsValid() || Ids.Contains(Entry.Guid) || !Entry.bSupportedPayload)
+	{
+		return Fail(TEXT("Expected a unique scalar declaration for the connected extension node."));
+	}
+	auto Json = MakeShared<FJsonObject>();
+	Json->SetStringField(TEXT("guid"), Entry.Guid.ToString(EGuidFormats::Digits).ToLower());
+	Json->SetStringField(TEXT("name"), Entry.Name.ToString());
+	Json->SetStringField(TEXT("version"), Entry.Version);
+	Json->SetStringField(TEXT("permission"), Entry.Permission.IsNone() ? FString() : Entry.Permission.ToString());
+	Json->SetBoolField(TEXT("hook"), Entry.bHook);
+	Json->SetBoolField(TEXT("authorityOnly"), Entry.bAuthorityOnly);
+	if (Entry.bHook)
+	{
+		UFunction* Function = Blueprint.GeneratedClass->FindFunctionByName(Entry.Name, EIncludeSuperFlag::ExcludeSuper);
+		if (!Function || Entry.Stages.Contains(TEXT("On")) || Entry.Stages.IsEmpty())
+		{
+			return Fail(TEXT("Expected a compiled original graph and Pre/Post stages."));
+		}
+		const auto Shape = FBlueprintCall::Describe(*Function);
+		if (!Shape.IsSuccess() || Shape.GetValue().Num() != 2)
+		{
+			return Fail(TEXT("Hook original graph must take one Float and produce one Float."));
+		}
+		const auto& Parameters = Shape.GetValue();
+		if (Parameters[0].PropertyClass != TEXT("FloatProperty") || Parameters[0].Role != EBlueprintParameter::Input ||
+		    Parameters[1].PropertyClass != TEXT("FloatProperty") || Parameters[1].Role == EBlueprintParameter::Input)
+		{
+			return Fail(TEXT("Hook original graph must take one Float and produce one Float."));
+		}
+		Json->SetStringField(TEXT("input"), Parameters[0].Name.ToString());
+		Json->SetStringField(TEXT("output"), Parameters[1].Name.ToString());
+		Json->SetStringField(TEXT("outputRole"),
+		                     Parameters[1].Role == EBlueprintParameter::Return ? TEXT("Return") : TEXT("Output"));
+		Json->SetBoolField(TEXT("pre"), Entry.Stages.Contains(TEXT("Pre")));
+		Json->SetBoolField(TEXT("post"), Entry.Stages.Contains(TEXT("Post")));
+		const int32 Operations = (Entry.Operations.Contains(TEXT("ModifyInputs")) ? 1 : 0) |
+		                         (Entry.Operations.Contains(TEXT("Cancel")) ? 2 : 0) |
+		                         (Entry.Operations.Contains(TEXT("ModifyResult")) ? 4 : 0);
+		Json->SetNumberField(TEXT("operations"), Operations);
+	}
+	else if (Entry.Scope != TEXT("World") || Entry.PublishRule != TEXT("Immediate"))
+	{
+		return Fail(TEXT("Event must select World scope and Immediate publication."));
+	}
+	Ids.Add(Entry.Guid);
+	Output.Add(MakeShared<FJsonValueObject>(Json));
+	return true;
+}
+
 bool WriteType(const FJsonObject& Config, IAssetRegistry& Registry, TSet<FGuid>& Ids, TSet<FName>& Seen,
                TSet<FString>& Files, TArray<TSharedPtr<FJsonValue>>& Output)
 {
@@ -143,9 +207,11 @@ bool WriteType(const FJsonObject& Config, IAssetRegistry& Registry, TSet<FGuid>&
 	}
 	auto APIs = Mod::BlueprintIntegration::ReadAPIs(*Blueprint);
 	APIs.Sort([](const FExportedAPI& A, const FExportedAPI& B) { return A.Guid < B.Guid; });
-	if (APIs.IsEmpty())
+	auto Extensions = Mod::BlueprintIntegration::ReadExtensions(*Blueprint);
+	Extensions.Sort([](const FExportedExtension& A, const FExportedExtension& B) { return A.Guid < B.Guid; });
+	if (APIs.IsEmpty() && Extensions.IsEmpty())
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s: Configured Blueprint has no Mod API declarations."), *Asset);
+		UE_LOG(LogTemp, Error, TEXT("%s: Configured Blueprint has no Mod declarations."), *Asset);
 		return false;
 	}
 	TArray<TSharedPtr<FJsonValue>> ApiRecords;
@@ -163,6 +229,20 @@ bool WriteType(const FJsonObject& Config, IAssetRegistry& Registry, TSet<FGuid>&
 	Json->SetStringField(TEXT("class"), Blueprint->GeneratedClass->GetPathName());
 	Json->SetStringField(TEXT("file"), FPaths::ConvertRelativePathToFull(Filename));
 	Json->SetArrayField(TEXT("apis"), MoveTemp(ApiRecords));
+	TArray<TSharedPtr<FJsonValue>> ExtensionRecords;
+	for (const auto& Entry : Extensions)
+	{
+		if (!WriteExtension(Entry, *Blueprint, Ids, ExtensionRecords))
+		{
+			return false;
+		}
+	}
+	if (APIs.IsEmpty() && ExtensionRecords.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s: No declaration has a runtime implementation."), *Asset);
+		return false;
+	}
+	Json->SetArrayField(TEXT("extensions"), MoveTemp(ExtensionRecords));
 	Output.Add(MakeShared<FJsonValueObject>(Json));
 	return true;
 }

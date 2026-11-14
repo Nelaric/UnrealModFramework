@@ -7,6 +7,7 @@ public class ExportTest : ModuleRules
 		: base(Target)
 	{
 		PrivateDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ExportMetadata" });
+		PrivateDependencyModuleNames.Add("ModLoader");
 		PrivateIncludePaths.Add(ModuleDirectory);
 		ExportMetadata.ConfigureHost(this, Target);
 	}

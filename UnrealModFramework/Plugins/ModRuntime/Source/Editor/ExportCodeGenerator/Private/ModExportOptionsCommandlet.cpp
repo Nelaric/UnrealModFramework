@@ -213,6 +213,12 @@ int32 UModExportOptionsCommandlet::Main(const FString& Params)
 		Stages.Add(UTF8_TO_TCHAR(Stage.data()));
 	}
 	Options->SetArrayField(TEXT("HookStages"), JsonStrings(Stages));
+	TArray<FString> Authorities;
+	for (const std::string_view Authority : Schema::ExtensionAuthorities)
+	{
+		Authorities.Add(UTF8_TO_TCHAR(Authority.data()));
+	}
+	Options->SetArrayField(TEXT("ExtensionAuthorities"), JsonStrings(Authorities));
 	TArray<FString> Operations;
 	for (const Schema::FHookOperationSpec& Operation : Schema::HookOperations)
 	{
