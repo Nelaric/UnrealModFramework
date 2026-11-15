@@ -75,15 +75,46 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 		{
 			throw std::runtime_error("SDK extension declarations require lifecycle projection v2.");
 		}
+		const std::set<std::string> Scalars{"float", "double", "int32", "int64", "bool", "uint8"};
 		std::set<std::string> Ids;
 		for (const auto& Entry : Extensions)
 		{
 			const auto Id = JsonDocument::Text(Entry, "id");
 			const auto Kind = JsonDocument::Text(Entry, "kind");
 			const bool bHook = Kind == "Hook";
+			const auto Scalar = Entry.value("inputType", "");
+			const bool bProjected = Scalar == "Struct" || Scalar == "Object";
+			if (bProjected)
+			{
+				const auto& Payload = Entry.at("payload");
+				if (!Payload.is_object() || Payload.value("kind", "") != Scalar ||
+				    JsonDocument::Text(Payload, "type").empty() ||
+				    (Scalar == "Struct" ? JsonDocument::Text(Payload, "layout").empty()
+				                        : JsonDocument::Text(Payload, "viewId").empty()))
+				{
+					throw std::runtime_error("Invalid SDK payload projection: " + Id);
+				}
+				if (Scalar == "Struct")
+				{
+					const auto Type = JsonDocument::Text(Payload, "blueprintType");
+					PortableNames::Identifier(Type);
+					const auto Expected = "ModExtensionPayload_" + Mod::BuildTool::Hash::HashBytes(Id).substr(0, 16);
+					if (Type != Expected)
+					{
+						throw std::runtime_error("Invalid SDK Blueprint payload type: " + Id);
+					}
+				}
+				if (Scalar == "Object")
+				{
+					Mod::BuildTool::Hash::RequireDigest(JsonDocument::Text(Payload, "viewSignature"),
+					                                    "payload view signature");
+				}
+			}
 			if ((Kind != "Event" && !bHook) || !Id.starts_with(bHook ? "hook/" : "event/") || !Ids.insert(Id).second ||
 			    Entry.value("scope", "") != "World" || Entry.value("thread", "") != "GameThread" ||
-			    Entry.value("inputType", "") != "float" || Entry.value("resultType", "") != (bHook ? "float" : "void"))
+			    (!bProjected && !Scalars.contains(Scalar)) ||
+			    Entry.value("resultType", "") != (bHook ? Scalar : "void") ||
+			    (Entry.contains("immediateUnsubscribe") && (bHook || !Entry.at("immediateUnsubscribe").is_boolean())))
 			{
 				throw std::runtime_error("Unsupported SDK extension: " + Id);
 			}
@@ -92,10 +123,12 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 	}
 	const Json& Types = Contract.at("types");
 	const Json& APIs = Contract.at("apis");
-	if (!Types.is_array() || Types.empty() || Types.size() > 128 || !APIs.is_array() || APIs.empty() ||
-	    APIs.size() > 1024)
+	const bool bExtensionsOnly =
+	    APIs.is_array() && APIs.empty() && Contract.contains("extensions") && !Contract.at("extensions").empty();
+	if (!Types.is_array() || Types.size() > 128 || !APIs.is_array() || APIs.size() > 1024 ||
+	    (!bExtensionsOnly && (Types.empty() || APIs.empty())))
 	{
-		throw std::runtime_error("SDK types/APIs must be bounded, nonempty arrays.");
+		throw std::runtime_error("SDK requires bounded API and type arrays, or a nonempty Hook/Event contract.");
 	}
 	std::set<std::string> TypeIds;
 	std::set<std::string> Names, ServiceFunctions;
@@ -125,6 +158,24 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 		    !TypeIds.insert(JsonDocument::Text(Type, "id")).second || !Names.insert(PortableNames::Fold(Name)).second)
 		{
 			throw std::runtime_error("SDK types must be unique public ObjectReference structures.");
+		}
+	}
+	for (const auto& Entry : Contract.value("extensions", Json::array()))
+	{
+		if (Entry.value("inputType", "") == "Object")
+		{
+			const auto& Payload = Entry.at("payload");
+			const auto Id = JsonDocument::Text(Payload, "viewId");
+			if (!std::any_of(Types.begin(), Types.end(),
+			                 [&](const auto& Type)
+			                 {
+				                 return JsonDocument::Text(Type, "id") == Id &&
+				                        Type.value("serviceSignature", "") ==
+				                            JsonDocument::Text(Payload, "viewSignature");
+			                 }))
+			{
+				throw std::runtime_error("SDK has no matching World payload view: " + Id);
+			}
 		}
 	}
 	std::set<std::string> APIIds;
@@ -279,7 +330,7 @@ void ContractValidator::ValidateContract(SdkRequest& Request)
 			throw std::runtime_error("An API name conflicts with a generated SDK binding method.");
 		}
 	}
-	if (!bHasTypedMethod && (!bHasGetter || !bHasMethod))
+	if (!bExtensionsOnly && !bHasTypedMethod && (!bHasGetter || !bHasMethod))
 	{
 		throw std::runtime_error("This SDK adapter requires an object getter and a float instance method.");
 	}

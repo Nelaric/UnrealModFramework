@@ -4,10 +4,9 @@
 #include "Engine/GameInstance.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
-#include "HAL/PlatformProcess.h"
 #include "ModAPIHost.h"
+#include "ModAPINative.h"
 #include "ModInstance.h"
-#include "Modules/ModuleManager.h"
 #include "UObject/UObjectGlobals.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogModAPIHost, Log, All);
@@ -45,6 +44,7 @@ void UModAPIHostSubsystem::Deinitialize()
 	}
 	Players.Reset();
 	Worlds.Reset();
+	ExtensionSession.Reset();
 	Types.Reset();
 	Registry.Reset();
 	Super::Deinitialize();
@@ -176,31 +176,9 @@ void UModAPIHostSubsystem::SetWorldCallerPolicy(FAuthorizeWorldCaller Policy)
 
 void* UModAPIHostSubsystem::ResolveHostQuery(const char* Module, const char* Symbol)
 {
-#if PLATFORM_WINDOWS && !IS_MONOLITHIC
-	if (!IsInGameThread() || !Module || !Symbol)
-	{
-		return nullptr;
-	}
-	auto& Modules = FModuleManager::Get();
-	const FName Name(UTF8_TO_TCHAR(Module));
-	if (!Modules.IsModuleLoaded(Name))
-	{
-		return nullptr;
-	}
-	const FString Filename = Modules.GetModuleFilename(Name);
-	void* Handle = Filename.IsEmpty() ? nullptr : FPlatformProcess::GetDllHandle(*Filename);
-	if (!Handle)
-	{
-		return nullptr;
-	}
-	void* Address = FPlatformProcess::GetDllExport(Handle, UTF8_TO_TCHAR(Symbol));
-	FPlatformProcess::FreeDllHandle(Handle);
-	return Address;
-#else
-	(void)Module;
-	(void)Symbol;
-	return nullptr;
-#endif
+	return IsInGameThread() && Module && Symbol
+	           ? FNativeAccess::FindHostQuery(UTF8_TO_TCHAR(Module), UTF8_TO_TCHAR(Symbol))
+	           : nullptr;
 }
 
 TModResult<FWorldCaller> UModAPIHostSubsystem::AuthorizeWorldCaller(UModInstance& Mod, FName TypeId,

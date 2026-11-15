@@ -35,6 +35,10 @@ enum class EError : uint8
 	NotReady,
 	/// A set of extension declarations cannot be resolved.
 	Conflict,
+	/// The bounded World event queue could not accept another delivery.
+	QueueFull,
+	/// An independent extension rejected or aborted a callback.
+	CallbackFailed,
 };
 } // namespace Mod::API
 

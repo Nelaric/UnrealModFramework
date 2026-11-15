@@ -4,6 +4,7 @@
 #include "Common/Files/File.h"
 #include "Common/Files/Path.h"
 #include "Common/Hash/Hash.h"
+#include "Common/ValueLayout.h"
 #include "ModSDKTool/src/Generation/CppLiteral.h"
 #include "ModSDKTool/src/Generation/GeneratedFile.h"
 #include "ModSDKTool/src/Generation/ReferenceWriter.h"
@@ -28,7 +29,40 @@ namespace Mod::SdkTool
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 
-void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::path& Directory)
+namespace
+{
+void WritePayloadStruct(std::ostream& Out, const std::string& Type, const std::string& DisplayName,
+                        const std::vector<Mod::Tools::ValueField>& Fields)
+{
+	for (std::size_t Index = 0; Index < Fields.size(); ++Index)
+	{
+		if (!Fields[Index].Children.empty())
+		{
+			WritePayloadStruct(Out, Type + "_Field" + std::to_string(Index), Fields[Index].Name,
+			                   Fields[Index].Children);
+		}
+	}
+	Out << "USTRUCT(BlueprintType, meta = (DisplayName = " << CppLiteral::Literal(DisplayName) << "))\n"
+	    << "struct " << Type << "\n{\n\tGENERATED_BODY()\n";
+	for (std::size_t Index = 0; Index < Fields.size(); ++Index)
+	{
+		const auto& Field = Fields[Index];
+		const auto Scalar = Field.Scalar;
+		const std::string FieldType = Field.Children.empty() ? (Scalar == "FloatProperty"    ? "float"
+		                                                        : Scalar == "DoubleProperty" ? "double"
+		                                                        : Scalar == "IntProperty"    ? "int32"
+		                                                        : Scalar == "Int64Property"  ? "int64"
+		                                                        : Scalar == "BoolProperty"   ? "bool"
+		                                                                                     : "uint8")
+		                                                     : Type + "_Field" + std::to_string(Index);
+		Out << "\n\tUPROPERTY(BlueprintReadWrite, Category = \"Mod|Extension\", meta = (DisplayName = "
+		    << CppLiteral::Literal(Field.Name) << "))\n\t" << FieldType << " Field" << Index << "{};\n";
+	}
+	Out << "};\n\n";
+}
+} // namespace
+
+void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::path& Directory, bool bGameHost)
 {
 	using namespace Mod::BuildTool;
 	const std::string Plugin = JsonDocument::Text(Request.Document, "pluginName");
@@ -53,6 +87,21 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 			ServiceTypes[Id] = JsonDocument::Text(Type, "serviceSignature");
 		}
 	}
+	std::map<std::string, std::string> PayloadViews;
+	if (!Request.LifecycleArtifact.is_null())
+	{
+		for (const auto& Extension : Request.Contract.value("extensions", Json::array()))
+		{
+			if (Extension.value("inputType", "") == "Object")
+			{
+				const auto Id = JsonDocument::Text(Extension.at("payload"), "viewId");
+				if (Types.contains(Id))
+				{
+					PayloadViews.emplace(Id, Types.at(Id));
+				}
+			}
+		}
+	}
 	std::map<std::string, std::string> BlueprintProviders;
 	for (const auto& API : Request.Contract.at("apis"))
 	{
@@ -66,9 +115,14 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	std::ostringstream Header;
 	Header << "// Copyright (c) 2026 Nelaric Contributors\n/" << "** @file " << Plugin << "API.h */\n#pragma once\n\n"
 	       << "#include \"CoreMinimal.h\"\n#include \"Kismet/BlueprintFunctionLibrary.h\"\n";
-	if ((!BlueprintProviders.empty() || !ServiceTypes.empty()) && !Request.LifecycleArtifact.is_null())
+	if ((!BlueprintProviders.empty() || !ServiceTypes.empty() || !PayloadViews.empty()) &&
+	    !Request.LifecycleArtifact.is_null())
 	{
 		Header << "#include \"ModInstance.h\"\n";
+	}
+	if (!PayloadViews.empty())
+	{
+		Header << "#include \"ModExtensionLibrary.h\"\n";
 	}
 	std::set<std::string> EngineIncludes;
 	std::set<std::string> ExtraModules;
@@ -104,6 +158,16 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	{
 		ReferenceWriter::WriteReference(Header, Name, "Object", APIMacro);
 	}
+	for (const auto& Extension : Request.Contract.value("extensions", Json::array()))
+	{
+		if (Extension.value("inputType", "") == "Struct")
+		{
+			const auto& Payload = Extension.at("payload");
+			const auto Layout = JsonDocument::Text(Payload, "layout");
+			WritePayloadStruct(Header, "F" + JsonDocument::Text(Payload, "blueprintType"),
+			                   JsonDocument::Text(Extension, "id"), Mod::Tools::ValueLayout::Parse(Layout));
+		}
+	}
 	Header << CppLiteral::LineDoc << " Typed game SDK calls; all operations execute on the game thread.\n"
 	       << "UCLASS(MinimalAPI)\nclass " << LibraryClass << " : public UBlueprintFunctionLibrary\n"
 	       << "{\n\tGENERATED_BODY()\n\npublic:\n";
@@ -114,7 +178,13 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	{
 		Source << "#include \"Containers/StringConv.h\"\n";
 	}
+	const std::string Game = JsonDocument::Text(Request.Contract, "gameId");
+	const bool bConnectHost = !BlueprintProviders.empty() || !ServiceTypes.empty() || !PayloadViews.empty();
 	std::set<std::string> Includes;
+	if (bConnectHost)
+	{
+		Includes.insert("SDK/Public/" + Game + ".modabi.h");
+	}
 	if (Request.Contract.contains("errorHeader"))
 	{
 		Includes.insert(JsonDocument::Text(Request.Contract, "errorHeader"));
@@ -127,9 +197,8 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	{
 		Source << "#include \"" << Include << "\"\n";
 	}
-	if (!BlueprintProviders.empty() || !ServiceTypes.empty())
+	if (bConnectHost)
 	{
-		const std::string Game = JsonDocument::Text(Request.Contract, "gameId");
 		Header << "\t" << CppLiteral::LineDoc << " Connects the generated client tables on the game thread.\n"
 		       << "\tstatic " << APIMacro
 		       << " int64 ConnectHost(TFunctionRef<void*(const char*, const char*)> Resolve);\n\n";
@@ -154,6 +223,19 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 				    << "\tOutObject = " << Type << "::FromNative(Context, Object);\n\treturn true;\n}\n\n";
 			}
 		}
+	}
+	for (const auto& [Id, Type] : PayloadViews)
+	{
+		Header << "\t" << CppLiteral::LineDoc << " Converts a callback-borrowed read-only object view.\n"
+		       << "\tUFUNCTION(BlueprintPure, Category = \"Mod|Extension\")\n"
+		       << "\tstatic " << APIMacro << " bool ProjectPayload_" << Type << "(const FModPayloadObject& Payload, "
+		       << Type << "& OutObject);\n\n";
+		Source << "\nbool " << LibraryClass << "::ProjectPayload_" << Type << "(const FModPayloadObject& Payload, "
+		       << Type << "& OutObject)\n{\n\tOutObject = {};\n"
+		       << "\tif (!IsInGameThread() || !Payload.Context || !Payload.Object || Payload.ViewId != FName(TEXT("
+		       << CppLiteral::Literal(Id)
+		       << ")) || ConnectHost(&UModInstance::ResolveHostAPI) != 0) { return false; }\n\tOutObject = " << Type
+		       << "::FromNative(Payload.Context, Payload.Object);\n\treturn true;\n}\n";
 	}
 	for (const auto& [Id, Signature] : ServiceTypes)
 	{
@@ -259,7 +341,8 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	{
 		Build << ", " << CppLiteral::Literal(Dependency);
 	}
-	if ((!BlueprintProviders.empty() || !ServiceTypes.empty()) && !Request.LifecycleArtifact.is_null())
+	if ((!BlueprintProviders.empty() || !ServiceTypes.empty() || !PayloadViews.empty()) &&
+	    !Request.LifecycleArtifact.is_null())
 	{
 		Build << ", \"ModLoader\"";
 	}
@@ -297,7 +380,7 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	      << "\t\t}\n\t}\n}\n";
 	GeneratedFile::WriteSource(ModuleRoot / (Module + ".Build.cs"), Build.str());
 	Json Modules = Json::array({{{"Name", Module}, {"Type", "Runtime"}, {"LoadingPhase", "Default"}}});
-	if (!Request.LifecycleArtifact.is_null())
+	if (!bGameHost && !Request.LifecycleArtifact.is_null())
 	{
 		const Json& Artifact = Request.LifecycleArtifact;
 		const std::string Export = Mod::BuildTool::File::ReadFile(
@@ -407,17 +490,21 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 		GeneratedFile::WriteSource(LifecycleModule / "Private" / "ModLoaderModule.cpp", ModuleSource);
 		Modules.push_back({{"Name", "ModLoader"}, {"Type", "Runtime"}, {"LoadingPhase", "Default"}});
 	}
-	const Json Descriptor = {{"FileVersion", 3},
-	                         {"Version", 1},
-	                         {"VersionName", Request.Document.at("sdkVersion")},
-	                         {"FriendlyName", Plugin},
-	                         {"Description", "Generated typed authoring SDK."},
-	                         {"Category", "Mod SDK"},
-	                         {"CanContainContent", false},
-	                         {"IsBetaVersion", true},
-	                         {"Installed", false},
-	                         {"EnabledByDefault", true},
-	                         {"Modules", Modules}};
+	Json Descriptor = {{"FileVersion", 3},
+	                   {"Version", 1},
+	                   {"VersionName", Request.Document.at("sdkVersion")},
+	                   {"FriendlyName", Plugin},
+	                   {"Description", "Generated typed authoring SDK."},
+	                   {"Category", "Mod SDK"},
+	                   {"CanContainContent", false},
+	                   {"IsBetaVersion", true},
+	                   {"Installed", false},
+	                   {"EnabledByDefault", true},
+	                   {"Modules", Modules}};
+	if (bGameHost)
+	{
+		Descriptor["Plugins"] = Json::array({{{"Name", "ModRuntime"}, {"Enabled", true}}});
+	}
 	Mod::BuildTool::File::WriteFileAtomically(Directory / (Plugin + ".uplugin"), Descriptor.dump(2) + "\n");
 	Mod::BuildTool::File::WriteFileAtomically(Directory / "Config" / "FilterPlugin.ini",
 	                                          "; Copyright (c) 2026 Nelaric Contributors\n[FilterPlugin]\n"

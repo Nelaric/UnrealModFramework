@@ -84,6 +84,18 @@ public:
 	TArray<FString> GetPermissions() const;
 };
 
+/// Supported Blueprint pin types for scalar extension contracts.
+UENUM()
+enum class EModBlueprintExtensionScalar : uint8
+{
+	Float,
+	Double,
+	Int32,
+	Int64,
+	Bool,
+	Byte,
+};
+
 /// An event declaration published through the Mod event bus.
 UCLASS(MinimalAPI)
 class UModBlueprintEventExport final : public UModBlueprintExportEntry
@@ -94,6 +106,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Event")
 	TObjectPtr<UScriptStruct> PayloadType;
 
+	UPROPERTY(EditAnywhere, Category = "Event")
+	TSubclassOf<UObject> ObjectType;
+
+	UPROPERTY(EditAnywhere, Category = "Event", meta = (EditCondition = "ObjectType != nullptr"))
+	FName ObjectViewId;
+
 	UPROPERTY(EditAnywhere, Category = "Event", meta = (GetOptions = "GetSourceScopes"))
 	FString SourceScope;
 
@@ -101,7 +119,13 @@ public:
 	FString PublishRule;
 
 	UPROPERTY(EditAnywhere, Category = "Event")
+	bool bImmediateUnsubscribe = false;
+
+	UPROPERTY(EditAnywhere, Category = "Event")
 	bool bScalarPayload = false;
+
+	UPROPERTY(EditAnywhere, Category = "Event", meta = (EditCondition = "bScalarPayload"))
+	EModBlueprintExtensionScalar Scalar = EModBlueprintExtensionScalar::Float;
 
 	UPROPERTY(EditAnywhere, Category = "Event")
 	FName SubscribePermission;
@@ -145,6 +169,15 @@ class UModBlueprintHookExport final : public UModBlueprintExportEntry
 public:
 	UPROPERTY(EditAnywhere, Category = "Hook")
 	TObjectPtr<UScriptStruct> ContextType;
+
+	UPROPERTY(EditAnywhere, Category = "Hook")
+	TSubclassOf<UObject> ObjectType;
+
+	UPROPERTY(EditAnywhere, Category = "Hook", meta = (EditCondition = "ObjectType != nullptr"))
+	FName ObjectViewId;
+
+	UPROPERTY(EditAnywhere, Category = "Hook")
+	EModBlueprintExtensionScalar Scalar = EModBlueprintExtensionScalar::Float;
 
 	UPROPERTY(EditAnywhere, Category = "Hook")
 	TArray<EModBlueprintHookStage> AllowedStages;

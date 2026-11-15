@@ -1,17 +1,22 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModExtensionWorld.h"
 
+#include "Serialization/JsonWriter.h"
+
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "ModAPIHostSubsystem.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
 #include "ModInstance.h"
 #include "ModLoader.h"
+#include "ModNativeExtension.h"
 #include "Templates/UnrealTemplate.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogModExtensionWorld, Log, All);
 
 using namespace Mod::Extension;
 using namespace Mod::Loader;
+using Mod::API::EError;
 
 FModExtensionWorld::FModExtensionWorld(UWorld& InWorld, uint64 InGeneration) : World(&InWorld), Generation(InGeneration)
 {
@@ -60,82 +65,121 @@ bool FModExtensionWorld::RefreshSnapshots(FString& Error)
 	return true;
 }
 
-bool FModExtensionWorld::Prepare(FString& Error)
+bool FModExtensionWorld::SelectPackages(UModAPIHostSubsystem& Host, FString& Error)
 {
 	IModLoaderModule& Loader = IModLoaderModule::Get();
-	const auto Packages = Loader.GetMountedPackages();
-	if (Packages.Num() > 128)
+	if (Loader.IsRestartRequired())
 	{
-		Error = TEXT("The World mod plan exceeds the mounted-package limit.");
+		Error = TEXT("Restart the process before preparing another World.");
 		return false;
 	}
-	TMap<FString, int32> Selected;
-	TArray<FHandler> Order;
-	TArray<TSharedPtr<const FMountedPackage>> Leases;
-	for (const FMountedPackage& Package : Packages)
+	auto Selection = Policy.Selection;
+	if (!Selection.Enabled && !Policy.EnabledMods.IsEmpty())
 	{
-		if (!Policy.EnabledMods.IsEmpty() && !Policy.EnabledMods.Contains(Package.ModId))
+		Selection.Enabled = Policy.EnabledMods;
+	}
+	if (!Host.ExtensionSession)
+	{
+		const auto Packages = Loader.GetMountedPackages();
+		if (Packages.Num() > 128)
 		{
-			continue;
-		}
-		auto Lease = Loader.PinMountedPackage(Package.ModId);
-		if (!Lease)
-		{
-			Error = TEXT("Package became unavailable: ") + Package.ModId;
+			Error = TEXT("The session exceeds the mounted-package limit.");
 			return false;
 		}
-		Selected.Add(Package.ModId, Order.Num());
-		Order.AddDefaulted_GetRef().ModId = Package.ModId;
-		Leases.Add(MoveTemp(Lease));
-	}
-	for (const FLoadResult& Result : Loader.GetStartupResults())
-	{
-		if (!Result.IsSuccess() && Result.Package.Extensions.bDeclared && !Selected.Contains(Result.Package.ModId) &&
-		    (Policy.EnabledMods.IsEmpty() || Policy.EnabledMods.Contains(Result.Package.ModId)))
+		TArray<const FMountedPackage*> Candidates;
+		for (const FMountedPackage& Package : Packages)
 		{
-			Error = TEXT("Could not prepare extension package ") + Result.Package.ModId + TEXT(": ") + Result.Detail;
-			return false;
+			Candidates.Add(&Package);
 		}
-	}
-	for (int32 Index = 0; Index < Leases.Num(); ++Index)
-	{
-		const auto& Package = *Leases[Index];
-		for (const FModDependency& Dependency : Package.Extensions.Mods)
+		for (const FLoadResult& Result : Loader.GetStartupResults())
 		{
-			const int32* Provider = Selected.Find(Dependency.ModId);
-			if (!Provider || !Dependency.Versions.Contains(Leases[*Provider]->Version))
+			if (Result.Error == ELoadError::PlanRejected && Result.Package.ModId.IsEmpty())
 			{
-				if (Dependency.bRequired)
-				{
-					Error = Package.ModId + TEXT(": incompatible or missing mod ") + Dependency.ModId;
-					return false;
-				}
-				continue;
+				Error = Result.Detail;
+				return false;
 			}
-			Order[Index].Order.After.AddUnique(Dependency.ModId);
-		}
-		for (const FServiceDependency& Dependency : Package.Extensions.Services)
-		{
-			if (Selected.Contains(Dependency.Provider))
+			if (!Result.IsSuccess() && Result.Error != ELoadError::NotSelected && Result.Package.Extensions.bDeclared &&
+			    (!Selection.Enabled || Selection.Enabled->Contains(Result.Package.ModId)) &&
+			    !Packages.ContainsByPredicate([&Result](const auto& Package)
+			                                  { return Package.ModId == Result.Package.ModId; }))
 			{
-				Order[Index].Order.After.AddUnique(Dependency.Provider);
-			}
-			else if (Dependency.bRequired)
-			{
-				Error = Package.ModId + TEXT(": missing service provider ") + Dependency.Provider;
+				Error =
+				    TEXT("Could not prepare extension package ") + Result.Package.ModId + TEXT(": ") + Result.Detail;
 				return false;
 			}
 		}
+		TArray<int32> Sorted;
+		if (!ResolvePackageOrder(Candidates, Selection, Sorted, Error))
+		{
+			return false;
+		}
+		auto Session = MakeShared<FModExtensionSession>();
+		Session->Admission = Loader.PinPackageSession();
+		Session->Grants = Policy.Grants;
+		for (int32 Index : Sorted)
+		{
+			auto Lease = Loader.PinMountedPackage(Packages[Index].ModId);
+			if (!Lease)
+			{
+				Error = TEXT("Package became unavailable: ") + Packages[Index].ModId;
+				return false;
+			}
+			if (!Session->Grants.Contains(Lease->ModId))
+			{
+				Session->Grants.Add(Lease->ModId, Lease->GrantedCapabilities);
+			}
+			Session->Packages.Add(MoveTemp(Lease));
+		}
+		Host.ExtensionSession = MoveTemp(Session);
 	}
-	TArray<int32> Sorted;
-	if (!SortExtensions(Order, Sorted, Error))
+	else if (Selection.Enabled || !Selection.Required.IsEmpty() || !Selection.Archives.IsEmpty())
 	{
-		return false;
+		TArray<const FMountedPackage*> Candidates;
+		for (const auto& Package : Host.ExtensionSession->Packages)
+		{
+			Candidates.Add(Package.Get());
+		}
+		TArray<int32> Sorted;
+		if (!ResolvePackageOrder(Candidates, Selection, Sorted, Error))
+		{
+			return false;
+		}
+		if (Sorted.Num() != Candidates.Num())
+		{
+			Error = TEXT("Changing the selected package set requires a new game session.");
+			return false;
+		}
 	}
+	Policy.Grants = Host.ExtensionSession->Grants;
+	for (const auto& Package : Host.ExtensionSession->Packages)
+	{
+		for (const FName Grant : Package->Extensions.RequiredGrants)
+		{
+			if (!HasGrant(Package->ModId, Grant))
+			{
+				Error = Package->ModId + TEXT(": missing World grant ") + Grant.ToString();
+				return false;
+			}
+		}
+		Mods.AddDefaulted_GetRef().Package = Package;
+	}
+	return true;
+}
+
+bool FModExtensionWorld::Prepare(FString& Error)
+{
 	UWorld* Current = World.Get();
 	auto* Game = Current ? Current->GetGameInstance() : nullptr;
 	auto* APIHost = Game ? Game->GetSubsystem<UModAPIHostSubsystem>() : nullptr;
-	APIRegistry = APIHost ? APIHost->GetRegistry() : nullptr;
+	if (!APIHost || !SelectPackages(*APIHost, Error))
+	{
+		if (Error.IsEmpty())
+		{
+			Error = TEXT("The World has no game-instance extension host.");
+		}
+		return false;
+	}
+	APIRegistry = APIHost->GetRegistry();
 	APIHostOwner = APIHost;
 	if (APIRegistry)
 	{
@@ -147,6 +191,7 @@ bool FModExtensionWorld::Prepare(FString& Error)
 		}
 		APIScope = Scope.GetValue();
 	}
+	Channels.Reset();
 	TArray<FDefinition> Definitions;
 	FGeneratedRegistration::DescribeAll(Definitions);
 	for (FDefinition& Definition : Definitions)
@@ -154,6 +199,16 @@ bool FModExtensionWorld::Prepare(FString& Error)
 		if (Definition.Id.IsNone() || Channels.Contains(Definition.Id))
 		{
 			Error = TEXT("Invalid or duplicate extension ID: ") + Definition.Id.ToString();
+			return false;
+		}
+		if (Definition.Scalar == EScalar::Projected &&
+		    (!Definition.Payload.Prepare() ||
+		     (Definition.Payload.IsObject() &&
+		      (!APIRegistry ||
+		       !APIRegistry->HasServiceType(Definition.Payload.TypeId, *Definition.Payload.Signature)))))
+		{
+			Error = TEXT("The reflected extension payload does not match its generated contract: ") +
+			        Definition.Id.ToString();
 			return false;
 		}
 		const FName Id = Definition.Id;
@@ -166,8 +221,18 @@ bool FModExtensionWorld::Prepare(FString& Error)
 		}
 		Channels.Add(Id, MakeShared<FChannel>(MoveTemp(Definition)));
 	}
-	for (const auto& Package : Leases)
+	for (const auto& Mod : Mods)
 	{
+		const auto& Package = Mod.Package;
+		for (const FServiceOffer& Offer : Package->Extensions.Provides)
+		{
+			if (!APIRegistry || !APIRegistry->HasServiceType(Offer.TypeId, *Offer.Signature) ||
+			    !HasGrant(Package->ModId, Offer.Permission))
+			{
+				Error = Package->ModId + TEXT(": unavailable service interface or grant ") + Offer.Id.ToString();
+				return false;
+			}
+		}
 		for (const auto& Requirement : Package->Extensions.Contracts)
 		{
 			const auto* Channel = Channels.Find(Requirement.Id);
@@ -178,10 +243,28 @@ bool FModExtensionWorld::Prepare(FString& Error)
 			}
 		}
 	}
-	for (int32 Index : Sorted)
+	auto ValidatePreparation = MoveTemp(Policy.ValidatePreparation);
+	if ((ValidatePreparation && !ValidatePreparation(Error)) || Phase != EState::Preparing || !ResolveContent(Error) ||
+	    !PreparePatches(Error))
 	{
-		FMod& Mod = Mods.AddDefaulted_GetRef();
-		Mod.Package = MoveTemp(Leases[Index]);
+		return false;
+	}
+	if (Phase != EState::Preparing)
+	{
+		Error = TEXT("World closed while extension resources were preparing.");
+		return false;
+	}
+	if (auto StageSavedState = MoveTemp(Policy.StageSavedState))
+	{
+		TGuardValue<bool> StagingSave(bStagingSavedState, true);
+		if (!StageSavedState(Error) || Phase != EState::Preparing)
+		{
+			return false;
+		}
+	}
+	for (int32 Index = 0; Index < Mods.Num(); ++Index)
+	{
+		FMod& Mod = Mods[Index];
 		if (!Mod.Package->Extensions.bDeclared)
 		{
 			continue;
@@ -196,24 +279,33 @@ bool FModExtensionWorld::Prepare(FString& Error)
 				return false;
 			}
 			UModInstance* Instance = NewObject<UModInstance>(Game, Class);
+			if (!IsValid(Instance) || Phase != EState::Preparing)
+			{
+				Error = Mod.Package->ModId + TEXT(": lifecycle instance could not be prepared.");
+				return false;
+			}
 			UModInstance::SetExtensionWorld(*Instance, *Current, Mod.Package->ModId);
-			Instances.Add(FObjectKey(Instance), Mods.Num() - 1);
+			Instances.Add(FObjectKey(Instance), Index);
 			Mod.Instances.Emplace(Instance);
 		}
+		if (!Mod.Package->NativeExtensionPath.IsEmpty())
+		{
+			auto* Instance = NewObject<UModNativeExtensionInstance>(Game);
+			UModInstance::SetExtensionWorld(*Instance, *Current, Mod.Package->ModId);
+			Instances.Add(FObjectKey(Instance), Index);
+			Mod.NativeOwner.Reset(Instance);
+			Mod.Native = MakeShared<FNativeExtension>();
+			if (!Mod.Native->Open(*Mod.Package, *Instance, AsShared(), Error))
+			{
+				return false;
+			}
+		}
 	}
-	if (!ResolveContent(Error) || !PreparePatches(Error))
-	{
-		return false;
-	}
-	if (Phase != EState::Preparing)
-	{
-		Error = TEXT("World closed while extension resources were preparing.");
-		return false;
-	}
-	for (const FMod& Mod : Mods)
+	for (FMod& Mod : Mods)
 	{
 		for (const auto& Instance : Mod.Instances)
 		{
+			++Mod.RegisteredInstances;
 			Instance->RegisterExtensions();
 			if (!RegistrationError.IsEmpty())
 			{
@@ -227,7 +319,27 @@ bool FModExtensionWorld::Prepare(FString& Error)
 			}
 		}
 	}
-	if (!ValidateServices(Error))
+	if (!ValidateServices(Error, false))
+	{
+		return false;
+	}
+	if (!RefreshSnapshots(Error))
+	{
+		return false;
+	}
+	if (!Policy.ExpectedGameplayDigest.IsEmpty() &&
+	    Patches.ContainsByPredicate([](const FPatch& Patch)
+	                                { return Patch.Definition.Operation != EWorldPatchOperation::RegisterData; }))
+	{
+		const FString PlannedDigest = CalculateGameplayDigest();
+		if (Phase != EState::Preparing || PlannedDigest != Policy.ExpectedGameplayDigest)
+		{
+			Error = TEXT("The planned World does not match the expected gameplay digest.");
+			Fail(EError::SignatureMismatch, Error);
+			return false;
+		}
+	}
+	if (!ApplyPatches(true, Error) || !ValidateServices(Error))
 	{
 		return false;
 	}
@@ -250,8 +362,7 @@ bool FModExtensionWorld::Prepare(FString& Error)
 		Error = RegistrationError;
 		return false;
 	}
-	if (!ValidateServices(Error) || !RefreshSnapshots(Error) || !ApplyPatches(true, Error) ||
-	    !ValidateServices(Error) || (bDirty && !RefreshSnapshots(Error)))
+	if (!ValidateServices(Error) || (bDirty && !RefreshSnapshots(Error)))
 	{
 		return false;
 	}
@@ -263,18 +374,15 @@ bool FModExtensionWorld::Prepare(FString& Error)
 	return true;
 }
 
-bool FModExtensionWorld::ValidateServices(FString& Error) const
+bool FModExtensionWorld::ValidateServices(FString& Error, bool bAfterPatches) const
 {
 	for (const FMod& Mod : Mods)
 	{
 		for (const auto& Need : Mod.Package->Extensions.Services)
 		{
-			const FServiceEntry* Entry = Services.Find(Need.Id);
 			if (Need.bRequired &&
-			    (!Entry || !Entry->Owner.IsValid() || !IsValid(Entry->Target.Get()) || Entry->ModId != Need.Provider ||
-			     Entry->Definition.TypeId != Need.TypeId || Entry->Definition.Signature != Need.Signature ||
-			     !Need.Versions.Contains(Entry->Definition.Version) ||
-			     !HasGrant(Mod.Package->ModId, Entry->Definition.Permission)))
+			    ((bAfterPatches && World.IsValid() && World->GetNetMode() != NM_Client) || !IsPatchService(Need)) &&
+			    !IsServiceAvailable(Need, Mod.Package->ModId))
 			{
 				Error =
 				    Mod.Package->ModId + TEXT(": incompatible, unauthorized or missing service ") + Need.Id.ToString();
@@ -283,6 +391,185 @@ bool FModExtensionWorld::ValidateServices(FString& Error) const
 		}
 	}
 	return true;
+}
+
+bool FModExtensionWorld::IsServiceAvailable(const FServiceDependency& Need, const FString& Consumer) const
+{
+	const FServiceEntry* Entry = Services.Find(Need.Id);
+	if (!Entry || (Entry->PatchIndex == INDEX_NONE && !Entry->Owner.IsValid()) || !IsValid(Entry->Target.Get()) ||
+	    Entry->ModId != Need.Provider || Entry->Definition.TypeId != Need.TypeId ||
+	    Entry->Definition.Signature != Need.Signature || !Need.Versions.Contains(Entry->Definition.Version) ||
+	    !HasGrant(Consumer, Entry->Definition.Permission))
+	{
+		return false;
+	}
+	const auto* Actor = Cast<AActor>(Entry->Target.Get());
+	return !Actor || !Actor->IsActorBeingDestroyed();
+}
+
+bool FModExtensionWorld::IsPatchService(const FServiceDependency& Need) const
+{
+	for (const auto& Mod : Mods)
+	{
+		if (Mod.Package->ModId == Need.Provider)
+		{
+			return Mod.Package->Extensions.Provides.ContainsByPredicate(
+			    [&Need](const auto& Offer) { return Offer.Id == Need.Id && !Offer.Patch.IsNone(); });
+		}
+	}
+	return false;
+}
+
+FString FModExtensionWorld::CalculateGameplayDigest() const
+{
+	FString Canonical;
+	const auto Writer = TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&Canonical);
+	Writer->WriteObjectStart();
+	Writer->WriteValue(TEXT("policyVersion"), 2);
+	if (const auto* Current = World.Get())
+	{
+		Writer->WriteValue(TEXT("world"), UWorld::RemovePIEPrefix(Current->GetOutermost()->GetName()));
+	}
+	Writer->WriteArrayStart(TEXT("packages"));
+	for (const FMod& Mod : Mods)
+	{
+		const auto& Package = *Mod.Package;
+		Writer->WriteObjectStart();
+		Writer->WriteValue(TEXT("id"), Package.ModId);
+		Writer->WriteValue(TEXT("version"), Package.Version);
+		const FString ReleaseId =
+		    Policy.GameplayReleaseId ? Policy.GameplayReleaseId(Package) : Package.GameplayRelease.ReleaseId;
+		if (ReleaseId.IsEmpty())
+		{
+			return {};
+		}
+		Writer->WriteValue(TEXT("release"), ReleaseId);
+		Writer->WriteValue(TEXT("compatibility"), Package.GameplayRelease.CompatibilityDigest);
+		TArray<FName> Grants = Policy.Grants.FindRef(Package.ModId).Array();
+		Grants.Sort(FNameLexicalLess());
+		Writer->WriteArrayStart(TEXT("grants"));
+		for (const FName Grant : Grants)
+		{
+			Writer->WriteValue(Grant.ToString().ToLower());
+		}
+		Writer->WriteArrayEnd();
+		Writer->WriteObjectEnd();
+	}
+	Writer->WriteArrayEnd();
+
+	TArray<FName> ChannelIds;
+	Channels.GetKeys(ChannelIds);
+	ChannelIds.Sort(FNameLexicalLess());
+	Writer->WriteArrayStart(TEXT("channels"));
+	for (const FName Id : ChannelIds)
+	{
+		const auto& Channel = Channels.FindChecked(Id);
+		Writer->WriteObjectStart();
+		Writer->WriteValue(TEXT("id"), Id.ToString().ToLower());
+		Writer->WriteValue(TEXT("signature"), Channel->GetDefinition().Signature);
+		TArray<FString> Order;
+		Channel->DescribeOrder(Order);
+		Writer->WriteValue(TEXT("order"), Order);
+		Writer->WriteObjectEnd();
+	}
+	Writer->WriteArrayEnd();
+
+	TArray<FContentKey> Keys;
+	Contents.GetKeys(Keys);
+	Keys.Sort(
+	    [](const FContentKey& Left, const FContentKey& Right)
+	    { return Left.Key == Right.Key ? Left.Value.LexicalLess(Right.Value) : Left.Key.LexicalLess(Right.Key); });
+	Writer->WriteArrayStart(TEXT("content"));
+	for (const auto& Key : Keys)
+	{
+		const auto& Choice = Contents.FindChecked(Key);
+		Writer->WriteObjectStart();
+		Writer->WriteValue(TEXT("slot"), Key.Key.ToString().ToLower());
+		Writer->WriteValue(TEXT("id"), Key.Value.ToString().ToLower());
+		Writer->WriteValue(TEXT("status"), static_cast<int32>(Choice.Status));
+		Writer->WriteValue(TEXT("mod"), Choice.ModId);
+		Writer->WriteValue(TEXT("asset"), Choice.Path.ToString());
+		Writer->WriteValue(TEXT("fallback"), Choice.bUsedFallback);
+		Writer->WriteObjectEnd();
+	}
+	Writer->WriteArrayEnd();
+
+	TMap<FName, TPair<FString, FService>> ChosenServices;
+	for (const FMod& Mod : Mods)
+	{
+		for (const FServiceOffer& Offer : Mod.Package->Extensions.Provides)
+		{
+			ChosenServices.Emplace(
+			    Offer.Id, TPair<FString, FService>(Mod.Package->ModId, FService{Offer.Id, Offer.TypeId, Offer.Version,
+			                                                                    Offer.Signature, Offer.Permission}));
+		}
+	}
+	for (const auto& [Id, Entry] : Services)
+	{
+		ChosenServices.FindOrAdd(Id, TPair<FString, FService>(Entry.ModId, Entry.Definition));
+	}
+	TArray<FName> ServiceIds;
+	ChosenServices.GetKeys(ServiceIds);
+	ServiceIds.Sort(FNameLexicalLess());
+	Writer->WriteArrayStart(TEXT("services"));
+	for (const FName Id : ServiceIds)
+	{
+		const auto& Entry = ChosenServices.FindChecked(Id);
+		Writer->WriteObjectStart();
+		Writer->WriteValue(TEXT("id"), Id.ToString().ToLower());
+		Writer->WriteValue(TEXT("mod"), Entry.Key);
+		Writer->WriteValue(TEXT("version"), Entry.Value.Version);
+		Writer->WriteValue(TEXT("signature"), Entry.Value.Signature);
+		Writer->WriteValue(TEXT("permission"),
+		                   Entry.Value.Permission.IsNone() ? FString() : Entry.Value.Permission.ToString().ToLower());
+		Writer->WriteObjectEnd();
+	}
+	Writer->WriteArrayEnd();
+
+	Writer->WriteArrayStart(TEXT("patches"));
+	for (const FPatch& Patch : Patches)
+	{
+		Writer->WriteObjectStart();
+		Writer->WriteValue(TEXT("id"), Patch.Definition.Id.ToString().ToLower());
+		Writer->WriteValue(TEXT("mod"), Patch.ModId);
+		Writer->WriteValue(TEXT("anchor"), Patch.Definition.Anchor.ToString().ToLower());
+		Writer->WriteValue(TEXT("operation"), static_cast<int32>(Patch.Definition.Operation));
+		Writer->WriteValue(TEXT("actorClass"), Patch.Definition.ActorClass.ToString());
+		Writer->WriteValue(TEXT("componentClass"), Patch.Definition.ComponentClass.ToString());
+		Writer->WriteValue(TEXT("dataId"), Patch.Definition.DataId.ToString().ToLower());
+		Writer->WriteValue(TEXT("dataAsset"), Patch.Definition.DataAsset.ToString());
+		Writer->WriteValue(TEXT("dependencies"), Patch.RequiredPatches);
+		Writer->WriteObjectEnd();
+	}
+	Writer->WriteArrayEnd();
+	Writer->WriteObjectEnd();
+	return Writer->Close() ? HashPackagePlan(Canonical) : FString();
+}
+
+void FModExtensionWorld::DispatchQueuedEvents()
+{
+	constexpr int32 PerTickBudget = 64;
+	const int32 Count = FMath::Min(PerTickBudget, QueuedEvents.Num());
+	if (Count == 0 || Phase != EState::Ready || Depth != 0)
+	{
+		return;
+	}
+	TArray<TUniqueFunction<void()>, TInlineAllocator<PerTickBudget>> Batch;
+	for (int32 Index = 0; Index < Count; ++Index)
+	{
+		Batch.Add(MoveTemp(QueuedEvents[Index]));
+	}
+	QueuedEvents.RemoveAt(0, Count, EAllowShrinking::No);
+	for (auto& Dispatch : Batch)
+	{
+		if (Phase != EState::Ready)
+		{
+			break;
+		}
+		++Depth;
+		Dispatch();
+		FinishDispatch();
+	}
 }
 
 void FModExtensionWorld::FinishDispatch()
@@ -304,14 +591,28 @@ void FModExtensionWorld::FinishDispatch()
 	{
 		Drain();
 	}
-	else if (bDirty && Phase == EState::Ready)
+	else if (Phase == EState::Ready)
 	{
 		FString Error;
-		if (!RefreshSnapshots(Error))
+		if (bDirty && !RefreshSnapshots(Error))
 		{
 			UE_LOG(LogModExtensionWorld, Error, TEXT("%s"), *Error);
 		}
 	}
+}
+
+void FModExtensionWorld::Fail(EError Error, FString Detail, bool bRestartRequired)
+{
+	if (Failure.Error == EError::None || (bRestartRequired && !Failure.bRestartRequired))
+	{
+		Failure = {Error, MoveTemp(Detail), bRestartRequired};
+	}
+	Phase = EState::Draining;
+	if (bRestartRequired)
+	{
+		IModLoaderModule::Get().RequireRestart(Failure.Detail);
+	}
+	Drain();
 }
 
 void FModExtensionWorld::Drain()
@@ -323,20 +624,29 @@ void FModExtensionWorld::Drain()
 	TGuardValue<bool> Guard(bStopping, true);
 	Phase = EState::Draining;
 	bBindingServices = false;
+	QueuedEvents.Reset();
 	Channels.Reset();
 	BlueprintCalls.Reset();
-	RevertPatches();
-	Patches.Reset();
-	Contents.Reset();
-	ContentLeases.Reset();
 	for (int32 Index = Mods.Num() - 1; Index >= 0; --Index)
 	{
 		const FMod& Mod = Mods[Index];
-		for (const auto& Instance : Mod.Instances)
+		if (Mod.Native)
 		{
+			Mod.Native->Close();
+			if (Mod.NativeOwner)
+			{
+				Mod.NativeOwner->ReleaseExtensions(false);
+				Instances.Remove(FObjectKey(Mod.NativeOwner.Get()));
+			}
+		}
+		for (int32 Entry = Mod.Instances.Num() - 1; Entry >= 0; --Entry)
+		{
+			const auto& Instance = Mod.Instances[Entry];
 			if (Instance)
 			{
-				Instance->ReleaseExtensions();
+				TGuardValue<TOptional<FObjectKey>> Owner(CleanupOwner,
+				                                         TOptional<FObjectKey>(FObjectKey(Instance.Get())));
+				Instance->ReleaseExtensions(Entry < Mod.RegisteredInstances);
 			}
 			if (APIHostOwner.IsValid() && APIHostOwner->GetRegistry() == APIRegistry && Instance)
 			{
@@ -352,7 +662,7 @@ void FModExtensionWorld::Drain()
 		}
 		for (auto Entry = Services.CreateIterator(); Entry; ++Entry)
 		{
-			if (Entry.Value().ModId == Mod.Package->ModId)
+			if (Entry.Value().PatchIndex == INDEX_NONE && Entry.Value().ModId == Mod.Package->ModId)
 			{
 				Entry.RemoveCurrent();
 			}
@@ -363,10 +673,23 @@ void FModExtensionWorld::Drain()
 		Mod::API::FNativeAccess::Close(Entry.Value.Context);
 	}
 	NativeCallers.Reset();
+	RevertPatches();
+	PatchData.Reset();
+	Patches.Reset();
+	Contents.Reset();
+	PendingContent.Reset();
+	LoadingContent.Reset();
+	ContentLeases.Reset();
 	Callers.Reset();
 	Services.Reset();
-	Mods.RemoveAll([this](const FMod& Mod) { return !FailedCompensations.Contains(Mod.Package->ModId); });
+	Mods.Reset();
 	Anchors.Reset();
 	RemovedAnchors.Reset();
 	Phase = EState::Closed;
+	if (Failure.Error != EError::None)
+	{
+		UE_LOG(LogModExtensionWorld, Error, TEXT("%s"), *Failure.Detail);
+		auto Handler = MoveTemp(FailureHandler);
+		Handler.ExecuteIfBound(Failure);
+	}
 }

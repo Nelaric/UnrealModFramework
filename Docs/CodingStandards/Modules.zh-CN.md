@@ -80,6 +80,14 @@ PreparationTimeoutSeconds=120
 
 白名单默认关闭。要启用白名单，从打包任务 `Result.json` 的 `sha256` 字段取整包摘要，为每个批准的 `.mod` 添加一条 `+TrustedPackageSha256=<摘要>`。显式设置 `bEnforcePackageAllowlist=False` 可跳过已有名单。设为 `True` 时，空名单也会执行校验并拒绝所有包。手动加载使用 `FLoadPolicy` 的同名字段。
 
+进程准入可在同一个节填写 `+EnabledMods=<ModId>`、`+RequiredMods=<ModId>`、`+PinnedArchives=<ModId>=<整包 SHA-256>` 和 `+ExtensionGrants=<ModId>=<权限 ID>`。设置 `bEnableAllMods=False` 并留空启用列表可选择空集合。宿主用 `FWorldPolicy::Grants` 为指定 Mod 提供完整的 World 授权集，缺省时沿用进程准入授权。首次准备的包集合和授权在同一个 GameInstance 中复用。
+
+游戏在开局前通过 `UModExtensionSubsystem` 注册内容槽和 Patch 锚点，然后调用 `Prepare`。设置 `FPatchAnchorRules::Attachment` 或 `DataAssetType` 可开放组件挂接或数据注册。游戏可按锚点及数据 ID 调用 `ResolvePatchData`，按 Actor 或组件查询 `GetPatchOrigin`。`SetFailureHandler` 接收 World 关闭原因。`GetGameplayDigest` 返回首次就绪时的玩法指纹，`ExpectedGameplayDigest` 可在开放玩法前比对宿主选定的值。`GetPackageRevisions` 提供会话的精确包摘要。
+
+多人模式在 `PreLogin` 核对游戏、基础发布、生成契约与模组发行集合。服务器在 UE Welcome 前发送目标地图与玩法指纹，客户端在切图前检查地图，在 Join 前核对本地决议并回传指纹，服务器只接受已确认的连接。若各目标使用不同的基础资源注册表，将各端的 `NetworkBaseCompatibilitySha256` 设为同一个经批准的基础兼容摘要。不同目标的 Mod 产物通过宿主发行清单使用同一个玩法发行身份。为各目标的整包摘要分别填写 `+GameplayReleases=<整包 SHA-256>=<ReleaseId>=<玩法兼容 SHA-256>`，目标包仍按各自的归档摘要验证。示例 `ModExtensions` 模式使用重新连接的切图路径。
+
+`FModExtensionSave` 在 World 扩展准备阶段校验宿主与必需模组，通过版本迁移表处理游戏数据与各 Mod 的数据块，并验证逻辑内容和持久对象 ID。缺失的可选模组数据随保存结果保留。示例在单机 `ModExtensions` 模式提供 `ModWriteSave <槽位>` 和 `ModLoadSave <槽位>`，存档位于 `Saved/ModSaves`。写入发布到新槽位，迁移失败会保留原始文件。
+
 载荷写入 `Saved/ModCache/<整包 SHA-256>`，复用时重新核对文件。挂载保持 Cook 时的包根，同一个 ModId 同时只接受一个版本。从监听目录移走或删除源文件会开始卸载，此时缓存内容仍可用。资源可以安全释放后，加载器会卸载容器、Shader 库并注销包根。仍被引用的包会保留挂载并记录到日志。首版接受独立包根下的未加密内容，支持将包内可用的 Cooked Asset Registry 追加到游戏索引。
 
 Windows 下启动 PIE 时使用宿主项目的 `Binaries/Win64/Mods` 目录和同一份 `[ModLoader]` 配置。在 **项目设置 → 引擎 → Cooker** 中启用 **Allow Cooked Content in the Editor**。配置 `Backend=Pak` 后，ModLoader 会在编辑器启动时初始化 Pak 平台文件。使用 `Backend=IoStore` 时，以 `-UsePaks -UseIoStore` 启动编辑器。加载无版本号的 Cook 资产时，在 `Config/DefaultEngine.ini` 的 `[ConsoleVariables]` 节设置 `s.AllowUnversionedContentInEditor=1`。

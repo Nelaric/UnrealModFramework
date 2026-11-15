@@ -1,7 +1,13 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModExtensionWorld.h"
 
+#include "ModAPIHostSubsystem.h"
+
+#include "HAL/PlatformTime.h"
+
 #include "Algo/AllOf.h"
+#include "Components/SceneComponent.h"
+#include "Engine/DataAsset.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
@@ -12,6 +18,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogModContent, Log, All);
 
 using namespace Mod::Extension;
 using namespace Mod::Loader;
+using Mod::API::EError;
 
 namespace
 {
@@ -59,12 +66,26 @@ const FCandidate* Choose(TArray<FCandidate>& Candidates, const FString* Override
 	}
 	return &Candidates[0];
 }
+
+FSoftObjectPath PatchAssetPath(const FWorldPatch& Patch)
+{
+	switch (Patch.Operation)
+	{
+	case EWorldPatchOperation::SpawnActor:
+		return FSoftObjectPath(Patch.ActorClass.ToString());
+	case EWorldPatchOperation::AttachComponent:
+		return FSoftObjectPath(Patch.ComponentClass.ToString());
+	case EWorldPatchOperation::RegisterData:
+		return Patch.DataAsset;
+	}
+	return {};
+}
 } // namespace
 
 bool UModExtensionSubsystem::DefineContentSlot(FName Id, FContentSlot Slot)
 {
 	if (!IsInGameThread() || !State || State->Phase != FModExtensionWorld::EState::New || Id.IsNone() ||
-	    !Slot.AssetType || State->Slots.Contains(Id))
+	    !Slot.AssetType || (Slot.bRequired && Slot.bLoadOnDemand) || State->Slots.Contains(Id))
 	{
 		return false;
 	}
@@ -74,12 +95,51 @@ bool UModExtensionSubsystem::DefineContentSlot(FName Id, FContentSlot Slot)
 
 FResolvedContent UModExtensionSubsystem::ResolveContent(FName Slot, FName Id) const
 {
-	return IsReady() ? State->Contents.FindRef({Slot, Id}) : FResolvedContent{};
+	if (!IsReady() && (!IsInGameThread() || !State || !State->bStagingSavedState ||
+	                   State->Phase != FModExtensionWorld::EState::Preparing))
+	{
+		return {};
+	}
+	const FContentKey Key(Slot, Id);
+	const auto WorldState = State;
+	if (!WorldState->PendingContent.Contains(Key))
+	{
+		return WorldState->LoadingContent.Contains(Key) ? FResolvedContent{} : WorldState->Contents.FindRef(Key);
+	}
+	auto Result = WorldState->Contents.FindRef(Key);
+	WorldState->PendingContent.Remove(Key);
+	WorldState->LoadingContent.Add(Key);
+	++WorldState->Depth;
+	ON_SCOPE_EXIT
+	{
+		WorldState->LoadingContent.Remove(Key);
+		WorldState->FinishDispatch();
+	};
+	FString Error;
+	if (!WorldState->LoadContent(Key, Result, Error) ||
+	    (WorldState->Phase != FModExtensionWorld::EState::Ready &&
+	     (WorldState->Phase != FModExtensionWorld::EState::Preparing || !WorldState->bStagingSavedState)))
+	{
+		return {};
+	}
+	WorldState->Contents.Add(Key, Result);
+	return Result;
 }
 
 bool FModExtensionWorld::ResolveContent(FString& Error)
 {
 	TMap<FContentKey, TArray<FCandidate>> Candidates;
+	TMap<FContentKey, TSet<FString>> Providers;
+	for (const auto& Mod : Mods)
+	{
+		for (const auto& Entry : Mod.Package->Extensions.Content)
+		{
+			if (Entry.Action == EContentAction::Provide)
+			{
+				Providers.FindOrAdd({Entry.Slot, Entry.Id}).Add(Mod.Package->ModId);
+			}
+		}
+	}
 	for (const auto& [SlotId, Slot] : Slots)
 	{
 		for (const auto& [Id, Asset] : Slot.Defaults)
@@ -95,11 +155,16 @@ bool FModExtensionWorld::ResolveContent(FString& Error)
 			const FContentKey Key(Entry.Slot, Entry.Id);
 			const FContentSlot* Slot = Slots.Find(Entry.Slot);
 			const bool bHasDefault = Slot && Slot->Defaults.Contains(Entry.Id);
+			const auto* Sources = Providers.Find(Key);
+			const bool bHasDependencySource =
+			    Slot && Slot->bAllowReplaceProvided && Sources &&
+			    Package.Extensions.Mods.ContainsByPredicate(
+			        [&](const FModDependency& Need) { return Need.bRequired && Sources->Contains(Need.ModId); });
 			const bool bDisabled = Entry.Action == EContentAction::Disable;
 			const bool bActionAllowed =
 			    Slot && (Entry.Action == EContentAction::Provide ? Slot->bAllowProvide && !bHasDefault
 			             : bDisabled                             ? Slot->bAllowDisable
-			                                                     : Slot->bAllowReplace && bHasDefault);
+			                         : Slot->bAllowReplace && (bHasDefault || bHasDependencySource));
 			if (!bActionAllowed || !HasGrant(Package.ModId, SlotGrant(Entry.Slot)) ||
 			    (!bDisabled && !IsCookedAsset(Package, Entry.Asset)))
 			{
@@ -143,29 +208,63 @@ bool FModExtensionWorld::ResolveContent(FString& Error)
 		Result.Status = Winner->bDisabled ? EContentStatus::Disabled : EContentStatus::Available;
 		if (!Winner->bDisabled)
 		{
-			const auto& Slot = Slots.FindChecked(Key.Key);
-			UObject* Asset = Winner->Path.TryLoad();
-			if (!Asset || !Asset->IsA(Slot.AssetType) || FSoftObjectPath(Asset) != Winner->Path)
+			if (Slots.FindChecked(Key.Key).bLoadOnDemand)
 			{
-				if (Slot.bRequired)
-				{
-					Error = TEXT("Missing or incompatible asset at ") + DescribeKey(Key) + TEXT(": ") +
-					        Winner->Path.ToString();
-					return false;
-				}
-				Result.Status = EContentStatus::Missing;
+				PendingContent.Add(Key);
 			}
-			else
+			else if (!LoadContent(Key, Result, Error))
 			{
-				ContentLeases.Emplace(Asset);
+				return false;
 			}
+		}
+		if (Phase != EState::Preparing)
+		{
+			Error = TEXT("The World closed while resolving content.");
+			return false;
 		}
 		Contents.Add(Key, MoveTemp(Result));
 	}
 	return true;
 }
 
-bool UModExtensionSubsystem::RegisterAnchor(FName Id, ULevel& Level, const FTransform& Transform, FName Permission)
+bool FModExtensionWorld::LoadContent(const FContentKey& Key, FResolvedContent& Result, FString& Error)
+{
+	const auto& Slot = Slots.FindChecked(Key.Key);
+	const auto Load = [&Slot](const FSoftObjectPath& Path) -> UObject*
+	{
+		UObject* Asset = Path.IsNull() ? nullptr : Path.TryLoad();
+		return IsValid(Asset) && Asset->IsA(Slot.AssetType) && FSoftObjectPath(Asset) == Path &&
+		               (!Slot.ValidateAsset || Slot.ValidateAsset(*Asset))
+		           ? Asset
+		           : nullptr;
+	};
+	UObject* Asset = Load(Result.Path);
+	if (!Asset && !Slot.bRequired)
+	{
+		Asset = Load(Slot.Fallback);
+		if (Asset)
+		{
+			Result.Path = Slot.Fallback;
+			Result.ModId.Reset();
+			Result.bUsedFallback = true;
+		}
+	}
+	if (Asset)
+	{
+		ContentLeases.Emplace(Asset);
+		return true;
+	}
+	if (Slot.bRequired)
+	{
+		Error = TEXT("Missing or incompatible asset at ") + DescribeKey(Key) + TEXT(": ") + Result.Path.ToString();
+		return false;
+	}
+	Result.Status = EContentStatus::Missing;
+	return true;
+}
+
+bool UModExtensionSubsystem::RegisterAnchor(FName Id, ULevel& Level, const FTransform& Transform, FName Permission,
+                                            FPatchAnchorRules Rules)
 {
 	if (!IsInGameThread() || !State || Level.GetWorld() != GetWorld() || Id.IsNone() || Permission.IsNone() ||
 	    Transform.ContainsNaN() || State->Anchors.Contains(Id) || State->Depth ||
@@ -173,8 +272,21 @@ bool UModExtensionSubsystem::RegisterAnchor(FName Id, ULevel& Level, const FTran
 	{
 		return false;
 	}
+	const USceneComponent* Parent = Rules.Attachment.Get();
+	if ((Parent && (!Parent->IsRegistered() || !IsValid(Parent->GetOwner()) ||
+	                Parent->GetOwner()->GetLevel() != &Level || Parent->GetWorld() != GetWorld())) ||
+	    (Rules.DataAssetType && !Rules.DataAssetType->IsChildOf(UDataAsset::StaticClass())))
+	{
+		return false;
+	}
 	const auto WorldState = State;
-	WorldState->Anchors.Add(Id, {&Level, Transform, Permission, ++WorldState->LastAnchor});
+	auto& Anchor = WorldState->Anchors.Add(Id);
+	Anchor.Level = &Level;
+	Anchor.Transform = Transform;
+	Anchor.Permission = Permission;
+	Anchor.Generation = ++WorldState->LastAnchor;
+	Anchor.Rules = Rules;
+	Anchor.DataAssetType.Reset(Rules.DataAssetType);
 	if (!IsReady())
 	{
 		return true;
@@ -188,7 +300,7 @@ bool UModExtensionSubsystem::RegisterAnchor(FName Id, ULevel& Level, const FTran
 	if (!WorldState->ApplyPatches(false, Error))
 	{
 		UE_LOG(LogModContent, Error, TEXT("%s"), *Error);
-		WorldState->Phase = FModExtensionWorld::EState::Draining;
+		WorldState->Fail(EError::NotReady, MoveTemp(Error));
 		return false;
 	}
 	return WorldState->Phase == FModExtensionWorld::EState::Ready;
@@ -209,6 +321,39 @@ void UModExtensionSubsystem::RemoveAnchor(FName Id, ULevel& Level)
 	}
 }
 
+TOptional<FPatchOrigin> UModExtensionSubsystem::GetPatchOrigin(const UObject& Effect) const
+{
+	if (!IsInGameThread() || !State || Effect.GetWorld() != GetWorld())
+	{
+		return {};
+	}
+	const auto* Applied =
+	    State->Applied.FindByPredicate([&Effect](const auto& Record) { return Record.Effect.Get() == &Effect; });
+	return Applied ? TOptional<FPatchOrigin>(State->DescribePatch(Applied->PatchIndex, Applied->AnchorGeneration))
+	               : TOptional<FPatchOrigin>();
+}
+
+FPatchData UModExtensionSubsystem::ResolvePatchData(FName Anchor, FName DataId) const
+{
+	if (!IsReady())
+	{
+		return {};
+	}
+	const auto* Registration = State->PatchData.Find({Anchor, DataId});
+	if (!Registration)
+	{
+		return {};
+	}
+	const auto& Asset = State->Patches[Registration->Key].Asset;
+	return {Cast<UDataAsset>(Asset.Get()), State->DescribePatch(Registration->Key, Registration->Value)};
+}
+
+FPatchOrigin FModExtensionWorld::DescribePatch(int32 Index, uint64 AnchorGeneration) const
+{
+	const FPatch& Patch = Patches[Index];
+	return {Patch.ModId, Patch.Definition.Id, Patch.Revision, Patch.Definition.Anchor, Generation, AnchorGeneration};
+}
+
 void FModExtensionWorld::FlushRemovedAnchors()
 {
 	auto Removed = MoveTemp(RemovedAnchors);
@@ -227,6 +372,8 @@ void FModExtensionWorld::FlushRemovedAnchors()
 bool FModExtensionWorld::PreparePatches(FString& Error)
 {
 	TSet<TPair<FName, FName>> Conflicts;
+	TSet<FContentKey> DataKeys;
+	TArray<FHandler> Graph;
 	for (const FMod& Mod : Mods)
 	{
 		const auto& Package = *Mod.Package;
@@ -256,8 +403,10 @@ bool FModExtensionWorld::PreparePatches(FString& Error)
 		{
 			const auto& Patch = Package.Extensions.Patches[Index];
 			const TPair<FName, FName> Key(Patch.Anchor, Patch.ConflictKey);
+			const FContentKey DataKey(Patch.Anchor, Patch.DataId);
+			const FSoftObjectPath Path = PatchAssetPath(Patch);
 			if ((!Patch.ConflictKey.IsNone() && Conflicts.Contains(Key)) ||
-			    !IsCookedAsset(Package, FSoftObjectPath(Patch.ActorClass.ToString())))
+			    (!Patch.DataId.IsNone() && DataKeys.Contains(DataKey)) || !IsCookedAsset(Package, Path))
 			{
 				Error = Package.ModId + TEXT(": conflicting or invalid Patch ") + Patch.Id.ToString();
 				return false;
@@ -265,6 +414,10 @@ bool FModExtensionWorld::PreparePatches(FString& Error)
 			if (!Patch.ConflictKey.IsNone())
 			{
 				Conflicts.Add(Key);
+			}
+			if (!Patch.DataId.IsNone())
+			{
+				DataKeys.Add(DataKey);
 			}
 			for (const FName Required : Patch.After)
 			{
@@ -283,16 +436,85 @@ bool FModExtensionWorld::PreparePatches(FString& Error)
 				Error = Package.ModId + TEXT(": missing or unauthorized Patch anchor ") + Patch.Anchor.ToString();
 				return false;
 			}
-			UClass* Class = Patch.ActorClass.TryLoadClass<AActor>();
-			if (!Class || Class->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists) ||
-			    FSoftClassPath(Class) != Patch.ActorClass)
+			UObject* Asset = nullptr;
+			if (Patch.Operation == EWorldPatchOperation::RegisterData)
 			{
-				Error = Package.ModId + TEXT(": invalid Patch actor class ") + Patch.ActorClass.ToString();
+				Asset = Cast<UDataAsset>(Patch.DataAsset.TryLoad());
+			}
+			else
+			{
+				auto* Class = Patch.Operation == EWorldPatchOperation::SpawnActor
+				                  ? Patch.ActorClass.TryLoadClass<AActor>()
+				                  : Patch.ComponentClass.TryLoadClass<USceneComponent>();
+				if (Class && !Class->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists))
+				{
+					Asset = Class;
+				}
+			}
+			if (!IsValid(Asset) || FSoftObjectPath(Asset) != Path)
+			{
+				Error = Package.ModId + TEXT(": invalid Patch asset ") + Path.ToString();
 				return false;
 			}
-			Patches.Add({Package.ModId, Patch, TStrongObjectPtr<UClass>(Class)});
+			FPatch& Planned = Patches.AddDefaulted_GetRef();
+			Planned.ModId = Package.ModId;
+			Planned.Definition = Patch;
+			Planned.Revision = Package.ArchiveSha256;
+			Planned.Asset.Reset(Asset);
+			if (Anchor && !SupportsPatch(Planned, *Anchor))
+			{
+				Error = Package.ModId + TEXT(": anchor does not accept Patch ") + Patch.Id.ToString();
+				return false;
+			}
+			Planned.bFoundAnchor = Anchor != nullptr;
+			Planned.AnchorDeadline = Patch.WaitSeconds > 0 ? FPlatformTime::Seconds() + Patch.WaitSeconds : 0;
+			FHandler& Node = Graph.AddDefaulted_GetRef();
+			Node.ModId = Package.ModId + TEXT("/") + Patch.Id.ToString().ToLower();
+			for (const FName Id : Patch.After)
+			{
+				Planned.RequiredPatches.Add(Package.ModId + TEXT("/") + Id.ToString().ToLower());
+			}
+			for (const FName Service : Patch.RequiresServices)
+			{
+				const auto* Need = Package.Extensions.Services.FindByPredicate([Service](const auto& Entry)
+				                                                               { return Entry.Id == Service; });
+				const auto* Provider = Need ? Mods.FindByPredicate([Need](const auto& Entry)
+				                                                   { return Entry.Package->ModId == Need->Provider; })
+				                            : nullptr;
+				const auto* Offer = Provider ? Provider->Package->Extensions.Provides.FindByPredicate(
+				                                   [Service](const auto& Entry) { return Entry.Id == Service; })
+				                             : nullptr;
+				if (!Need)
+				{
+					Error = Node.ModId + TEXT(": undeclared Patch service ") + Service.ToString();
+					return false;
+				}
+				if (Offer && !Offer->Patch.IsNone())
+				{
+					Planned.RequiredPatches.AddUnique(Need->Provider + TEXT("/") + Offer->Patch.ToString().ToLower());
+				}
+			}
+			if (Planned.RequiredPatches.Contains(Node.ModId))
+			{
+				Error = Node.ModId + TEXT(": Patch depends on a service it provides.");
+				return false;
+			}
+			Planned.RequiredPatches.Sort();
+			Node.Order.After = Planned.RequiredPatches;
 		}
 	}
+	TArray<int32> PlanOrder;
+	if (!SortExtensions(Graph, PlanOrder, Error))
+	{
+		return false;
+	}
+	TArray<FPatch> Ordered;
+	Ordered.Reserve(Patches.Num());
+	for (int32 Index : PlanOrder)
+	{
+		Ordered.Add(MoveTemp(Patches[Index]));
+	}
+	Patches = MoveTemp(Ordered);
 	return true;
 }
 
@@ -313,7 +535,7 @@ bool FModExtensionWorld::ApplyPatches(bool bInitial, FString& Error)
 	}
 	for (int32 Index = 0; Index < Patches.Num(); ++Index)
 	{
-		const auto& Patch = Patches[Index];
+		auto& Patch = Patches[Index];
 		const FAnchor* Anchor = Anchors.Find(Patch.Definition.Anchor);
 		if (!Anchor || !Anchor->Level.IsValid())
 		{
@@ -324,28 +546,43 @@ bool FModExtensionWorld::ApplyPatches(bool bInitial, FString& Error)
 			}
 			continue;
 		}
+		if (!Patch.bFoundAnchor && Patch.AnchorDeadline > 0 && FPlatformTime::Seconds() >= Patch.AnchorDeadline)
+		{
+			continue;
+		}
+		Patch.bFoundAnchor = true;
 		const auto AnchorGeneration = Anchor->Generation;
 		if (IsPatchApplied(Index, AnchorGeneration))
 		{
 			continue;
 		}
-		const bool bDependenciesApplied = Algo::AllOf(Patch.Definition.After,
-		                                              [&](FName Id)
-		                                              {
-			                                              return Applied.ContainsByPredicate(
-			                                                  [&](const auto& Record)
-			                                                  {
-				                                                  const auto& Dependency = Patches[Record.PatchIndex];
-				                                                  return Dependency.ModId == Patch.ModId &&
-				                                                         Dependency.Definition.Id == Id &&
-				                                                         Record.Actor.IsValid();
-			                                                  });
-		                                              });
+		const auto* Package =
+		    Mods.FindByPredicate([&Patch](const auto& Mod) { return Mod.Package->ModId == Patch.ModId; });
+		check(Package);
+		const bool bDependenciesApplied =
+		    Algo::AllOf(Patch.Definition.After,
+		                [&](FName Id)
+		                {
+			                return Applied.ContainsByPredicate(
+			                    [&](const auto& Record)
+			                    {
+				                    const auto& Dependency = Patches[Record.PatchIndex];
+				                    return Dependency.ModId == Patch.ModId && Dependency.Definition.Id == Id &&
+				                           Record.AnchorGeneration == AnchorGeneration && Record.Effect.IsValid();
+			                    });
+		                }) &&
+		    Algo::AllOf(Patch.Definition.RequiresServices,
+		                [&](FName Id)
+		                {
+			                const auto* Need = Package->Package->Extensions.Services.FindByPredicate(
+			                    [Id](const auto& Entry) { return Entry.Id == Id; });
+			                return Need && IsServiceAvailable(*Need, Patch.ModId);
+		                });
 		if (Current->GetNetMode() == NM_Client)
 		{
 			continue;
 		}
-		if (!HasGrant(Patch.ModId, Anchor->Permission) || !bDependenciesApplied)
+		if (!HasGrant(Patch.ModId, Anchor->Permission) || !bDependenciesApplied || !SupportsPatch(Patch, *Anchor))
 		{
 			if (Patch.Definition.bRequired)
 			{
@@ -355,51 +592,185 @@ bool FModExtensionWorld::ApplyPatches(bool bInitial, FString& Error)
 			}
 			continue;
 		}
-		FActorSpawnParameters Params;
-		Params.OverrideLevel = Anchor->Level.Get();
-		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		const FTransform Transform = Anchor->Transform;
-		AActor* Actor = Current->SpawnActor(Patch.Class.Get(), &Transform, Params);
-		if (Actor)
+		if (!CommitPatch(Index, *Anchor, Error))
 		{
-			Applied.Add({Index, AnchorGeneration, Actor});
+			return false;
 		}
-		if (!IsValid(Actor) || Actor->IsActorBeingDestroyed() || Current->bIsTearingDown || Phase == EState::Draining)
+	}
+	return true;
+}
+
+bool FModExtensionWorld::SupportsPatch(const FPatch& Patch, const FAnchor& Anchor) const
+{
+	switch (Patch.Definition.Operation)
+	{
+	case EWorldPatchOperation::SpawnActor:
+		return Anchor.Rules.bAllowSpawnActor;
+	case EWorldPatchOperation::AttachComponent:
+		if (const auto* Parent = Anchor.Rules.Attachment.Get(); Parent && Parent->IsRegistered())
 		{
-			const FString Reason = FString::Printf(TEXT("FailedCommitted: %s/%s could not complete Actor creation."),
-			                                       *Patch.ModId, *Patch.Definition.Id.ToString());
-			if (Patch.Definition.bRequired || Phase == EState::Draining)
-			{
-				Error = Reason;
-				return false;
-			}
-			UE_LOG(LogModContent, Warning, TEXT("%s"), *Reason);
+			const auto* Owner = Parent->GetOwner();
+			return IsValid(Owner) && Owner->GetLevel() == Anchor.Level.Get() && !Owner->IsActorBeingDestroyed();
 		}
+		return false;
+	case EWorldPatchOperation::RegisterData:
+		return Anchor.DataAssetType && Patch.Asset->IsA(Anchor.DataAssetType.Get());
+	}
+	return false;
+}
+
+bool FModExtensionWorld::CommitPatch(int32 Index, const FAnchor& Anchor, FString& Error)
+{
+	UWorld* Current = World.Get();
+	const FPatch& Patch = Patches[Index];
+	const auto& Definition = Patch.Definition;
+	const uint64 AnchorGeneration = Anchor.Generation;
+	const auto FailEffect = [&]
+	{
+		Error = FString::Printf(TEXT("FailedCommitted: %s/%s could not activate its World Patch."), *Patch.ModId,
+		                        *Definition.Id.ToString());
+		Fail(EError::ObjectUnavailable, Error, true);
+		return false;
+	};
+	if (Definition.Operation == EWorldPatchOperation::RegisterData)
+	{
+		PatchData.Emplace(FContentKey(Definition.Anchor, Definition.DataId),
+		                  TPair<int32, uint64>(Index, AnchorGeneration));
+		Applied.Add({Index, AnchorGeneration, Patch.Asset.Get(), Patch.RequiredPatches});
+		return true;
+	}
+	bPatchCommitted = true;
+	if (Definition.Operation == EWorldPatchOperation::AttachComponent)
+	{
+		USceneComponent* Parent = Anchor.Rules.Attachment.Get();
+		AActor* Owner = Parent->GetOwner();
+		const FTransform Relative = Anchor.Transform.GetRelativeTransform(Parent->GetComponentTransform());
+		auto* Component =
+		    NewObject<USceneComponent>(Owner, CastChecked<UClass>(Patch.Asset.Get()), NAME_None, RF_Transient);
+		Applied.Add({Index, AnchorGeneration, Component, Patch.RequiredPatches});
+		Owner->AddInstanceComponent(Component);
+		Component->SetupAttachment(Parent);
+		Component->SetRelativeTransform(Relative);
+		Component->RegisterComponent();
+		return (IsValid(Component) && Component->IsRegistered() && Component->GetAttachParent() == Parent &&
+		        !Component->IsBeingDestroyed() && !Current->bIsTearingDown && Phase != EState::Draining) ||
+		       FailEffect();
+	}
+
+	FActorSpawnParameters Params;
+	Params.OverrideLevel = Anchor.Level.Get();
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	const FTransform Transform = Anchor.Transform;
+	AActor* Actor = Current->SpawnActor(CastChecked<UClass>(Patch.Asset.Get()), &Transform, Params);
+	if (Actor)
+	{
+		Applied.Add({Index, AnchorGeneration, Actor, Patch.RequiredPatches});
+	}
+	if (!IsValid(Actor) || Actor->IsActorBeingDestroyed() || Current->bIsTearingDown || Phase == EState::Draining)
+	{
+		return FailEffect();
+	}
+	if (!RegisterPatchServices(Index, AnchorGeneration, *Actor, Error))
+	{
+		Fail(EError::NotRegistered, Error, true);
+		return false;
+	}
+	return true;
+}
+
+bool FModExtensionWorld::RegisterPatchServices(int32 PatchIndex, uint64 AnchorGeneration, AActor& Actor, FString& Error)
+{
+	const auto& Patch = Patches[PatchIndex];
+	const auto* Mod = Mods.FindByPredicate([&Patch](const auto& Entry) { return Entry.Package->ModId == Patch.ModId; });
+	check(Mod);
+	for (const auto& Offer : Mod->Package->Extensions.Provides)
+	{
+		if (Offer.Patch != Patch.Definition.Id)
+		{
+			continue;
+		}
+		if (Services.Contains(Offer.Id) || !APIHostOwner.IsValid() || APIHostOwner->GetRegistry() != APIRegistry ||
+		    !APIRegistry)
+		{
+			Error = TEXT("FailedCommitted: unavailable Patch service ") + Offer.Id.ToString();
+			return false;
+		}
+		auto Registered =
+		    APIRegistry->RegisterStagedService(Offer.Id, Offer.TypeId, *Offer.Signature, APIScope, &Actor, AsShared());
+		if (!Registered.IsSuccess())
+		{
+			Error = TEXT("FailedCommitted: incompatible Patch service ") + Offer.Id.ToString();
+			return false;
+		}
+		auto& Service = Services.Add(Offer.Id);
+		Service.ModId = Patch.ModId;
+		Service.Definition = {Offer.Id, Offer.TypeId, Offer.Version, Offer.Signature, Offer.Permission};
+		Service.Registration = MoveTemp(Registered.GetValue());
+		Service.Target.Reset(&Actor);
+		Service.PatchIndex = PatchIndex;
+		Service.AnchorGeneration = AnchorGeneration;
 	}
 	return true;
 }
 
 void FModExtensionWorld::RevertPatches(uint64 AnchorGeneration)
 {
+	TSet<FString> RemovedPatches;
+	for (const FAppliedPatch& Record : Applied)
+	{
+		if (AnchorGeneration && Record.AnchorGeneration != AnchorGeneration &&
+		    !Record.DependsOn.ContainsByPredicate([&RemovedPatches](const FString& Key)
+		                                          { return RemovedPatches.Contains(Key); }))
+		{
+			continue;
+		}
+		const auto& Definition = Patches[Record.PatchIndex];
+		RemovedPatches.Add(Definition.ModId + TEXT("/") + Definition.Definition.Id.ToString().ToLower());
+	}
 	for (int32 Index = Applied.Num() - 1; Index >= 0; --Index)
 	{
-		if (AnchorGeneration && Applied[Index].AnchorGeneration != AnchorGeneration)
+		const auto& Definition = Patches[Applied[Index].PatchIndex];
+		if (!RemovedPatches.Contains(Definition.ModId + TEXT("/") + Definition.Definition.Id.ToString().ToLower()))
 		{
 			continue;
 		}
 		const int32 PatchIndex = Applied[Index].PatchIndex;
-		const auto Actor = Applied[Index].Actor;
+		const auto Effect = Applied[Index].Effect;
+		const uint64 GenerationToRemove = Applied[Index].AnchorGeneration;
 		Applied.RemoveAt(Index);
-		if (AActor* Instance = Actor.Get())
+		for (auto Service = Services.CreateIterator(); Service; ++Service)
 		{
-			if (Instance->GetWorld() == World.Get() && !Instance->IsActorBeingDestroyed() && !Instance->Destroy())
+			if (Service.Value().PatchIndex == PatchIndex && Service.Value().AnchorGeneration == GenerationToRemove)
 			{
-				const auto& Patch = Patches[PatchIndex];
-				UE_LOG(LogModContent, Error, TEXT("FailedCommitted: could not remove Patch actor for %s/%s."),
-				       *Patch.ModId, *Patch.Definition.Id.ToString());
-				FailedCompensations.AddUnique(Patch.ModId);
-				Phase = EState::Draining;
+				Service.RemoveCurrent();
 			}
+		}
+		bool bRemoved = true;
+		if (Definition.Definition.Operation == EWorldPatchOperation::RegisterData)
+		{
+			const FContentKey Key(Definition.Definition.Anchor, Definition.Definition.DataId);
+			if (const auto* Entry = PatchData.Find(Key);
+			    Entry && Entry->Key == PatchIndex && Entry->Value == GenerationToRemove)
+			{
+				PatchData.Remove(Key);
+			}
+		}
+		else if (auto* Actor = Cast<AActor>(Effect.Get()); Actor && Actor->GetWorld() == World.Get())
+		{
+			bRemoved = Actor->IsActorBeingDestroyed() || Actor->Destroy();
+		}
+		else if (auto* Component = Cast<USceneComponent>(Effect.Get());
+		         Component && Component->GetWorld() == World.Get() && !Component->IsBeingDestroyed())
+		{
+			Component->DestroyComponent();
+			bRemoved = !IsValid(Component);
+		}
+		if (!bRemoved)
+		{
+			Fail(EError::BindingExpired,
+			     FString::Printf(TEXT("FailedCommitted: could not remove %s/%s."), *Definition.ModId,
+			                     *Definition.Definition.Id.ToString()),
+			     true);
 		}
 	}
 }

@@ -14,6 +14,6 @@ using Files = std::map<std::string, std::string>;
 class HostBridgeWriter
 {
 public:
-	static void WriteHost(const GenerationModel& Model, Files& Files);
+	static void WriteHost(const GenerationModel& Model, const std::string& ContractHash, Files& Files);
 };
 } // namespace Mod::HeaderTool

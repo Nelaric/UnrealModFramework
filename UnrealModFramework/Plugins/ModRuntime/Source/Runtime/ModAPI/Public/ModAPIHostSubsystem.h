@@ -9,6 +9,8 @@
 #include "ModAPIHostSubsystem.generated.h"
 
 class UModInstance;
+struct FModExtensionSession;
+struct FModExtensionWorld;
 
 namespace Mod::API
 {
@@ -119,6 +121,9 @@ public:
 	MODAPI_API TModResult<Mod::API::FScope> FindOrOpenWorldScope(UWorld* World);
 
 private:
+	friend struct FModExtensionWorld;
+	TSharedPtr<FModExtensionSession> ExtensionSession;
+
 	struct FPlayerScope
 	{
 		TWeakObjectPtr<UWorld> World;

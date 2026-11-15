@@ -9,6 +9,7 @@
 class ULocalPlayer;
 class UModAPIHostSubsystem;
 class UWorld;
+struct FModExtensionWorld;
 
 namespace Mod::API
 {
@@ -106,6 +107,7 @@ class FCaller
 {
 private:
 	friend class FRegistry;
+	friend struct FHostAccess;
 	friend struct FNativeAccess;
 	TSharedPtr<FCallerState> State;
 };
@@ -167,12 +169,19 @@ public:
 
 public:
 	TModResult<FRegistration> RegisterService(FName Service, FName TypeId, const TCHAR* Signature, const FScope& Scope,
-	                                          UObject* Instance);
+	                                          UObject* Instance, TWeakPtr<FModExtensionWorld> World = {});
+	TModResult<FRegistration> RegisterStagedService(FName Service, FName TypeId, const TCHAR* Signature,
+	                                                const FScope& Scope, UObject* Instance,
+	                                                TWeakPtr<FModExtensionWorld> World);
+	bool HasServiceType(FName TypeId, const TCHAR* Signature) const;
+	TModResult<FObjectBinding> BindPayload(const FCaller& Caller, UObject& Object, FName TypeId,
+	                                       const TCHAR* Signature);
 	TModResult<FObjectBinding> BindService(FName Service, FName TypeId, const TCHAR* Signature, const FCaller& Caller);
 
 private:
 	TModResult<FRegistration> RegisterProvider(FName Service, FName TypeId, const TCHAR* Signature, const FScope& Scope,
-	                                           UObject* Instance);
+	                                           UObject* Instance, bool bAllowBeforeBeginPlay = false,
+	                                           TWeakPtr<FModExtensionWorld> World = {});
 	TModResult<FObjectBinding> BindProvider(FName Service, FName TypeId, const TCHAR* Signature, const FCaller& Caller);
 	FRegistry(const FRegistry&) = delete;
 	FRegistry& operator=(const FRegistry&) = delete;

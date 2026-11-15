@@ -3,6 +3,9 @@
 
 #include "Algo/Compare.h"
 #include "CoreGlobals.h"
+#include "Misc/ScopeExit.h"
+#include "ModExtensionPayload.h"
+#include "ModExtensionLibrary.h"
 #include "UObject/Class.h"
 #include "UObject/UnrealType.h"
 
@@ -32,7 +35,7 @@ bool IsSupportedScalar(const FProperty& Property)
 }
 } // namespace
 
-TModResult<TArray<FBlueprintParameter>> FBlueprintCall::Describe(const UFunction& Function)
+TModResult<TArray<FBlueprintParameter>> FBlueprintCall::Describe(const UFunction& Function, bool bProjected)
 {
 	using FResult = TModResult<TArray<FBlueprintParameter>>;
 	if (!IsInGameThread())
@@ -56,9 +59,28 @@ TModResult<TArray<FBlueprintParameter>> FBlueprintCall::Describe(const UFunction
 			continue;
 		}
 		const bool bReturn = Property.HasAnyPropertyFlags(CPF_ReturnParm);
-		const bool bOutput = bReturn || Property.HasAnyPropertyFlags(CPF_OutParm);
-		if (!IsSupportedScalar(Property) || !Property.HasAnyPropertyFlags(CPF_NoDestructor) || Property.ArrayDim != 1 ||
-		    Property.HasAnyPropertyFlags(CPF_ReferenceParm) || bHasResult || Property.GetOffset_ForUFunction() < 0 ||
+		const bool bOutput =
+		    bReturn || (Property.HasAnyPropertyFlags(CPF_OutParm) && !Property.HasAnyPropertyFlags(CPF_ConstParm));
+		FName TypePath;
+		if (bProjected)
+		{
+			if (const auto* Struct = CastField<FStructProperty>(&Property);
+			    Struct && (Struct->Struct == FModPayloadObject::StaticStruct() ||
+			               !Mod::Extension::DescribePayloadStruct(*Struct->Struct).IsEmpty()))
+			{
+				TypePath = FName(Struct->Struct->GetPathName());
+			}
+			else if (const auto* Object = CastField<FObjectProperty>(&Property);
+			         Object && !Object->IsA<FClassProperty>())
+			{
+				TypePath = FName(Object->PropertyClass->GetPathName());
+			}
+		}
+		const bool bValue =
+		    (IsSupportedScalar(Property) && Property.HasAnyPropertyFlags(CPF_NoDestructor)) || !TypePath.IsNone();
+		const bool bReference = Property.HasAnyPropertyFlags(CPF_ReferenceParm) &&
+		                        (TypePath.IsNone() || !Property.HasAnyPropertyFlags(CPF_ConstParm));
+		if (!bValue || Property.ArrayDim != 1 || bReference || bHasResult || Property.GetOffset_ForUFunction() < 0 ||
 		    !Property.IsInContainer(Function.ParmsSize))
 		{
 			return FResult::Failure(EError::SignatureMismatch);
@@ -67,7 +89,8 @@ TModResult<TArray<FBlueprintParameter>> FBlueprintCall::Describe(const UFunction
 		Parameters.Add({Property.GetFName(), Property.GetClass()->GetFName(),
 		                bReturn   ? EBlueprintParameter::Return
 		                : bOutput ? EBlueprintParameter::Output
-		                          : EBlueprintParameter::Input});
+		                          : EBlueprintParameter::Input,
+		                TypePath});
 	}
 	if (Parameters.Num() != Function.NumParms)
 	{
@@ -77,7 +100,7 @@ TModResult<TArray<FBlueprintParameter>> FBlueprintCall::Describe(const UFunction
 }
 
 TModResult<TSharedPtr<const FBlueprintCall>> FBlueprintCall::Bind(UClass& DeclaringClass, UClass& ActualClass,
-                                                                  const FBlueprintFunction& Expected)
+                                                                  const FBlueprintFunction& Expected, bool bProjected)
 {
 	using FResult = TModResult<TSharedPtr<const FBlueprintCall>>;
 	if (!IsInGameThread())
@@ -103,8 +126,8 @@ TModResult<TSharedPtr<const FBlueprintCall>> FBlueprintCall::Bind(UClass& Declar
 	{
 		return FResult::Failure(EError::SignatureMismatch);
 	}
-	const auto Shape = Describe(*Actual);
-	const auto DeclaredShape = Actual == Declared ? Shape : Describe(*Declared);
+	const auto Shape = Describe(*Actual, bProjected);
+	const auto DeclaredShape = Actual == Declared ? Shape : Describe(*Declared, bProjected);
 	if (!Shape.IsSuccess() || !DeclaredShape.IsSuccess() || !Algo::Compare(Shape.GetValue(), Expected.Parameters) ||
 	    !Algo::Compare(DeclaredShape.GetValue(), Expected.Parameters))
 	{
@@ -151,6 +174,16 @@ EError FBlueprintCall::Process(UObject& Target, TFunctionRef<void(void*)> Write,
 			Property->InitializeValue_InContainer(Parameters);
 		}
 	}
+	ON_SCOPE_EXIT
+	{
+		for (const FProperty* Property : Properties)
+		{
+			if (!Property->HasAnyPropertyFlags(CPF_NoDestructor))
+			{
+				Property->DestroyValue_InContainer(Parameters);
+			}
+		}
+	};
 	Write(Parameters);
 	Target.ProcessEvent(Resolved, Parameters);
 	if (!IsCurrent())

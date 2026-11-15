@@ -86,6 +86,12 @@ Json SdkBuild::Build()
 	const auto Packages = EditorPackage::BuildSdkPackages(Request, Work.Root, Plugin);
 	const fs::path Bundle = Work.Root / "Bundle";
 	BundleAssembly::CopySdkPackages(Request, Packages, Plugin, Bundle);
+	if (!Request.LifecycleArtifact.is_null() &&
+	    std::any_of(Request.Libraries.begin(), Request.Libraries.end(), [](const Library& Job)
+	                { return Job.Role == "Client" && Job.Plan.at("target").at("type") != "Editor"; }))
+	{
+		PluginSources::PrepareSdkSource(Request, Bundle / "Host" / "Plugins" / Plugin, true);
+	}
 	Mod::BuildTool::File::WriteFileAtomically(Bundle / "Build" / "Plan.json", PlanResult.dump(2) + "\n");
 	Mod::BuildTool::File::WriteFileAtomically(Bundle / "Build" / "NativeResults.json", LibraryResults.dump(2) + "\n");
 	BundleAssembly::CopySdkNativeArtifacts(Request, Bundle);

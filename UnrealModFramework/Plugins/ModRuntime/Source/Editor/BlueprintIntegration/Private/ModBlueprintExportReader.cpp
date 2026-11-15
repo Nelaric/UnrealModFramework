@@ -2,6 +2,7 @@
 #include "ModBlueprintExportReader.h"
 
 #include "ModBlueprintExports.h"
+#include "ModExtensionPayload.h"
 #include "Engine/Blueprint.h"
 #include "K2Node_ModExtensionPoint.h"
 
@@ -49,13 +50,30 @@ TArray<FExportedExtension> ReadExtensions(const UBlueprint& Blueprint)
 			}
 		}
 	}
-	const auto Add = [&](const UModBlueprintExportEntry& Entry) -> FExportedExtension&
+	const auto Add = [&](const UModBlueprintExportEntry& Entry, EModBlueprintExtensionScalar Scalar,
+	                     const UScriptStruct* Struct, const UClass* Object, FName ViewId) -> FExportedExtension&
 	{
 		auto& Record = Result.AddDefaulted_GetRef();
 		Record.Guid = Entry.EntryGuid;
 		Record.Name = Entry.GetExportName();
 		Record.Version = Entry.ExportVersion;
 		Record.bHasPoint = Points.Contains(Entry.EntryGuid);
+		static const FName Properties[]{TEXT("FloatProperty"), TEXT("DoubleProperty"), TEXT("IntProperty"),
+		                                TEXT("Int64Property"), TEXT("BoolProperty"),   TEXT("ByteProperty")};
+		const auto Index = static_cast<uint8>(Scalar);
+		Record.ScalarProperty = Index < UE_ARRAY_COUNT(Properties) ? Properties[Index] : NAME_None;
+		if (Struct)
+		{
+			Record.ScalarProperty = TEXT("StructProperty");
+			Record.StructPath = Struct->GetPathName();
+			Record.StructLayout = Mod::Extension::DescribePayloadStruct(*Struct);
+		}
+		if (Object)
+		{
+			Record.ScalarProperty = TEXT("ObjectProperty");
+			Record.ObjectPath = Object->GetPathName();
+			Record.ObjectViewId = ViewId;
+		}
 		return Record;
 	};
 	for (const UModBlueprintHookExport* Entry : Exports->Hooks)
@@ -64,11 +82,12 @@ TArray<FExportedExtension> ReadExtensions(const UBlueprint& Blueprint)
 		{
 			continue;
 		}
-		auto& Record = Add(*Entry);
+		auto& Record = Add(*Entry, Entry->Scalar, Entry->ContextType, Entry->ObjectType.Get(), Entry->ObjectViewId);
 		Record.bHook = true;
 		Record.Permission = Entry->Permission;
 		Record.bAuthorityOnly = Entry->bAuthorityOnly;
-		Record.bSupportedPayload = !Entry->ContextType;
+		Record.bSupportedPayload = Entry->ObjectType ? !Entry->ContextType && !Record.ObjectViewId.IsNone()
+		                                             : !Entry->ContextType || !Record.StructLayout.IsEmpty();
 		for (const auto Stage : Entry->AllowedStages)
 		{
 			Record.Stages.Add(StaticEnum<EModBlueprintHookStage>()->GetNameStringByValue(static_cast<int64>(Stage)));
@@ -83,12 +102,15 @@ TArray<FExportedExtension> ReadExtensions(const UBlueprint& Blueprint)
 	{
 		if (Entry)
 		{
-			auto& Record = Add(*Entry);
+			auto& Record = Add(*Entry, Entry->Scalar, Entry->PayloadType, Entry->ObjectType.Get(), Entry->ObjectViewId);
 			Record.Permission = Entry->SubscribePermission;
 			Record.bAuthorityOnly = Entry->bAuthorityOnly;
-			Record.bSupportedPayload = Entry->bScalarPayload && !Entry->PayloadType;
+			Record.bSupportedPayload =
+			    Entry->ObjectType ? !Entry->PayloadType && !Record.ObjectViewId.IsNone()
+			                      : (Entry->PayloadType ? !Record.StructLayout.IsEmpty() : Entry->bScalarPayload);
 			Record.Scope = Entry->SourceScope;
 			Record.PublishRule = Entry->PublishRule;
+			Record.bImmediateUnsubscribe = Entry->bImmediateUnsubscribe;
 		}
 	}
 	return Result;

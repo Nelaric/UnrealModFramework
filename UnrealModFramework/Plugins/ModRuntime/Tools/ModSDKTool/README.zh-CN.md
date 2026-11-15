@@ -39,7 +39,7 @@ CMake 将 `Resources/DevelopmentEditor/Files.cmake` 列出的文件嵌入 MDT。
 
 ## 生产者契约
 
-[sdk-contract.schema.json](Protocol/sdk-contract.schema.json) 定义 `UMF.SdkContract` v2。MDT 仍可读取使用旧 ABI 字段名的 v1 契约。契约必须为 `Complete`、未解析类型数为零，契约、投影和原生 ABI 的 SHA-256 与库批次一致。契约文件本身须为经过哈希校验的 `Contract` 产物，公开头须为 MBT 返回的 `SdkHeader`。宿主实现、注册、验证和私有头不进入作者 SDK。
+[sdk-contract.schema.json](Protocol/sdk-contract.schema.json) 定义 `UMF.SdkContract` v2。MDT 仍可读取使用旧 ABI 字段名的 v1 契约。契约必须为 `Complete`、未解析类型数为零，契约、投影和原生 ABI 的 SHA-256 与库批次一致。包含 Hook 或 Event 且使用生命周期投影 v2 的契约可以使用空 API 列表。契约文件本身须为经过哈希校验的 `Contract` 产物，公开头须为 MBT 返回的 `SdkHeader`。宿主实现、注册、验证和私有头不进入作者 SDK。
 
 首版 ABI 为 `ContextHandlesV1`，函数名取自 `api.native.symbol`：
 
@@ -91,10 +91,13 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
   Native/Lib/<平台>/<架构>/<配置>/<Target类型>/...
   Plugins/<游戏SDK>/...
   Plugins/ModDevelopmentSDKEditor/...
+  Host/Plugins/<游戏SDK>/...  （提供非 Editor 的 Client 配置时生成）
   Build/Plan.json
   Build/NativeResults.json
 ```
 
 `Built` 表示原生库与作者 Editor 插件实际构建并检查，不代表最终游戏链接、Game Target 的 SDK Runtime 或运行时 API 绑定已验证；结果明确将这些能力记为 false。Cook 后调用要求游戏中有匹配的 SDK Runtime。蓝图导出、可信宿主链接回执和玩家上下文交付仍是上游依赖。公开模块、类型和函数/参数名形成反射身份，兼容发布须保持稳定。
+
+可选的 `Host/Plugins/<游戏SDK>` 与制作端 SDK 使用相同的运行时模块和蓝图名称。为参与构建和 Cook 的目标提供对应的 Host 和 Client 库请求。在游戏工程中安装并启用宿主版本后再构建及 Cook。若导出 Commandlet 需要加载尚未编译的模块，先用 `-MhtBootstrap` 构建 Development Editor。
 
 MHT 已生成匹配的 `.sdkcontract.json`、纯 C `.modabi.h`、独立客户端入口和 v3 清单。分别使用 Host 和 `<game>ModClient` 上下文作为库任务。连接描述明确列出宿主查询及客户端 Connect/Disconnect 符号。MDT 要求描述文件是经过哈希检查的公共 Contract 产物，核对身份与 API 签名后按声明路径复制到 Bundle 和 SDK 插件。`inspect` 检查两份文件及契约身份。游戏接入层负责本地玩家等其他作用域的上下文交付。超出 MDT 适配形状的 API 图会使 SDK 契约标记 `Unsupported`。[MHT 连接协议](../ModHeaderTool/README.zh-CN.md)

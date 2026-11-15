@@ -22,6 +22,8 @@ struct FModPackageRequest
 	FString HostTargetReceipt;
 	FString HostEngineDirectory;
 	FString ExtensionsFile;
+	FString SdkContractFile;
+	FString NativeExtensionFile;
 	bool bPackageProject = false;
 	bool bUseIoStore = true;
 	bool bIncludeEngineContent = false;

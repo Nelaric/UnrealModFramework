@@ -63,7 +63,8 @@ bundle for the sample contains both plugins.
 
 [sdk-contract.schema.json](Protocol/sdk-contract.schema.json) defines
 `UMF.SdkContract` v2. MDT also reads v1 contracts with the original ABI field names.
-The contract must be `Complete` with zero unresolved types.
+The contract must be `Complete` with zero unresolved types. A contract with
+Hook/Event declarations and lifecycle projection v2 may have an empty API list.
 Its contract, projection, and native ABI SHA-256 identities must agree with all
 library batches. The JSON file itself must be a hash-checked `Contract` artifact
 in a generated manifest. Public includes must be MBT-reported `SdkHeader`
@@ -158,6 +159,7 @@ carry MDT, MBT, and their license notices in its
   Native/Lib/<platform>/<architecture>/<configuration>/<target-type>/...
   Plugins/<game-sdk>/...
   Plugins/ModDevelopmentSDKEditor/...
+  Host/Plugins/<game-sdk>/...  (when non-Editor Client profiles are supplied)
   Build/Plan.json
   Build/NativeResults.json
 ```
@@ -169,6 +171,13 @@ the game before cooked Blueprint calls can execute. Blueprint export, trusted
 host-link records, and player-context delivery remain upstream prerequisites.
 Public module/type/function/parameter names form
 reflection identity and must remain stable across compatible releases.
+
+The optional `Host/Plugins/<game-sdk>` uses the same runtime module and
+Blueprint names as the author SDK. Provide the Host and Client library requests
+for each target that builds or cooks the game. Install the host variant in the
+game project and enable it before building and cooking. Run the Development
+Editor bootstrap build with `-MhtBootstrap` when installing the plugin into a
+host whose export commandlets need the new module.
 
 MHT now emits a matching `.sdkcontract.json`, pure C `.modabi.h`, independent
 client endpoints, and a v3 manifest. See the [MHT connection protocol](../ModHeaderTool/README.md).

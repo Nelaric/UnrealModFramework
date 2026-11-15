@@ -8,5 +8,6 @@ public class ModAPI : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ModLoader" });
+		PrivateDependencyModuleNames.Add("Json");
 	}
 }

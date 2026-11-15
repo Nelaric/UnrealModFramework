@@ -22,10 +22,10 @@ namespace Mod::SdkTool
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 
-void PluginSources::PrepareSdkSource(const SdkRequest& Request, const fs::path& Source)
+void PluginSources::PrepareSdkSource(const SdkRequest& Request, const fs::path& Source, bool bGameHost)
 {
 	BuildProgress::ReportStage("GenerateSdk", "Generating SDK source from the verified export contract.");
-	SdkPluginGenerator::GenerateSdkPlugin(Request, Source);
+	SdkPluginGenerator::GenerateSdkPlugin(Request, Source, bGameHost);
 	for (const Library& Job : Request.Libraries)
 	{
 		if (!Job.Plan.at("upToDate").get<bool>())

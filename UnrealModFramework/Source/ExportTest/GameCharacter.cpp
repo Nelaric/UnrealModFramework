@@ -34,6 +34,11 @@ float AGameCharacter::ApplyHealth(float Delta)
 	return Health;
 }
 
+float AGameCharacter::GetCurrentHealth() const
+{
+	return Health;
+}
+
 float AGameCharacter::AddHealth(float Amount)
 {
 	return FMath::IsFinite(Amount) && Amount > 0.0f ? ChangeHealth(Amount) : Health;

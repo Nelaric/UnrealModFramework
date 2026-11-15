@@ -55,14 +55,17 @@ void UModInstance::BindExtensions()
 	OnModBind();
 }
 
-void UModInstance::ReleaseExtensions()
+void UModInstance::ReleaseExtensions(bool bNotify)
 {
 	check(IsInGameThread());
 	if (!ExtensionIdentities.Contains(FObjectKey(this)))
 	{
 		return;
 	}
-	OnModBeforeUnload();
+	if (bNotify)
+	{
+		OnModBeforeUnload();
+	}
 	if (UWorld* World = GetWorld())
 	{
 		World->GetLatentActionManager().RemoveActionsForObject(this);

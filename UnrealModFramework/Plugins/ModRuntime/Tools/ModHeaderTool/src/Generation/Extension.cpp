@@ -9,27 +9,68 @@
 
 namespace Mod::HeaderTool
 {
+std::string Extension::BlueprintPayloadType() const
+{
+	return "ModExtensionPayload_" + Hash::HashBytes(Id).substr(0, 16);
+}
+
 nlohmann::json Extension::Describe() const
 {
-	return {{"id", Id},
-	        {"kind", bHook ? "Hook" : "Event"},
-	        {"version", Version},
-	        {"scope", "World"},
-	        {"thread", "GameThread"},
-	        {"authorityOnly", bAuthorityOnly},
-	        {"permission", Permission},
-	        {"publishPermission", PublishPermission},
-	        {"ordered", true},
-	        {"pre", bPre},
-	        {"post", bPost},
-	        {"operations", Operations},
-	        {"inputType", "float"},
-	        {"resultType", bHook ? "float" : "void"}};
+	nlohmann::json Record{{"id", Id},
+	                      {"kind", bHook ? "Hook" : "Event"},
+	                      {"version", Version},
+	                      {"scope", "World"},
+	                      {"thread", "GameThread"},
+	                      {"authorityOnly", bAuthorityOnly},
+	                      {"permission", Permission},
+	                      {"publishPermission", PublishPermission},
+	                      {"ordered", true},
+	                      {"pre", bPre},
+	                      {"post", bPost},
+	                      {"operations", Operations},
+	                      {"inputType", Scalar},
+	                      {"resultType", bHook ? Scalar : "void"}};
+	if (!PayloadKind.empty())
+	{
+		Record["payload"] = {{"kind", PayloadKind},
+		                     {"type", PayloadPath.empty() ? PayloadCpp : PayloadPath},
+		                     {"layout", PayloadLayout},
+		                     {"viewId", PayloadTypeId}};
+		if (PayloadKind == "Struct")
+		{
+			Record["payload"]["blueprintType"] = BlueprintPayloadType();
+		}
+		if (!PayloadViewSignature.empty())
+		{
+			Record["payload"]["viewSignature"] = PayloadViewSignature;
+		}
+		Record["inputType"] = PayloadKind;
+		Record["resultType"] = bHook ? PayloadKind : "void";
+	}
+	if (bOn)
+	{
+		Record["on"] = true;
+	}
+	if (bQueued)
+	{
+		Record["delivery"] = "NextTick";
+	}
+	if (bImmediateUnsubscribe)
+	{
+		Record["immediateUnsubscribe"] = true;
+	}
+	return Record;
 }
 
 std::string Extension::Signature() const
 {
 	return Hash::HashBytes(Describe().dump());
+}
+
+bool IsExtensionScalar(std::string_view Type)
+{
+	return Type == "float" || Type == "double" || Type == "int32" || Type == "int64" || Type == "bool" ||
+	       Type == "uint8";
 }
 
 void AddExtension(GenerationModel& Model, Extension Entry)

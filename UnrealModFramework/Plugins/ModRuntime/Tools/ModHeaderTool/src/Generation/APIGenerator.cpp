@@ -102,6 +102,7 @@ void APIGenerator::Generate(const fs::path& OutputDirectory, const fs::path& Opt
 	if (!LifecycleSource.empty())
 	{
 		Model.LifecycleSource = fs::canonical(LifecycleSource);
+		Model.Dependencies.insert(fs::canonical(Model.LifecycleSource / "ModExtensionABI.h"));
 		for (const std::string Name : LifecycleExport::LifecycleClasses)
 		{
 			Model.Dependencies.insert(fs::canonical(Model.LifecycleSource / (Name + ".h")));

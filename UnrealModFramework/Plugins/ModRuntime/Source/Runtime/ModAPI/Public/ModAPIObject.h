@@ -23,6 +23,8 @@ public:
 	 * @return The table or a recoverable binding failure.
 	 */
 	TModResult<const void*> ResolveCalls(FName TypeId, const TCHAR* Signature) const;
+	/// Gets a read-only binding with a callback-owned lifetime.
+	TModResult<FObjectBinding> Borrow(TWeakPtr<const uint8> Lifetime) const;
 
 private:
 	friend class FRegistry;

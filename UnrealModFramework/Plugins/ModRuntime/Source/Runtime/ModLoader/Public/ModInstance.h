@@ -100,7 +100,7 @@ public:
 	static MODLOADER_API void SetExtensionWorld(UModInstance& Instance, UWorld& World, FString ModId);
 	MODLOADER_API void RegisterExtensions();
 	MODLOADER_API void BindExtensions();
-	MODLOADER_API void ReleaseExtensions();
+	MODLOADER_API void ReleaseExtensions(bool bNotify = true);
 
 protected:
 	/** @brief Receives the result of a load operation on the game thread.

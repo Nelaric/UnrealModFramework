@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModPackageBuilder.h"
 
+#include "Algo/AllOf.h"
+
 #include "AssetRegistry/ARFilter.h"
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -240,23 +242,103 @@ bool ReadSize(const FJsonObject& Object, const TCHAR* Key, uint64& OutSize)
 	return static_cast<double>(OutSize) == Number;
 }
 
+bool MatchContractSignature(FJsonObject& Entry, const FString& Expected)
+{
+	if (Entry.HasField(TEXT("signature")))
+	{
+		FString Current;
+		return Entry.TryGetStringField(TEXT("signature"), Current) && Current == Expected;
+	}
+	Entry.SetStringField(TEXT("signature"), Expected);
+	return true;
+}
+
+bool ValidateExtensionContracts(const FModPackageRequest& Request, FJsonObject& Extensions)
+{
+	if (Request.SdkContractFile.IsEmpty())
+	{
+		return true;
+	}
+	TUniquePtr<FArchive> File(IFileManager::Get().CreateFileReader(*Request.SdkContractFile));
+	TSharedPtr<FJsonObject> Contract;
+	FString Format, Game, Status;
+	constexpr int64 MaxContractSize = 16 * 1024 * 1024;
+	if (!File || File->TotalSize() <= 0 || File->TotalSize() > MaxContractSize ||
+	    !ReadJson(*File, File->TotalSize(), Contract) || !Contract->TryGetStringField(TEXT("format"), Format) ||
+	    Format != TEXT("UMF.SdkContract") || !Contract->TryGetStringField(TEXT("gameId"), Game) ||
+	    Game != Request.GameId || !Contract->TryGetStringField(TEXT("status"), Status) || Status != TEXT("Complete"))
+	{
+		UE_LOG(LogModPackaging, Error, TEXT("The supplied SDK contract is not usable for this game."));
+		return false;
+	}
+	for (const TCHAR* Group : {TEXT("contracts"), TEXT("services"), TEXT("provides")})
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
+		if (!Extensions.TryGetArrayField(Group, Entries) || Entries->IsEmpty())
+		{
+			continue;
+		}
+		const bool bExtension = FCString::Strcmp(Group, TEXT("contracts")) == 0;
+		const TArray<TSharedPtr<FJsonValue>>* Definitions = nullptr;
+		if (!Contract->TryGetArrayField(bExtension ? TEXT("extensions") : TEXT("types"), Definitions))
+		{
+			return false;
+		}
+		for (const auto& Value : *Entries)
+		{
+			const auto Entry = Value->AsObject();
+			FString Id;
+			if (!Entry || !Entry->TryGetStringField(bExtension ? TEXT("id") : TEXT("typeId"), Id))
+			{
+				return false;
+			}
+			const auto* Match = Definitions->FindByPredicate(
+			    [&Id](const auto& Definition)
+			    {
+				    const auto Object = Definition->AsObject();
+				    FString Name;
+				    return Object && Object->TryGetStringField(TEXT("id"), Name) && Name == Id;
+			    });
+			FString Signature;
+			if (!Match ||
+			    !(*Match)->AsObject()->TryGetStringField(bExtension ? TEXT("signatureHash") : TEXT("serviceSignature"),
+			                                             Signature) ||
+			    !MatchContractSignature(*Entry, Signature))
+			{
+				UE_LOG(LogModPackaging, Error, TEXT("%s [%s] does not match the SDK signature."), Group, *Id);
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 bool ReadExtensionManifest(const FModPackageRequest& Request, const TMap<FName, FString>& Migrated,
                            TSharedPtr<FJsonObject>& Extensions)
 {
 	if (Request.ExtensionsFile.IsEmpty())
 	{
-		return true;
+		return Request.NativeExtensionFile.IsEmpty();
 	}
 	double Version = 0;
 	TUniquePtr<FArchive> File(IFileManager::Get().CreateFileReader(*Request.ExtensionsFile));
 	if (!File || File->TotalSize() <= 0 || File->TotalSize() > MaxManifestSize ||
 	    !ReadJson(*File, File->TotalSize(), Extensions) ||
-	    !Extensions->TryGetNumberField(TEXT("schemaVersion"), Version) || Version != 1)
+	    !Extensions->TryGetNumberField(TEXT("schemaVersion"), Version) || (Version != 1 && Version != 2))
 	{
+		return false;
+	}
+	if (Version == 2 && Request.SdkContractFile.IsEmpty())
+	{
+		UE_LOG(LogModPackaging, Error, TEXT("Extension schema 2 requires the game's SDK contract."));
 		return false;
 	}
 	for (const auto& Field : Extensions->Values)
 	{
+		if (Field.Key == TEXT("nativeExtension"))
+		{
+			return false;
+		}
 		if (Field.Key == TEXT("schemaVersion"))
 		{
 			continue;
@@ -265,7 +347,9 @@ bool ReadExtensionManifest(const FModPackageRequest& Request, const TMap<FName, 
 		const bool bPatch = Field.Key == TEXT("patches");
 		const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
 		if ((!bContent && !bPatch && Field.Key != TEXT("dependencies") && Field.Key != TEXT("services") &&
-		     Field.Key != TEXT("contracts")) ||
+		     Field.Key != TEXT("contracts") &&
+		     !(Version == 2 && (Field.Key == TEXT("provides") || Field.Key == TEXT("incompatible") ||
+		                        Field.Key == TEXT("requiredGrants")))) ||
 		    !Field.Value->TryGetArray(Entries) || Entries->Num() > 256)
 		{
 			return false;
@@ -281,7 +365,23 @@ bool ReadExtensionManifest(const FModPackageRequest& Request, const TMap<FName, 
 			{
 				continue;
 			}
-			const TCHAR* Key = bContent ? TEXT("asset") : TEXT("actorClass");
+			const TCHAR* Key = TEXT("asset");
+			bool bClassPath = false;
+			if (bPatch)
+			{
+				const bool bActor = (*Entry)->HasField(TEXT("actorClass"));
+				const bool bComponent = (*Entry)->HasField(TEXT("componentClass"));
+				const bool bData = (*Entry)->HasField(TEXT("dataAsset"));
+				FString DataId;
+				if (static_cast<int>(bActor) + static_cast<int>(bComponent) + static_cast<int>(bData) != 1 ||
+				    (Version == 1 && !bActor) || ((*Entry)->HasField(TEXT("dataId")) != bData) ||
+				    (bData && (!(*Entry)->TryGetStringField(TEXT("dataId"), DataId) || DataId.IsEmpty())))
+				{
+					return false;
+				}
+				Key = bActor ? TEXT("actorClass") : bComponent ? TEXT("componentClass") : TEXT("dataAsset");
+				bClassPath = !bData;
+			}
 			FString Path, Action;
 			if (bContent && (*Entry)->TryGetStringField(TEXT("action"), Action) && Action == TEXT("disable"))
 			{
@@ -303,13 +403,31 @@ bool ReadExtensionManifest(const FModPackageRequest& Request, const TMap<FName, 
 				(*Entry)->SetStringField(Key, Path);
 			}
 			if (!Path.StartsWith(TEXT("/") + Request.PluginName + TEXT("/"), ESearchCase::CaseSensitive) ||
-			    (bPatch && !Path.EndsWith(TEXT("_C"))))
+			    (bClassPath && !Path.EndsWith(TEXT("_C"))))
 			{
 				return false;
 			}
 		}
 	}
-	return true;
+	if (!Request.NativeExtensionFile.IsEmpty())
+	{
+		const FString FileName = FPaths::GetCleanFilename(Request.NativeExtensionFile);
+		if (Version != 2 || Request.bUseIoStore || Request.TargetPlatform != TEXT("Win64") || FileName.Len() > 128 ||
+		    !FileName.EndsWith(TEXT(".dll"), ESearchCase::CaseSensitive) || FileName.Contains(TEXT("..")) ||
+		    !Algo::AllOf(FileName,
+		                 [](TCHAR Char)
+		                 {
+			                 return (Char >= TEXT('a') && Char <= TEXT('z')) ||
+			                        (Char >= TEXT('A') && Char <= TEXT('Z')) ||
+			                        (Char >= TEXT('0') && Char <= TEXT('9')) || Char == TEXT('_') ||
+			                        Char == TEXT('-') || Char == TEXT('.');
+		                 }))
+		{
+			return false;
+		}
+		Extensions->SetStringField(TEXT("nativeExtension"), FileName);
+	}
+	return ValidateExtensionContracts(Request, *Extensions);
 }
 
 bool VerifyArchive(const FString& Path, uint16 Version)
@@ -497,6 +615,14 @@ TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
 	{
 		Json->SetStringField(TEXT("pluginName"), PluginName);
 	}
+	if (!NativeExtensionFile.IsEmpty())
+	{
+		Json->SetStringField(TEXT("nativeExtensionFile"), NativeExtensionFile);
+	}
+	if (!SdkContractFile.IsEmpty())
+	{
+		Json->SetStringField(TEXT("sdkContractFile"), SdkContractFile);
+	}
 	if (!ExtensionsFile.IsEmpty())
 	{
 		Json->SetStringField(TEXT("extensionsFile"), ExtensionsFile);
@@ -526,8 +652,12 @@ bool FModPackageRequest::FromSettings(const UModPackagingSettings& Settings, FMo
 		                                              ? FPaths::ConvertRelativePathToFull(FPaths::EngineDir())
 		                                              : Settings.HostEngineDirectory.Path);
 	}
+	OutRequest.SdkContractFile =
+	    Settings.SdkContractFile.FilePath.IsEmpty() ? FString() : FullPath(Settings.SdkContractFile.FilePath);
 	OutRequest.ExtensionsFile =
 	    Settings.ExtensionsFile.FilePath.IsEmpty() ? FString() : FullPath(Settings.ExtensionsFile.FilePath);
+	OutRequest.NativeExtensionFile =
+	    Settings.NativeExtensionFile.FilePath.IsEmpty() ? FString() : FullPath(Settings.NativeExtensionFile.FilePath);
 	OutRequest.ModVersion = Settings.ModVersion;
 	OutRequest.GameId = Settings.GameId;
 	OutRequest.BaseReleaseVersion = Settings.BaseReleaseVersion;
@@ -567,6 +697,16 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 		OutError = LOCTEXT("BadRequest", "Mod 打包请求损坏或版本不受支持。");
 		return false;
 	}
+	if (Json->HasField(TEXT("sdkContractFile")))
+	{
+		if (!Json->TryGetStringField(TEXT("sdkContractFile"), OutRequest.SdkContractFile) ||
+		    OutRequest.SdkContractFile.IsEmpty())
+		{
+			OutError = LOCTEXT("InvalidSdkContractPath", "SDK 契约路径无效。");
+			return false;
+		}
+		OutRequest.SdkContractFile = FullPath(OutRequest.SdkContractFile);
+	}
 	if (Json->HasField(TEXT("extensionsFile")))
 	{
 		if (!Json->TryGetStringField(TEXT("extensionsFile"), OutRequest.ExtensionsFile) ||
@@ -576,6 +716,16 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 			return false;
 		}
 		OutRequest.ExtensionsFile = FullPath(OutRequest.ExtensionsFile);
+	}
+	if (Json->HasField(TEXT("nativeExtensionFile")))
+	{
+		if (!Json->TryGetStringField(TEXT("nativeExtensionFile"), OutRequest.NativeExtensionFile) ||
+		    OutRequest.NativeExtensionFile.IsEmpty())
+		{
+			OutError = LOCTEXT("InvalidNativeExtensionPath", "原生扩展 DLL 路径无效。");
+			return false;
+		}
+		OutRequest.NativeExtensionFile = FullPath(OutRequest.NativeExtensionFile);
 	}
 	OutRequest.bPackageProject = Version == 2;
 	if (OutRequest.bPackageProject)
@@ -604,6 +754,13 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 
 bool FModPackageRequest::Validate(FText& OutError) const
 {
+	if (!NativeExtensionFile.IsEmpty() &&
+	    (IFileManager::Get().FileSize(*NativeExtensionFile) <= 0 ||
+	     IFileManager::Get().FileSize(*NativeExtensionFile) > 64ll * 1024 * 1024 || ExtensionsFile.IsEmpty()))
+	{
+		OutError = LOCTEXT("MissingNativeExtensionInputs", "原生扩展需要已编译的 DLL 和版本 2 扩展清单。");
+		return false;
+	}
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName);
 	FString ContentDirectory;
 	if (!Matches(PluginName, TEXT("[A-Za-z][A-Za-z0-9_]{0,63}")))
@@ -736,8 +893,7 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	TSharedPtr<FJsonObject> Extensions;
 	if (!ReadExtensionManifest(Request, ProjectStage.MigratedPackages, Extensions))
 	{
-		return Fail(TEXT(
-		    "Invalid extension manifest or content path. Expected schemaVersion 1 and assets in the mod package."));
+		return Fail(TEXT("Invalid extension manifest, SDK contract, native extension DLL, or asset path."));
 	}
 	const FString CookProject =
 	    Request.bPackageProject ? ProjectStage.CookProject : FullPath(FPaths::GetProjectFilePath());
@@ -867,6 +1023,18 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	}
 	Payloads.Add(TEXT("Metadata/CookReceipt.json"), ReceiptFile);
 	Payloads.Append(MoveTemp(ProjectStage.NativePayloads));
+	if (!Request.NativeExtensionFile.IsEmpty())
+	{
+		const FString Entry = TEXT("Native/") + FPaths::GetCleanFilename(Request.NativeExtensionFile);
+		for (const auto& Existing : Payloads)
+		{
+			if (Existing.Key.Equals(Entry, ESearchCase::IgnoreCase))
+			{
+				return Fail(TEXT("The native extension DLL collides with a staged UE module."));
+			}
+		}
+		Payloads.Add(Entry, Request.NativeExtensionFile);
+	}
 	Payloads.GetKeys(Paths);
 	Paths.Sort([](const FString& Left, const FString& Right)
 	           { return Left.Compare(Right, ESearchCase::CaseSensitive) < 0; });
@@ -887,7 +1055,9 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	Manifest->SetStringField(TEXT("cookProfileId"), ProfileId);
 	Manifest->SetStringField(TEXT("cookReceipt"), TEXT("Metadata/CookReceipt.json"));
 	Manifest->SetBoolField(TEXT("shippingValidated"), false);
-	Manifest->SetStringField(TEXT("exportRequirements"), TEXT("NotVerified"));
+	Manifest->SetStringField(TEXT("exportRequirements"), Extensions && !Request.SdkContractFile.IsEmpty()
+	                                                         ? TEXT("SdkVerified")
+	                                                         : TEXT("NotVerified"));
 	if (ProjectStage.NativeCode)
 	{
 		Manifest->SetObjectField(TEXT("nativeCode"), ProjectStage.NativeCode);

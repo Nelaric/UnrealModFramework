@@ -33,6 +33,7 @@ constexpr int32 MaxEntries = 65536;
 constexpr int32 MaxContainers = 128;
 constexpr int32 MaxLifecycleClasses = 64;
 constexpr int32 MaxTrustedDigests = 4096;
+constexpr int64 MaxNativeExtensionBytes = 64ll * 1024 * 1024;
 constexpr TCHAR ReceiptPath[] = TEXT("Metadata/CookReceipt.json");
 constexpr TCHAR NativePrefix[] = TEXT("Native/");
 constexpr uint8 Magic[] = {'U', 'M', 'F', 'M', 'O', 'D', 0, 0};
@@ -366,9 +367,23 @@ bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, con
 		return Fail(Result, ELoadError::InvalidArchive,
 		            TEXT("Native module declarations require archive version 2 or 3."));
 	}
+	if (!ReadLifecycleClasses(Manifest, Result) || (Layout.Version == 3 && !ReadExtensions(Manifest, Result)))
+	{
+		return false;
+	}
+	if (!Package.Extensions.NativeExtensionFile.IsEmpty())
+	{
+#if PLATFORM_WINDOWS && PLATFORM_CPU_X86_FAMILY && PLATFORM_64BITS
+		if (!Policy.bAllowNativeExtensions || Package.Backend != EBackend::Pak)
+		{
+			return Fail(Result, ELoadError::Incompatible, TEXT("This host has not enabled native Pak extensions."));
+		}
+#else
+		return Fail(Result, ELoadError::Incompatible, TEXT("Independent extensions require a Win64 x64 host."));
+#endif
+	}
 	const bool bHasNativeCode = Layout.Version == 2 || Manifest.HasField(TEXT("nativeCode"));
-	return ReadLifecycleClasses(Manifest, Result) && (Layout.Version != 3 || ReadExtensions(Manifest, Result)) &&
-	       (!bHasNativeCode || (Layout.Version > 1 && ReadNativeCode(Manifest, Policy, Result, OutPackage.NativeCode)));
+	return !bHasNativeCode || (Layout.Version > 1 && ReadNativeCode(Manifest, Policy, Result, OutPackage.NativeCode));
 }
 
 bool ReadIndex(const FJsonObject& Index, const FArchiveLayout& Layout, FLoadResult& Result, FArchiveContents& Contents,
@@ -382,12 +397,24 @@ bool ReadIndex(const FJsonObject& Index, const FArchiveLayout& Layout, FLoadResu
 	const FString StagePrefix = TEXT("Content/") + Contents.CookPlatform + TEXT("/");
 	const FString ContentSegment = TEXT("/") + OutPackage.PluginName + TEXT("/Content/");
 	TSet<FString> ExpectedNativeFiles;
+	const FString NativeExtension = Result.Package.Extensions.NativeExtensionFile.IsEmpty()
+	                                    ? FString()
+	                                    : FString(NativePrefix) + Result.Package.Extensions.NativeExtensionFile;
+	if (!NativeExtension.IsEmpty())
+	{
+		ExpectedNativeFiles.Add(NativeExtension);
+	}
 	if (!OutPackage.NativeCode.ManifestName.IsEmpty())
 	{
 		ExpectedNativeFiles.Add(FString(NativePrefix) + OutPackage.NativeCode.ManifestName);
 		for (const FNativeModule& Module : OutPackage.NativeCode.Modules)
 		{
-			ExpectedNativeFiles.Add(FString(NativePrefix) + Module.FileName);
+			const FString File = FString(NativePrefix) + Module.FileName;
+			if (!NativeExtension.IsEmpty() && File.Equals(NativeExtension, ESearchCase::IgnoreCase))
+			{
+				return Fail(Result, ELoadError::InvalidArchive, TEXT("An independent DLL duplicates a UE module."));
+			}
+			ExpectedNativeFiles.Add(File);
 		}
 	}
 	TSet<FString> Paths;
@@ -427,6 +454,14 @@ bool ReadIndex(const FJsonObject& Index, const FArchiveLayout& Layout, FLoadResu
 			{
 				return Fail(Result, ELoadError::InvalidArchive,
 				            TEXT("An indexed native payload is undeclared or empty."));
+			}
+			if (Entry.Path == NativeExtension)
+			{
+				if (Entry.Size > MaxNativeExtensionBytes)
+				{
+					return Fail(Result, ELoadError::LimitExceeded, TEXT("The native extension exceeds 64 MiB."));
+				}
+				Result.Package.NativeExtensionDigest = Entry.Digest;
 			}
 		}
 		else
@@ -510,7 +545,8 @@ bool VerifyReceipt(IFileHandle& Input, const FArchiveContents& Contents, const F
 	}
 	const TSharedPtr<FJsonObject>* Profile = nullptr;
 	const TArray<TSharedPtr<FJsonValue>>* Staged = nullptr;
-	const int32 NativeCount = Package.NativeCode.Modules.IsEmpty() ? 0 : Package.NativeCode.Modules.Num() + 1;
+	const int32 NativeCount = (Package.NativeCode.Modules.IsEmpty() ? 0 : Package.NativeCode.Modules.Num() + 1) +
+	                          (Result.Package.Extensions.NativeExtensionFile.IsEmpty() ? 0 : 1);
 	if (!ReadObject(Bytes, Receipt) || !IsSchema(*Receipt, TEXT("UMF.ModCookReceipt")) ||
 	    !HasText(*Receipt, TEXT("pluginName"), Package.PluginName) ||
 	    !HasText(*Receipt, TEXT("packageRoot"), Result.Package.PackageRoot) ||
@@ -665,6 +701,30 @@ bool ValidatePolicy(const FLoadPolicy& Policy, FLoadResult& Result)
 		return Fail(Result, ELoadError::InvalidPolicy,
 		            TEXT("Supply a valid game ID, release, registry hash, and policy."));
 	}
+	if (Policy.Selection.Archives.Num() > 128 || (Policy.Selection.Enabled && Policy.Selection.Enabled->Num() > 128) ||
+	    Policy.Selection.Required.Num() > 128)
+	{
+		return Fail(Result, ELoadError::InvalidPolicy, TEXT("The package selection exceeds the configured limit."));
+	}
+	for (const auto& [Id, Digest] : Policy.Selection.Archives)
+	{
+		if (!IsIdentifier(Id) || Id != Id.ToLower() || !IsDigest(Digest))
+		{
+			return Fail(Result, ELoadError::InvalidPolicy, TEXT("A package pin has an invalid Mod ID or digest."));
+		}
+	}
+	if (Policy.GameplayReleases.Num() > MaxTrustedDigests)
+	{
+		return Fail(Result, ELoadError::InvalidPolicy, TEXT("The gameplay release catalog is too large."));
+	}
+	for (const auto& [Digest, Release] : Policy.GameplayReleases)
+	{
+		if (Digest != Digest.ToLower() || !IsDigest(Digest) || !IsIdentifier(Release.ReleaseId) ||
+		    !IsDigest(Release.CompatibilityDigest))
+		{
+			return Fail(Result, ELoadError::InvalidPolicy, TEXT("The gameplay release catalog has an invalid entry."));
+		}
+	}
 	if (ShouldEnforcePackageAllowlist(Policy) &&
 	    (Policy.TrustedPackageSha256.Num() > MaxTrustedDigests ||
 	     !Algo::AllOf(Policy.TrustedPackageSha256, [](const FString& Value) { return IsDigest(Value); })))
@@ -784,6 +844,11 @@ bool PrepareArchive(const FLoadPolicy& Policy, FPreparationBudget Budget, FLoadR
 		return false;
 	}
 	OutPackage.StageRoot = FPaths::Combine(CacheDirectory, TEXT("Content"), Contents.CookPlatform);
+	if (!Result.Package.Extensions.NativeExtensionFile.IsEmpty())
+	{
+		Result.Package.NativeExtensionPath =
+		    FPaths::Combine(CacheDirectory, TEXT("Native"), Result.Package.Extensions.NativeExtensionFile);
+	}
 	if (!OutPackage.NativeCode.Modules.IsEmpty())
 	{
 		OutPackage.NativeCode.Directory = FPaths::Combine(CacheDirectory, TEXT("Native"));
@@ -799,3 +864,26 @@ bool PrepareArchive(const FLoadPolicy& Policy, FPreparationBudget Budget, FLoadR
 	return true;
 }
 } // namespace Mod::Loader::Private
+
+bool Mod::Loader::VerifyNativeExtension(const FMountedPackage& Package)
+{
+	using namespace Mod::Loader::Private;
+	IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
+	if (!IsDigest(Package.NativeExtensionDigest) || Package.NativeExtensionPath.IsEmpty() ||
+	    IsLink(Files, Package.NativeExtensionPath))
+	{
+		return false;
+	}
+	TUniquePtr<IFileHandle> File(Files.OpenRead(*Package.NativeExtensionPath));
+	FSha256 Hash;
+	return File && File->Size() > 0 && File->Size() <= MaxNativeExtensionBytes &&
+	       Transfer(*File, File->Size(), Hash, {FPlatformTime::Seconds() + 5.0}) &&
+	       Hash.Finish().Equals(Package.NativeExtensionDigest, ESearchCase::IgnoreCase);
+}
+
+FString Mod::Loader::HashPackagePlan(const FString& CanonicalPlan)
+{
+	const FTCHARToUTF8 Bytes(*CanonicalPlan);
+	Private::FSha256 Hash;
+	return Hash.Update(reinterpret_cast<const uint8*>(Bytes.Get()), Bytes.Length()) ? Hash.Finish() : FString();
+}

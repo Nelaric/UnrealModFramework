@@ -76,11 +76,13 @@ OutputIndex GenerationManifest::DescribeOutputs(const Files& Files, const std::s
 		     {"ownerModule", Owner.empty() ? Json(nullptr) : Json(Owner)},
 		     {"role", Implementation ? (Path.ends_with(".modverify.cpp") ? "CompileVerification" : "HostBinding")
 		              : Host         ? "HostHeader"
-		              : Path == LifecycleExport::LifecyclePath               ? "SdkResource"
-		              : (Path.ends_with(".modabi.h") || Path == ErrorHeader) ? "SdkHeader"
-		              : Path.starts_with("SDK/")                             ? "HostHeader"
-		              : Path.starts_with("Contract/")                        ? "Contract"
-		                                                                     : "Diagnostic"},
+		              : Path == LifecycleExport::LifecyclePath ? "SdkResource"
+		              : (Path.ends_with(".modabi.h") || Path.ends_with(".modextensionsabi.h") ||
+		                 Path == "SDK/Public/ModExtensionABI.h" || Path == ErrorHeader)
+		                  ? "SdkHeader"
+		              : Path.starts_with("SDK/")      ? "HostHeader"
+		              : Path.starts_with("Contract/") ? "Contract"
+		                                              : "Diagnostic"},
 		     {"contentHash", Digest}});
 		if (Implementation)
 		{

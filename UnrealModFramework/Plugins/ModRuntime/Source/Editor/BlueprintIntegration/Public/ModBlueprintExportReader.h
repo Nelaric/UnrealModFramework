@@ -45,10 +45,16 @@ struct FExportedExtension
 	FName Name;
 	FString Version;
 	FName Permission;
+	FName ScalarProperty;
+	FString StructPath;
+	FString StructLayout;
+	FString ObjectPath;
+	FName ObjectViewId;
 	bool bHook = false;
 	bool bAuthorityOnly = true;
 	bool bSupportedPayload = false;
 	bool bHasPoint = false;
+	bool bImmediateUnsubscribe = false;
 	FString Scope;
 	FString PublishRule;
 	TArray<FString> Stages;

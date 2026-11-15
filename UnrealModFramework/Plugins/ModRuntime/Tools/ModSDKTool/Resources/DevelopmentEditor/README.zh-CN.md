@@ -64,15 +64,27 @@ UnrealEditor-Cmd <作者工程.uproject> -run=ModPackage -Request=<Request.json>
 | 48 | 8 | 文件总字节数 |
 | 56 | 8 | Flags，必须为 `0` |
 
-在打包设置选择 **Mod 扩展清单**，或在打包请求中填写 `extensionsFile`。带清单的包使用归档 v3，扩展清单自身使用 `schemaVersion: 1`。按需提供以下数组。
+在打包设置选择 **Mod 扩展清单**，或在打包请求中填写 `extensionsFile`。带清单的包使用归档 v3。扩展清单可使用 `schemaVersion: 1` 或 `2`。版本 2 在打包设置或请求的 `sdkContractFile` 指定目标游戏发布的 `SdkContract.json`。打包器会补全缺省的 `signature`，拒绝与 SDK 不同的值。按需提供以下数组。
 
 - `contracts` 每项包含生成的 Hook/Event `id` 和 SDK 中的 `signatureHash`，在清单字段 `signature` 中填写该摘要。
 - `dependencies` 每项包含 `modId`，可选的 `minimum`、`before` 和 `required`。版本下界包含，版本上界排除，默认必需。
 - `services` 每项包含服务 `id`、提供者 Mod 的 `provider`、生成的 `typeId` 和调用表 `signature`，并可声明相同的版本范围与必需性。
 - `content` 每项包含 `slot`、`id`、`action` 和可选的 `priority`。操作支持 `provide`、`replace` 和 `disable`。提供和替换要求 `asset` 为本包的软对象路径。
-- `patches` 每项包含 `id`、`anchor`、`actorClass`，并可填写 `conflictKey`、`required` 和同一锚点下的 `after` Patch ID 数组。
+- `patches` 每项包含 `id`、`anchor` 和一种效果。`actorClass` 生成 Actor。版本 2 也支持 `componentClass` 在宿主开放的挂接点添加场景组件，或由 `dataId` 和 `dataAsset` 注册已 Cook 的数据资产。可填写 `conflictKey`、`required` 和同一锚点下的 `after` Patch ID 数组。版本 2 支持 `requiresServices` 引用本包已声明的服务依赖，`waitSeconds` 可为可选 Patch 的首次锚点设置大于 0、最多 3600 秒的等待时间。
+- 版本 2 的 `provides` 每项包含服务 `id`、`typeId`、`version` 和可选的 `signature`、`permission`、`patch`。填写 `patch` 后，框架在指定 Patch 生成的 Actor 上绑定接口。其余服务按注册回调登记，登记内容须符合清单。
+- 版本 2 的 `incompatible` 每项包含互斥的 `modId`；`requiredGrants` 每项包含权限 `id`。宿主在挂载前检查这两项。
 
-用 `UModInstance` 的 **On Mod Register** 调用 **Register Mod Extension**，按 SDK 中的 ID 注册。观察函数接收一个 Float。修改输入或结果的函数接收并返回一个 Float。取消函数接收 Float 并返回 Bool，取消时使用注册中提供的完整结果值。返回的订阅令牌可用于退订。跨 Mod 服务由拥有者在 **On Mod Register** 通过 **Provide Mod Service** 节点或 C++ 的 `Provide` 登记。登记时填写实现宿主 World 接口的服务对象、SDK 类型契约中的 `id` 和 `serviceSignature`，以及服务版本。消费者在 **On Mod Bind** 使用 SDK 生成的 **Acquire Service** 节点。该节点返回同一 SDK 类型化 API 使用的引用。
+用 `UModInstance` 的 **On Mod Register** 调用 **Register Mod Extension**，按 SDK 中的 ID 注册。观察函数接收与 SDK 一致的标量。修改输入或结果的函数接收并返回同类型标量。取消函数接收该类型并返回 Bool，取消结果来自注册节点的 Float 参数，使用可精确表示的值。发布规则 `Immediate` 同步调用监听器，`NextTick` 把标量复制到同一个 World 的有界队列。返回的订阅令牌可用于退订。宿主为通道开启立即退订时，本轮发布会跳过尚未进入的已退订回调。跨 Mod 服务由拥有者在 **On Mod Register** 通过 **Provide Mod Service** 节点或 C++ 的 `Provide` 登记。登记时填写实现宿主 World 接口的服务对象、SDK 类型契约中的 `id` 和 `serviceSignature`，以及服务版本。消费者在 **On Mod Bind** 使用 SDK 生成的 **Acquire Service** 节点。该节点返回同一 SDK 类型化 API 使用的引用。
+
+结构体载荷复制已公开的标量字段和受支持的嵌套结构体。在独立制作工程中，蓝图回调选择 SDK 按扩展 ID 生成的值结构体。修改和取消回调返回完整的同类型结果。UObject 回调接收 `FModPayloadObject`，并通过生成的 `ProjectPayload_<View>` 节点读取只读视图。视图的有效期到本次回调返回为止。
+
+### 独立原生回调
+
+包含 SDK 的 `ModExtensionABI.h` 和 `<GameId>.modextensionsabi.h`。用 `UMF_EXTENSION_EXPORT` 和 `UMF_EXTENSION_CALL` 导出 `UMF_RegisterExtensionsV1`。检查宿主表版本和大小，再用生成头中的 ID 和签名注册回调。将同一契约列入版本 2 扩展清单。打包时选择已编译的 x64 DLL，或在请求中填写 `nativeExtensionFile`。打包器将 DLL 写入带摘要的载荷索引。Win64 Pak 宿主在 `[ModLoader]` 启用 `bAllowNativeExtensions=True`。
+
+- 注册入口在 Game Thread 上为每个 World 调用一次。宿主签发会话及订阅令牌。World 停止入站调用并排空回调后执行可选的 `Close`，然后释放 DLL 引用。DLL 在 `Close` 返回前结束自己派发的工作。
+- 输入、输出、对象和续调令牌只在当前回调内有效。`Wrap` 使用生成头中的值大小调用一次 `Next`。`Wrap` 和 `Replace` 返回 `UMF_ExtensionWrite` 及完整结果。已获授权的 `Pre` 可返回 `UMF_ExtensionStop` 及取消结果。
+- 结构体使用生成头中的无填充小端布局，布尔值占一个字节。对象值使用 64 位不透明句柄。通过 `FindHostQuery` 接通生成的客户端 API，使用 `ObjectContext` 和句柄调用只读方法。
 
 Manifest 格式为 `UMF.ModPackage`，其版本与 Header 主版本一致，记录 ModId、版本、插件与包根、实际构建配置及基础发布指纹。Index 的 `entries` 按区分大小写的路径升序排列，每项有 `path`、`offset`、`size`、`storage: "None"`、精确载荷 `sha256`。条目路径不得绝对、穿越目录或存在大小写冲突。
 
