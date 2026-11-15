@@ -655,7 +655,8 @@ uint32 FNativeExtension::Remove(uint64 Token)
 	return UMF_ExtensionOk;
 }
 
-uint32 FNativeExtension::Register(uint64 Session, const UMF_ExtensionRegistrationV1* Registration, uint64* Token)
+uint32_t UMF_EXTENSION_CALL FNativeExtension::Register(uint64_t Session,
+                                                       const UMF_ExtensionRegistrationV1* Registration, uint64_t* Token)
 {
 	if (!IsInGameThread())
 	{
@@ -667,10 +668,13 @@ uint32 FNativeExtension::Register(uint64 Session, const UMF_ExtensionRegistratio
 	}
 	*Token = 0;
 	const auto State = Sessions.FindRef(Session).Pin();
-	return State ? State->Add(*Registration, *Token) : UMF_ExtensionExpired;
+	uint64 SubscriptionToken = 0;
+	const uint32 Status = State ? State->Add(*Registration, SubscriptionToken) : UMF_ExtensionExpired;
+	*Token = SubscriptionToken;
+	return Status;
 }
 
-uint32 FNativeExtension::Unregister(uint64 Session, uint64 Token)
+uint32_t UMF_EXTENSION_CALL FNativeExtension::Unregister(uint64_t Session, uint64_t Token)
 {
 	if (!IsInGameThread())
 	{
@@ -680,7 +684,8 @@ uint32 FNativeExtension::Unregister(uint64 Session, uint64 Token)
 	return State ? State->Remove(Token) : UMF_ExtensionExpired;
 }
 
-uint32 FNativeExtension::Next(uint64 Token, const void* Input, uint32 Size, void* Output, uint32* Committed)
+uint32_t UMF_EXTENSION_CALL FNativeExtension::Next(uint64_t Token, const void* Input, uint32_t Size, void* Output,
+                                                   uint32_t* Committed)
 {
 	if (!IsInGameThread())
 	{
@@ -693,10 +698,13 @@ uint32 FNativeExtension::Next(uint64 Token, const void* Input, uint32 Size, void
 	*Committed = 0;
 	const auto* Entry = Continuations.Find(Token);
 	const TSharedPtr<FNativeNext> Call = Entry ? TSharedPtr<FNativeNext>(*Entry) : nullptr;
-	return Call ? (*Call)(Input, Size, Output, *Committed) : UMF_ExtensionExpired;
+	uint32 CommittedValue = 0;
+	const uint32 Status = Call ? (*Call)(Input, Size, Output, CommittedValue) : UMF_ExtensionExpired;
+	*Committed = CommittedValue;
+	return Status;
 }
 
-void* FNativeExtension::FindHostQuery(const char* Module, const char* Symbol)
+void* UMF_EXTENSION_CALL FNativeExtension::FindHostQuery(const char* Module, const char* Symbol)
 {
 	FString ModuleName, SymbolName;
 	return IsInGameThread() && ReadString(Module, 128, ModuleName) && ReadString(Symbol, 256, SymbolName)

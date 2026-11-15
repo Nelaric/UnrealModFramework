@@ -33,11 +33,11 @@ private:
 	struct FCallback;
 	uint32 Add(const UMF_ExtensionRegistrationV1& Registration, uint64& Token);
 	uint32 Remove(uint64 Token);
-	static uint32 UMF_EXTENSION_CALL Register(uint64 Session, const UMF_ExtensionRegistrationV1* Registration,
-	                                          uint64* Token);
-	static uint32 UMF_EXTENSION_CALL Unregister(uint64 Session, uint64 Token);
-	static uint32 UMF_EXTENSION_CALL Next(uint64 Token, const void* Input, uint32 Size, void* Output,
-	                                      uint32* Committed);
+	static uint32_t UMF_EXTENSION_CALL Register(uint64_t Session, const UMF_ExtensionRegistrationV1* Registration,
+	                                            uint64_t* Token);
+	static uint32_t UMF_EXTENSION_CALL Unregister(uint64_t Session, uint64_t Token);
+	static uint32_t UMF_EXTENSION_CALL Next(uint64_t Token, const void* Input, uint32_t Size, void* Output,
+	                                        uint32_t* Committed);
 	static void* UMF_EXTENSION_CALL FindHostQuery(const char* Module, const char* Symbol);
 
 	TWeakPtr<FModExtensionWorld> World;
