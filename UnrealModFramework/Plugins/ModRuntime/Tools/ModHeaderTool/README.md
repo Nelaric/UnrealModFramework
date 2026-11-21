@@ -27,9 +27,7 @@ context, output library, registration anchor, and receipt. It does not link
 game-private or UE code. The Win64 adapter derives its recipe from the actual
 selected toolchain and removes game include paths and forced UE definitions.
 
-The existing `.modviews.h`/`.modcalls.h` headers are internal UE host headers,
-classified as `HostHeader`. Only `.modabi.h` is published as `SdkHeader`, so MDT
-does not copy a header that requires the game's C++ types or ModAPI module.
+The `.modviews.h` and `.modcalls.h` headers are private UE `HostHeader` artifacts. Public `SdkHeader` artifacts include `.modabi.h` and, when applicable, the error catalog and independent extension ABI headers. MDT copies verified artifacts with public roles.
 
 ## Connection and lifetime
 
@@ -65,6 +63,14 @@ on failure and committed on success. Status 0 succeeds; 65536 means unconnected,
 `contractHash`, and `projectionHash`, using sorted nlohmann JSON keys and compact
 `dump()`. It covers API shapes, connection names, status codes, and lifetime rules.
 The public header embeds the same version/hash for compiled consumers.
+
+## World extension artifacts
+
+- `Host/<owner>/<owner>.modextensions.h` supplies typed `Invoke` and `Publish` helpers for C++ call sites. The generated host bridge registers C++ and Blueprint extension definitions. Gameplay code remains responsible for calling those entry points.
+- The `extensions` section of `Contract/<game>.sdkcontract.json` records IDs, signatures, authorization, stages or delivery rules, and the payload projection. The packager uses it to validate extension manifest v2.
+- With lifecycle inputs and extension definitions, `SDK/Public/ModExtensionABI.h` and `SDK/Public/<game>.modextensionsabi.h` expose the independent DLL callback contract, IDs, signatures, and wire layouts. They work with the separate `ContextHandlesV1` tables for generated API calls.
+
+A Hook takes one payload and returns the same type. An Event takes one payload and returns `void`. Supported payloads include `float`, `double`, `int32`, `int64`, `bool`, `uint8`, supported reflected value structs, and UObjects with a generated World view. Struct projection copies declared public fields, and object projection is read-only for the callback's lifetime. Blueprint scalar APIs and connected Hook/Event declarations come from the Editor snapshot. [Host export procedure](../../Source/ModRuntimeUht/README.md)
 
 ## API compatibility names
 
@@ -129,7 +135,4 @@ generated manifest. It keeps the existing object getter and float method
 adapters and also emits typed methods with scalar and public UE object inputs.
 The SDK contract records `Unsupported` when it cannot represent the whole API set.
 
-Automatic toolchain transport is currently Win64 MSVC. Other platforms require
-real platform contexts and validation. This generation does not implement mod
-loading, token delivery into a running mod, trusted final-link receipts, or
-automatic runtime module connection; those consumers use the explicit artifacts.
+On Win64 x64 MSVC, the UBT adapter prepares the inputs and MBT checks the final linked image. A generated SDK can acquire an authorized Blueprint World provider through its active `UModInstance`. Game integration supplies other contexts such as LocalPlayer. Independent native callbacks connect through the runtime during World preparation. [UHT integration](../../Source/ModRuntimeUht/README.md) · [Native extension packaging](../ModSDKTool/Resources/DevelopmentEditor/README.md#independent-native-callbacks)

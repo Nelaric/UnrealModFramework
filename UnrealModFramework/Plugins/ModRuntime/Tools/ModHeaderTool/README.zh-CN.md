@@ -21,7 +21,7 @@ MHT 在 UE 视图后端之外生成纯 C 的 `ContextHandlesV1` 边界。全部�
 
 连接描述遵循 [client-abi.schema.json](Protocol/client-abi.schema.json)。客户端库所属模块为 `<game>ModClient`，拥有独立 MBT 生产者上下文、库路径、注册锚点和回执；不链接游戏私有代码或 UE。Win64 适配层从真实选中工具链的配方派生客户端参数，移除游戏包含目录和强制 UE 定义。
 
-既有 `.modviews.h`、`.modcalls.h` 是宿主内部 UE 声明，清单角色为 `HostHeader`；只有 `.modabi.h` 作为 `SdkHeader` 发布，MDT 不会将依赖真实游戏类型或 ModAPI 的头复制给独立作者。
+`.modviews.h` 和 `.modcalls.h` 的角色为宿主私有 `HostHeader`。公共 `SdkHeader` 包含 `.modabi.h`，并按契约发布错误目录及独立扩展 ABI 头。MDT 只复制具备公共角色的校验产物。
 
 ## 明确连接顺序
 
@@ -37,6 +37,14 @@ MHT 在 UE 视图后端之外生成纯 C 的 `ContextHandlesV1` 边界。全部�
 ABI 使用显式 `cdecl`、64 位进程内 token、定宽整数/标量和 `uint32_t` 状态码；bool 使用限定为 0/1 的 `uint8_t`。输出内存由调用者提供，失败时输出为零，成功时提交结果。0 表示成功，65536 表示未连接，65537 表示 ABI 不匹配，65538 表示意外原生异常。
 
 `nativeABIHash` 为连接描述加入 `nativeABIHash`、`contractHash`、`projectionHash` 前的规范 SHA-256，使用 nlohmann JSON 排序键与紧凑 `dump()`。摘要覆盖 API 形状、连接符号、状态码与生命周期规则；公共头包含同一版本和哈希常量。
+
+## World 扩展产物
+
+- `Host/<owner>/<owner>.modextensions.h` 提供 C++ 接入点使用的类型化 `Invoke`／`Publish` helper。生成的宿主桥登记 C++ 与蓝图扩展定义。游戏的业务代码负责在预期时机调用这些入口。
+- `Contract/<game>.sdkcontract.json` 的 `extensions` 记录扩展 ID、签名、授权、阶段或发布规则及载荷投影。打包器以该契约为依据校验 v2 扩展清单。
+- 有生命周期源码和扩展定义时，`SDK/Public/ModExtensionABI.h` 与 `SDK/Public/<game>.modextensionsabi.h` 提供独立 DLL 的回调契约、ID、签名和线格式。它与生成 API 的 `ContextHandlesV1` 调用表配合使用。
+
+Hook 接收一个载荷并返回同类型结果。Event 的发布函数接收一个载荷并返回 `void`。支持 `float`、`double`、`int32`、`int64`、`bool`、`uint8`，以及受支持的反射值结构体或具备生成 World 视图的 UObject。结构体只复制声明的公开字段，对象投影在回调期间只读。蓝图的标量 API 及已连线的 Hook/Event 来自 Editor 快照。[宿主导出步骤](../../Source/ModRuntimeUht/README.zh-CN.md)
 
 ## API 兼容名
 
@@ -60,4 +68,4 @@ UHT 适配器执行 `generate <GenerationRequest.json>`。请求格式为 `UMF.M
 
 MDT 消费 `.sdkcontract.json`、Host/Client 上下文及同一份 v3 清单。它保留原有对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。SDK 契约无法表示完整 API 集时标记为 `Unsupported`。
 
-自动工具链适配当前支持 Win64 MSVC；其他平台仍需真实平台上下文和验证。本次生成不实现模组装载、向运行中模组交付 token、可信最终链接回执或自动连接模块；后续消费者使用上述显式产物接入。
+Win64 x64 MSVC 的 UBT 接入自动准备输入，MBT 在目标链接后核对实际产物。生成的 SDK 支持由 `UModInstance` 取得已授权的宿主蓝图 World 提供者，LocalPlayer 等作用域由游戏接入层交付。独立扩展通过运行时在 World 准备期间接入。[UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md) · [独立扩展打包](../ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)

@@ -24,6 +24,8 @@ ModBuildTool build-host --context HostCompileContext.json --generated-manifest M
 ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
 ModBuildTool verify-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool finalize-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --link-receipt Target.link.json
+ModBuildTool finalize-ue-target --contexts TargetContexts.json --ue-target-receipt Target.target
+ModBuildTool refresh-ue-watches --contexts TargetContexts.json
 ModBuildTool hash-context --file HostCompileContext.json
 ModBuildTool hash-file --file <path>
 ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol>
@@ -114,8 +116,8 @@ MHT 输出 v3 清单，列出宿主桥、C ABI 入口、校验和 UE 视图实�
 ```json
 {
   "requiredSymbols": [
-    { "ownerModule": "ExportTest", "symbol": "UMF_ExportTest_GetLocalCharacter", "exportId": "Game.Player.GetLocalCharacter" },
-    { "ownerModule": "ExportTest", "symbol": "UMF_ExportTest_AddHealth", "exportId": "Game.Character.AddHealth" }
+    { "ownerModule": "ExportTest", "symbol": "UMF_UnrealModFrameworkDev_ExportTest_A_b88dc4c71053a716_Host", "exportId": "api/game.local_player_api/getlocalcharacter" },
+    { "ownerModule": "ExportTest", "symbol": "UMF_UnrealModFrameworkDev_ExportTest_A_b846156f4c92057a_Host", "exportId": "api/game.character/addhealth" }
   ]
 }
 ```
@@ -146,7 +148,7 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，生成 JSON 契约�
 
 ## UE 5.6 集成
 
-当前适配器在标准 CodeGen 后的 UHT 阶段同步运行 MHT 和 MBT。生成头只含声明，全部生成实现以 `.cpp` 列入 MBT 清单。`ExportMetadata.ConfigureHost` 写入真实 Target 描述并添加所属模块私有的 External 依赖；External 模块使用 `PublicPreBuildLibraries` 登记稳定宿主库，即使首次构建开始时库不存在也能接入。正常缓存构建使用已登记外部依赖，强制重复生成时 MBT 可复用有效回执。本机引擎没有补丁；干净检出的引导和编译数据库准备仍是前置步骤。
+当前适配器在标准 CodeGen 后的 UHT 阶段同步运行 MHT 和 MBT。生成头只含声明，全部生成实现以 `.cpp` 列入 MBT 清单。`ExportMetadata.ConfigureHost` 写入真实 Target 描述并添加所属模块私有的 External 依赖；External 模块使用 `PublicPreBuildLibraries` 登记稳定宿主库，即使首次构建开始时库不存在也能接入。正常缓存构建使用已登记外部依赖，强制重复生成时 MBT 可复用有效回执。接入无需引擎补丁。工具链就绪后，正常 Win64 构建按需生成编译数据库及引导 Editor。预构建调用 `refresh-ue-watches` 更新依赖标记，最终链接后用 `finalize-ue-target` 核对 UBT 回执并生成链接记录。
 
 以下完整动作图接入仍是后续合同：
 

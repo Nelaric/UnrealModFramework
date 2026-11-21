@@ -14,7 +14,7 @@
 
 组织站点仓库 `Nelaric/nelaric.github.io` 绑定自定义域名 `docs.nelaric.com`。项目仓库继承这个域名，并保留仓库名路径。`Nelaric/UnrealModFramework` 的自定义域名应留空。
 
-项目的 API Pages 工作流生成 Doxygen HTML，将完整产物复制到 Pages 发布包的 `API/` 目录，并在项目根目录添加跳转到 `API/` 的入口。因此，迁移后原有的 GitHub Pages 项目根地址仍可作为入口。原来位于根目录的具体 HTML 页面深层链接不由这个入口重定向。
+项目的 API Pages 工作流用 Doxygen 构建 API 入口、公开头文件与编码规范，将完整产物复制到 Pages 发布包的 `API/` 目录，并在项目根目录添加跳转到 `API/` 的入口。因此，迁移后原有的 GitHub Pages 项目根地址仍可作为入口。原来位于根目录的具体 HTML 页面深层链接不由这个入口重定向。
 
 ## 首次配置
 

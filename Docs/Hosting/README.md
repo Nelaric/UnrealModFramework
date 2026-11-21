@@ -14,7 +14,7 @@ This repository uses GitHub Actions as its Pages source, enables `API_PAGES_ENAB
 
 The organization site repository `Nelaric/nelaric.github.io` owns the custom domain `docs.nelaric.com`. Project repositories inherit that domain and retain their repository-name path. Leave the custom domain of `Nelaric/UnrealModFramework` unset.
 
-The project's API Pages workflow generates Doxygen HTML, copies the complete output into `API/` in the Pages artifact, and adds a project-root redirect to `API/`. The existing GitHub Pages project-root URL therefore remains an entry point after the migration. Existing links to individual HTML files at the former root are not redirected by this entry page.
+The project's API Pages workflow builds the API landing pages, current public headers, and coding standards with Doxygen, copies the complete output into `API/` in the Pages artifact, and adds a project-root redirect to `API/`. The existing GitHub Pages project-root URL therefore remains an entry point after the migration. Existing links to individual HTML files at the former root are not redirected by this entry page.
 
 ## Initial setup
 

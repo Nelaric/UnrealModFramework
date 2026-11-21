@@ -15,7 +15,7 @@
 
 ## PR 会运行哪些检查
 
-[Quality 工作流](../.github/workflows/quality.yml)检查 PR 和提交命名、格式与文本规范，以及 API 文档。工具版本锁定在工作流和 `.config/dotnet-tools.json` 中。
+[Quality 工作流](../.github/workflows/quality.yml)检查 PR 和提交命名、格式与文本规范，以及 API 文档。另有独立的 Linux Job 构建 MST，并用 GCC 和 Clang 的编译数据库核对跨文件异常分析。工具版本锁定在工作流和 `.config/dotnet-tools.json` 中。
 
 完成 [CircleCI 接入](CircleCI.zh-CN.md)后，通过仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED=true` 启用[可信 PR 编译工作流](../.github/workflows/fork-pr-linux.yml)。变量启用前，其 Job 会跳过；现有 CircleCI push 流水线独立运行。
 
@@ -32,7 +32,7 @@ push 配置和可信 PR 配置都使用 Unreal Engine 5.6.1，以 Linux Developm
 | `build_game_linux` | 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。 |
 | `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor` 及其支持的编辑器模块，再通过 `ModSDKTool build-editor` 构建并校验独立的 `ModDevelopmentSDKEditor` 插件。 |
 
-各 Job 使用独立的可写暂存目录，拉取私有引擎镜像后，UE 容器在无网络环境中运行。宿主自动生成接入当前要求 Win64 x64 MSVC。工具与输入准备步骤见[ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
+各 Job 使用独立的可写暂存目录，拉取私有引擎镜像后，UE 容器在无网络环境中运行。开发宿主的自动生成与最终链接链路在 Win64 x64 MSVC 上运行。Linux 会跳过该链路，编译范围为 Linux 框架目标和独立制作插件。工具与输入准备步骤见[ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
 
 仓库没有 Server Target。这些 Job 验证编译和插件打包，不发布可下载包，也不运行 Unreal 自动化测试。其他平台及更新的支持引擎版本仍是构建覆盖缺口。
 
@@ -41,6 +41,16 @@ push 配置和可信 PR 配置都使用 Unreal Engine 5.6.1，以 Linux Developm
 ```text
 python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
 ```
+
+## 运行调用性能基准
+
+在仓库根目录运行[基准脚本](../Test/Performance/run_benchmark.py)，指定 UE 5.6 安装目录和报告路径。单独指定 `--report` 可保留仓库中的测量结果供比对。
+
+```powershell
+python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/ue-call-benchmark.local.md'
+```
+
+独立工程包含 200 项用例，每条可用路径采样 1,000 次。Win64 x64 测量宿主 C++、宿主蓝图，以及从已挂载的 `BenchmarkMod` 执行的 C++ 和蓝图。使用能构建模块化 Development Game 的引擎源码版，或通过 `--modular-runtime` 提供匹配的模块化运行时。其他受支持的平台运行宿主侧路径。不可用的路径标为 `未测试`。汇总值是每列可用用例均值的平均，反映当次测试机器和场景。[仓库中的测量结果](../Test/Performance/ue-call-benchmark.md)
 
 ## 检查失败时
 

@@ -2,17 +2,22 @@
 
 # UnrealModFramework 游戏端详细设计
 
-> 版本 设计草案 v0.5\
-> 日期 2026 年 11 月 8 日\
-> 基线 Unreal Engine 5.6 与 Windows Win64
+> 设计基线 v0.5 · 实现快照 `54d7ae3`（2026 年 11 月 21 日核对）\
+> 开发基线 Unreal Engine 5.6 · 自动宿主生成 Win64 x64 MSVC
 
-本方案规定游戏工程中的 ModRuntime 源码插件、游戏接入编辑器、契约和 SDK 生成、运行时宿主及验收标准。游戏安装源码插件后，通过 C++ 或蓝图公开契约，在实际业务中接入扩展点；构建时确定全部类型投影、转换规则和类型化调用连接，冻结契约并发布 SDK；正式游戏在进入 Gameplay 前完成资源准备、实例解析和扩展链构建。
+游戏通过 C++ 或蓝图声明扩展契约，在实际业务中显式接入。MHT 生成类型化连接、投影和契约，MBT 编译宿主与客户端库，UBT 链接宿主模块并记录目标产物，MDT 发布作者端 SDK 与独立制作插件。游戏在开放玩法前负责准备 World 扩展。
 
-C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBuildTool（MBT）根据清单独立编译宿主实现并创建静态库；UBT 继续调度 UE 目标的 UHT、模块自身代码编译及最终链接。蓝图导出属于 ExportCodeGenerator 编辑器模块，后续 SDK 与开发者插件构建由 ModSDKTool（MDT）编排。MHT 与 MBT 通过版本化的 Generated Artifact Manifest 交接，不共享第二套类型解析或转换规则实现。
+## 当前实现与限制
 
-当前仓库已有 MHT 的 C++ 扫描、参数校验和首个同步 UObject API 生成后端，支持标量参数、标量/void/World 对象返回、受限视图、宿主连接、编译验证及生成清单。宿主与视图实现是独立 `.cpp`，清单显式列出 `compilationUnits`；C# UHT Exporter 依次调用 MHT 和 MBT，已验证 UE 5.6 Win64 MSVC 的 Development Editor/Game 构建。任意类型闭包、完整 Event/Hook、通用 UBT 动作图、可信最终链接记录及跨平台自动接入仍需后续实现。当前 MHT 不扫描或校验蓝图资产。本文其余目标能力以锁定构建组合的实际验收为准。
+| 链路 | 当前实现 | 仍需验收或扩展的范围 |
+| --- | --- | --- |
+| 导出和宿主构建 | Win64 x64 MSVC 自动准备工具、编译上下文与 Editor 快照。C++ 使用活动 AST 声明，配置的宿主蓝图由 `ModExportBlueprints` 编译后输入 MHT。MBT 构建并校验归档，目标链接后核对 PE 产物 | 更宽的类型和异步调用形状、通用 UBT 动作图、其他平台自动生成 |
+| SDK 和作者工程 | MDT 生成作者 SDK、独立制作插件及可选宿主 SDK 源插件。`TestMod` 演示独立制作、Cook 和生命周期 | 扩展到更多目标构建与实际 Shipping 发行 |
+| 包加载 | `ModLoader` 发现和验证归档 v1/v2/v3，执行依赖与授权准入，挂载内容并分发结果。Win64 x64 Pak 支持按宿主设置加载匹配的 UE 模块或独立 C ABI 扩展 DLL | 各平台的 Shipping Pak/IoStore、完整资源清理与原生模块生命周期验收 |
+| World 扩展 | `UModExtensionSubsystem` 管理同步 Hook、`Immediate`/`NextTick` Event、内容槽、Actor/组件/数据 Patch 和版本化跨模组服务 | 任意结构或容器投影、工作线程扩展、游戏业务的完整回归矩阵 |
+| 宿主集成 | `ModExtensions` 模式接入玩法指纹、多人握手和单机存档迁移。独立项目已有 UE 调用基准 | Dedicated Server 和无缝旅行矩阵、长会话及 Shader/RHI 等发布验收 |
 
-性能目标采用同对象、同函数、同参数、同业务语义的 UE 原生调用作为基准。直接 API 消除框架新增的逐次契约查询、动态类型分析和通用转发；蓝图虚拟机、原生接口分派、对象有效性要求等属于相应原生基准。生成的对象视图构造、容器投影、Hook、Event、跨 ABI 转换、可撤销权限以及多模组决议的实际工作分别计量。代码生成不意味着这些工作没有成本。文中的能力和指标是设计要求，只有对应构建组合通过验收后才能在宿主能力报告中标记 Supported。
+以下各节约定架构与验收目标。以源码入口和已生成契约为现行接口。第 28 节列的是通过标准，具体的目标和证据应随发布登记。
 
 ## 目录
 
@@ -55,10 +60,12 @@ C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBu
 | 交付 | 内容 | 使用者 |
 | --- | --- | --- |
 | Runtime | 契约目录、绑定、宿主生命周期、扩展点与资源服务 | 游戏接入模块和正式游戏 |
-| ExportCodeGenerator | 当前提供 C++ 导出标记和 ModExportOptions；后续接入 Editor 声明导出和生成检查 | 游戏开发者与 CI |
+| ExportCodeGenerator | 通过 `ModExportOptions` 导出配置与重定向，通过 `ModExportBlueprints` 导出配置中的宿主蓝图 | 游戏开发者与 CI |
 | BlueprintIntegration | 独立导出面板、声明图、实现图、业务节点和编译展开 | 游戏开发者 |
 | ModHeaderTool | 导出声明与真实类型分析、统一 IR、投影/调用/ABI/验证代码及生成清单 | 游戏开发者与 CI |
-| ModBuildTool | Target 与工具链识别、构建输入和缓存管理、二进制兼容核对、SDK 产物收集与发布 | 游戏开发者与 CI |
+| ModBuildTool | 构建上下文校验、宿主与客户端库、缓存与最终链接关联 | 游戏开发者与 CI |
+| ModSourceTool | 失败返回与异常分析、错误目录、宿主链接头 | 游戏开发者与 CI |
+| ModSDKTool | 组织生成契约与公共产物，构建作者 SDK 和独立制作插件 | 游戏开发者与 CI |
 | Game Export Definitions | Shipping 描述符、注册入口、投影类型、专用转换代码和类型化调用连接 | 正式游戏 |
 | Game Mod SDK Bundle | 受限视图、公共投影与蓝图包装、ABI 头、源码/库/模块元数据、Cook Profile 和能力报告的同批交付 | 独立模组作者工程 |
 | GameModSDKEditor | 消费同批 SDK 的游戏专属节点、注册与编辑器适配二进制 | 独立模组作者工程 |
@@ -66,7 +73,7 @@ C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBu
 
 独立 DevelopmentEditor 消费 SDK 与能力报告。其制作、打包和发布界面不在本方案内；游戏端必须提供可机器读取的输入格式、验证规则、错误码和最小联调样例。
 
-首版交付范围包含固定模组集合、Global/World/Player 服务、公开 API、同步 `Pre` 和 `Post` Hook、类型化 Event、逻辑内容扩展和受控世界 Patch。`On` 的包装与替换、可动态撤销入口、IoStore、原生 UE 扩展模块、模组材质 Shader 等采用独立能力开关，不因主体插件可运行而自动视为支持。运行时新增全局 Shader 类型、任意 DLL 热重载、任意反射类型替换和自动拦截未接入业务不属于首版默认能力。
+发布目标涵盖固定模组集合、Global/World/Player 服务、公开 API、同步 Hook、类型化 Event、逻辑内容和受控 Patch。当前 World Hook 已接通受授权的 `On` 包装或替换，具体注册方式按 C++、蓝图及独立原生回调的实际支持范围选择。IoStore、原生 UE 模块及模组 Shader 分别按平台与目标验收。运行时新增全局 Shader 类型、任意 DLL 热重载、任意反射类型替换和自动拦截未接入业务不属于首版默认能力。
 
 ## 2 固定架构决策
 
@@ -100,14 +107,18 @@ C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBu
 
 ## 3 物理模块与依赖
 
-| 模块 | 建议位置 | Target 与职责 |
+| 模块或角色 | 位置 | Target 与职责 |
 | --- | --- | --- |
 | ExportMetadata | Source/Runtime/ExportMetadata | Runtime 模块，提供导出元数据与配置选项 |
-| ExportCodeGenerator | Source/Editor/ExportCodeGenerator | Editor；当前提供标记及配置选项导出，后续提供 Editor 声明 IR 和生成检查 |
+| HAL | Source/Runtime/Core/HAL | Runtime，原生目录通知 |
+| ModLoader | Source/Runtime/ModLoader | Runtime，进程准入、包序、挂载与会话实例 |
+| ModAPI | Source/Runtime/ModAPI | Runtime，生成 API 与 World 扩展 |
+| ExportCodeGenerator | Source/Editor/ExportCodeGenerator | Editor，选项目录及蓝图快照 Commandlet |
 | BlueprintIntegration | Source/Editor/BlueprintIntegration | Editor；面板、图、K2 节点和编译扩展 |
 | ModHeaderTool（MHT） | Plugins/ModRuntime/Tools/ModHeaderTool | 独立 C++ 工具；通过 C# UHT Exporter 适配器接入，拥有类型、投影和生成语义 |
 | ModBuildTool（MBT） | Plugins/ModRuntime/Tools/ModBuildTool | 独立 CMake/C++ 工具；从原生 UBT 步骤取得上下文，管理构建输入、产物与发布 |
-| ModSDKTool（MDT） | Plugins/ModRuntime/Tools/ModSDKTool | 独立 CMake/C++20 工具；当前为 SDK 工程骨架，具体操作待实现 |
+| ModSourceTool（MST） | Plugins/ModRuntime/Tools/ModSourceTool | 独立工具，源码错误分析与宿主链接头 |
+| ModSDKTool（MDT） | Plugins/ModRuntime/Tools/ModSDKTool | 独立工具，SDK 规划、构建、检查和制作插件构建 |
 | GameModSDK | 游戏公共插件或模块 | Runtime；受限视图、公共投影、蓝图具体反射类型和调用桥声明 |
 | GameModSDKEditor | 游戏 SDK 插件的 Editor 模块 | Editor；具体节点、显示与注册适配，消费 GameModSDK 和通用制作工具 |
 | 真实类型所属模块 | 游戏现有 Source 或项目插件模块 | Runtime；编译该模块拥有类型的生成访问桥、参数转换和实际业务调用 |
@@ -115,7 +126,7 @@ C++ 导出声明的语义分析与生成由 ModHeaderTool（MHT）承担，ModBu
 
 Runtime 和 Editor 是目录分类，模块身份来自各模块描述与 Build.cs。非标准目录布局须通过 UBT 发现和打包验证；必要时调整目录，不新增名为 Runtime 或 Editor 的空模块。
 
-运行时层按具体职责建立模块，当前的 ExportMetadata 模块承载导出元数据与配置选项。Catalog、Binding、Lifecycle、Native、Resources、Hooks、Events、Content、WorldPatch、Diagnostics 等后续能力按实际功能、依赖与加载阶段组织，不再集中到名为 Runtime 的模块。Shader 的早期准备可以独立为经验证的早期桥接模块，不要求所有宿主服务提前初始化。
+运行时由 `ExportMetadata`、`HAL`、`ModLoader` 和 `ModAPI` 分担职责。`ModAPI` 依赖 `ModLoader` 提供的包与会话接口。后续能力按依赖和引擎加载阶段组织。[模块边界](CodingStandards/Modules.zh-CN.md)
 
 GameModSDK 承担公共契约模块这一逻辑角色。项目可以保留既有公共模块名；已发布的 /Script 身份不得因文档命名统一而重命名，也不额外生成重复反射定义。SDK Bundle 必须明确唯一的实际模块名与类型身份。
 
@@ -169,6 +180,8 @@ PlayerScope 默认随其所属 World 关闭。跨无缝旅行保存的是游戏�
 PIE 可隔离会话可变状态，却共享进程包命名空间与已注册反射类型。多个会话可选择同一已准备版本的不同启用子集；同一包身份的不同模组版本不能同时准备。需要对照不同版本时启动独立进程。Editor 中会影响契约、已缓存 UFunction 或反射身份的重新编译会使相关 PIE 会话失效，首版要求重新开始 PIE。
 
 ## 6 宿主配置
+
+开发宿主在 `Config/DefaultGame.ini` 的 `[ModLoader]` 记录 `GameId`、`BaseReleaseVersion`、`BaseRegistrySha256` 和 `Backend`。同一节配置选择集合、整包摘要和扩展权限。`Config/ModHeaderTool.json` 选择生成模式、目标模块、类型身份与蓝图资产。宿主通过 `FWorldPolicy` 指定 World 授权、内容胜者、预期玩法指纹及存档暂存逻辑。[加载器配置](CodingStandards/Modules.zh-CN.md#模组加载器)
 
 | 配置组 | 必填信息 | 验证规则 |
 | --- | --- | --- |
@@ -243,77 +256,29 @@ ExportHash 表示公共定义集合；CookProfileHash 表示资源构建兼容�
 
 C++ 导出采用声明前标记，指向真实游戏成员并提供导出范围、投影、作用域、权限与失败策略。游戏函数保持原始签名；MHT 从紧随标记的具体 AST 声明推导 Mod 侧签名，开发者无需重复写重载成员指针类型、第二套签名或常规对象包装。
 
-以下展示拟定语法；完整选项由统一 Schema 定义，示例中的标记落点须通过第10节的标准 UHT 共存验收：
+以下声明来自开发宿主的[角色导出](../UnrealModFramework/Source/ExportTest/GameCharacter.h)。
 
 ```cpp
-#include "CoreMinimal.h"
-#include "GameFramework/Character.h"
-#include "ModExportMacros.h"
-#include "MyCharacter.generated.h"
+MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldRead))
+EXPORTTEST_API float GetCurrentHealth() const;
 
-MOD_EXPORT_CLASS(TypeId = "game.character")
-UCLASS(MinimalAPI)
-class AMyCharacter : public ACharacter
-{
-    GENERATED_BODY()
-    MOD_GENERATED_BODY()
+MOD_EXPORT_HOOK(ExportId = "hook/game.character/change-health", Permission = "Health.Change",
+                AllowedStages = (Pre, Post), AllowedOperations = (ModifyInputs, Cancel, ModifyResult))
+UFUNCTION(BlueprintCallable, Category = "Character|Health")
+EXPORTTEST_API float ChangeHealth(float Delta);
 
-public:
-    MOD_EXPORT_API(
-        ExportVersion = "1.0",
-        Scope = World,
-        Thread = GameThread,
-        FailureRule = ReturnError,
-        Permissions = ("character.read"))
-    UFUNCTION(BlueprintCallable, Category = "Mod")
-    float GetHealth() const;
-
-    DECLARE_MULTICAST_DELEGATE_OneParam(FOnDied, AMyCharacter*);
-
-    MOD_EXPORT_EVENT(
-        ExportVersion = "1.0",
-        Scope = World,
-        Delivery = Sync,
-        Payload = ReadOnlyBorrow,
-        PublishPermissions = ("character.publish"),
-        SubscribePermissions = ("character.observe"))
-    FOnDied OnDied;
-
-    MOD_EXPORT_HOOK(
-        ExportVersion = "1.0",
-        AllowedStages = (Pre, Post),
-        AllowedOperations = (ModifyInputs, ModifyResult))
-    float ApplyDamage(float Amount);
-};
+MOD_EXPORT_EVENT(ExportId = "event/game.character/health-changed", SourceScope = World, PublishRule = Immediate,
+                 Permission = "Health.Observe")
+EXPORTTEST_API void PublishHealthChanged(float CurrentHealth);
 ```
 
-| 标记 | 必须关联的实际声明 | 解析结果 |
+| 标记 | 当前绑定形状 | 游戏接入 |
 | --- | --- | --- |
-| MOD_EXPORT_API | 函数或明确支持的调用声明 | 完整原始签名、重载身份及调用策略 |
-| MOD_EXPORT_EVENT | delegate/EventSource 字段或显式事件签名锚点 | 事件源、载荷和订阅签名 |
-| MOD_EXPORT_HOOK | 游戏业务函数 | 原版业务签名、开放阶段、允许操作和可写字段 |
+| `MOD_EXPORT_API` | 受支持的同步 UObject 成员。标量和支持的 UObject 指针作为输入，结果可为标量、`void` 或生成的 World 对象视图 | 定义类型身份及实际提供者，配置调用者授权 |
+| `MOD_EXPORT_HOOK` | World 成员，接收一个载荷，返回同类型结果 | 在业务路径调用生成的 `Invoke`，提供原版逻辑及输入、结果校验 |
+| `MOD_EXPORT_EVENT` | World 成员，接收一个载荷，返回 `void` | 在事实发生处调用生成的 `Publish` |
 
-关联时只允许跨过 Schema 规定的 UE 标记、C++ 属性和注释；遇到其他声明、跨所有者或无法唯一绑定时拒绝。多个 Kind 叠加仅在 Schema 明确允许时成立。非 UFUNCTION 成员也可由 MHT 的 AST 前端解析，但必须处于支持的形状和后端范围，不依赖 UHT 解析任意 C++。
-
-某个类存在任一导出时，MHT 为其建立类型记录和受限视图，MOD_EXPORT_CLASS 只提供类型级附加配置。没有类型级标记时，稳定 TypeId 仍须进入受版本控制的身份清单并持久保存，不能每次扫描重新生成。导出类型不创建实例，对象仍由 Provider、API 返回值、Event 或 Hook 显式提供。
-
-普通 C++ 视角下，声明宏可为空。需要访问非公开成员时，类可以通过单独的 MOD_GENERATED_BODY 对当前类型的生成桥显式授权，示意为：
-
-```cpp
-namespace Mod::Generated
-{
-    template<class TOwner> struct TClassAccess;
-}
-
-#define MOD_EXPORT_CLASS(...)
-#define MOD_EXPORT_API(...)
-#define MOD_EXPORT_EVENT(...)
-#define MOD_EXPORT_HOOK(...)
-#define MOD_GENERATED_BODY() \
-    friend struct ::Mod::Generated::TClassAccess<ThisClass>;
-```
-
-MHT 在宏被擦除前收集标记。上述友元形式要求类中存在正确的 ThisClass；生成器须验证授权类型，不猜测所有者。private/protected 只能通过合法公开入口或原类显式友元接缝访问，友元不继承、不传递，基类 private 成员需要基类自身授权。生成器不能绕过访问控制。MOD_EXPORT_API 也不替代模块的 DLL 导出说明符；跨模块链接仍由必要的逐方法/桥符号导出负责。[^R08]
+关联只跨过支持的 UE 标记、属性及注释，随后按活动 AST 解析声明。宿主在 `Config/ModAPITypes.json` 保留稳定类型身份，ExportId、类型和权限参与契约校验。标记本身不构造对象，也不改变成员的 C++ 访问级别或跨模块导出。私有访问桥和额外类型级标记属于设计扩展。[^R08]
 
 ### 统一选项 Schema
 
@@ -328,7 +293,7 @@ MHT 按类型和公开名生成 C++ API 的契约标识。类型映射、生成�
 | Event | 发布/订阅权限、发布/分发线程、同步/队列、载荷策略、顺序、重入/限深、容量/预算、溢出/合并、退订与监听失败 |
 | Hook | 参与权限、`AllowedStages`、`AllowedOperations`、输入和结果的可写字段、取消及完整结果、包装与替换规则、重入、阶段失败、排序与输入提交 |
 
-C++ 元数据和蓝图声明使用相同的阶段及操作名称。`AllowedStages` 至少包含一个阶段，默认 `(Post)`。`AllowedOperations` 默认 `()`，每项操作要求开放对应阶段，规则见[第18节](#18-hook-语义与执行计划)。C++ 的 `scan` 和蓝图声明编译校验这些选择。类型化执行接入和可写字段验证属于后续生成能力。
+C++ 元数据和蓝图声明使用相同的阶段及操作名称。`AllowedStages` 至少包含一个阶段，默认 `(Post)`。`AllowedOperations` 默认 `()`，每项操作要求开放对应阶段，规则见[第18节](#18-hook-语义与执行计划)。C++ 生成与蓝图编译校验阶段和操作。当前 Hook 接入使用生成的类型化调用，由宿主为输入和结果提供校验。任意字段级修改策略仍需单独扩展。
 
 旧蓝图资产加载时，`Observe`、`Modify`、`Intercept` 分别映射为 `Post`、`Pre`、`On`，`AllowedOperations` 为空。需要修改输入、取消、包装、替换或修改结果时，由游戏开发者在对应 Hook 上显式授权。
 
@@ -340,11 +305,11 @@ C++ 元数据和蓝图声明使用相同的阶段及操作名称。`AllowedStage
 
 ### 蓝图工作流
 
-独立面板包含 API、Hook、Event、Content Slot、World Extension 和 Provider 分类。每项声明拥有稳定 ID、原始参数与返回 Pin、投影规则、作用域、线程、权限、版本和来源；实现图引用声明 ID，Mod 调用 Pin 由生成后的签名推导，不能另存一份可漂移的签名。修改签名后按 PinId 重建连接，无法安全迁移的连线产生编译错误。
+「蓝图Mod导出」面板提供 API、Event 和 Hook。API 和 Hook 的实现图由对应的独立声明持有。Event 保存发布设置。游戏把声明对应的 **Hook Point** 或 **Publish Event** 节点放到业务图，并连接其执行输入。C++ 宿主通过 `UModExtensionSubsystem` 另行提供内容槽与锚点，通过 `UModAPIHostSubsystem` 提供 API 实例。
 
-声明图定义“可被调用什么”，实现图定义当前提供者的行为。游戏声明和游戏实现可以使用真实游戏类型，Mod 侧使用生成的公共投影；这些公共类型来自共享契约模块或共享契约资产。实现图保留在游戏或模组工程，SDK 不暴露游戏私有实现。已有普通函数只有通过显式导入/适配动作才成为实现，其调用层数须记录。
+`Config/ModHeaderTool.json` 的 `blueprintExports` 列出要导出的已保存资产、typeId 和所属模块。`ModExportBlueprints` 将编译后的受支持签名写入快照。当前蓝图 API 使用 `World`、`GameThread` 与 `ReturnError`，接受标量输入和最多一个标量结果。已连线的 Hook/Event 可使用标量、受支持的结构体或有 World 视图的 UObject。未连线的扩展声明跳过导出。已导出的宿主蓝图由游戏注册 World 实例，生成 SDK 通过活动 `UModInstance` 获取已授权的引用。[UHT 蓝图导出](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#从宿主蓝图导出-api)
 
-C++ 与蓝图声明进入同一个 Export IR，经过同一套类型闭包分析、签名投影和检查规则解析，生成 C++ 受限视图、蓝图具体包装类型、API 函数桥、Event 回调签名、Hook 阶段上下文和节点展开规则。蓝图不直接使用任意 C++ 模板实例；所需的具体反射包装按第10节的构建顺序生成并编译。
+在目标设计中，C++ 与蓝图声明汇入统一的生成模型，按受支持的类型闭包、签名投影和检查规则解析，生成 C++ 受限视图、蓝图具体包装类型、API 函数桥、Event 回调签名、Hook 阶段上下文和节点展开规则。蓝图不直接使用任意 C++ 模板实例；所需的具体反射包装按第10节的构建顺序生成并编译。
 
 独立实现图编译到正常反射成员或接口实现。调用节点在编译时连接到具体生成入口；恒等投影且无需附加检查时可展开为标准 UE 函数或接口调用，其余情况展开到专用桥。Provider 获取节点只用于作用域建立。禁止框架新增每次执行 GetService、FindFunction 和通用参数包的隐藏链；正常 UE 事件/接口内部为保留覆盖语义执行的查找属于原生基准。UE 蓝图编译包含节点展开、UFunction 建立和 VM 字节码生成；生成 C++ 风格调试输出不代表蓝图变成原生机器码。[^R05]
 
@@ -394,6 +359,8 @@ SDK 发布原子地冻结定义、公共类型、Cook Profile 和能力报告。
 
 ### SDK Bundle 与二进制交付
 
+当前 MDT 发布带哈希库存的 `Manifest.json`、`Contract/SdkContract.json`、`Native/Include`、分目标的 `Native/Lib`、游戏 SDK 与 `ModDevelopmentSDKEditor`。提供非 Editor Client 配置时还生成 `Host/Plugins/<游戏SDK>`，由游戏安装后构建及 Cook。下文描述完整发行目标。[现行 MDT 产物](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md#编辑器入口与交付)
+
 SDK Bundle 是同批次的完整交付单元。只交付一个“导出 DLL”不能满足 C++ 编译、UE 模块装载或蓝图 Cook；制作编辑器插件消费头文件与适配源码并链接 SDK，DLL 不作为再次编译的源码。
 
 这里的同批次指同一个已冻结的发布输入集；Game 与 Editor 可以各有对应上下文的生成批次，发布清单必须记录关联和共享公共契约的兼容性，不能要求忽略 Target 差异后强行共用全部文件。
@@ -428,7 +395,7 @@ MyGameModSDK/
 └── Resources/
 ```
 
-MHT 提供生成文件与生成清单，MBT 核对后组织发布目录；DLL、LIB 和 UE 元数据只能从对应原生构建的实际结果收集。源码交付与预编译交付分别记录，不能因目录中有 `.Build.cs` 就认定预编译依赖完整。
+MHT 提供生成文件与清单，MBT 校验库与公共产物，MDT 组织 SDK 发布目录。DLL、LIB 和 UE 元数据来自对应原生构建的实际结果。源码交付与预编译交付分别记录，不能因目录中有 `.Build.cs` 就认定预编译依赖完整。
 
 Windows 隐式链接需要公开声明、导入库与运行时 DLL；显式动态加载可以不链接 .lib，但仍需正确的函数签名和 ABI 协议。[^R20] UE 二进制模块必须保留匹配的 BuildId、.modules 与依赖集合，不能修改标识强行装载。[^R09]
 
@@ -452,7 +419,7 @@ MHT 负责声明解析与代码生成；MBT 根据生成清单独立编译宿主
 | 职责 | MHT | MBT | 原生 UE 工具 |
 | --- | --- | --- | --- |
 | 解析 MOD_EXPORT_*、检查配置和稳定契约 ID | 唯一负责方 | 传递版本化输入 | Editor 提供实际配置选项与函数重定向 |
-| 获取真实 C++ 类型与完整成员签名 | UhtTypeAdapter / CppTypeAnalyzer | 只提供真实构建上下文 | UHT 提供已解析反射信息 |
+| 获取真实 C++ 类型与成员签名 | libclang 按选定 Target 解析活动声明 | 使用所属模块真实编译上下文 | UHT 生成标准反射头，UBT 提供编译数据库 |
 | 完整类型依赖闭包、游戏到 Mod/ABI 类型投影 | 唯一负责方 | 不解析类型或重算规则 | 不定义 Mod 导出语义 |
 | 生成 FModRuntimeObject、参数/结果转换及调用连接 | 唯一负责方 | 独立编译生成实现，不生成代码 | 消费生成声明并链接宿主库 |
 | 生成契约描述符、ABI 声明和编译期验证代码 | 唯一负责方 | 按清单编译具体函数体与校验单元 | 不通过包含实现重复编译 |
@@ -460,36 +427,32 @@ MHT 负责声明解析与代码生成；MBT 根据生成清单独立编译宿主
 | 管理生成文件 | 生成内容、清单和语义依赖 | 管理构建输入、缓存与清单引用 | 按登记的依赖决定增量执行 |
 | 检查 SDK 与二进制兼容性 | 提供契约/投影/ABI 摘要 | 核对构建身份、批次与实际产物 | 提供构建凭证及模块元数据 |
 | 收集 DLL、LIB 和必要 UE 元数据 | 不负责 | 从成功目标的结果收集 | 按目标实际产生 |
-| 组织 SDK 发布包 | 不负责 | 完整性检查与原子发布 | 不定义 Mod SDK 发布策略 |
+| 组织 SDK 发布包 | 提供生成契约 | 返回公共文件及库的校验结果 | MDT 调用 UAT 构建并发布 SDK |
 | 编译 MHT 宿主实现 | 不负责 | 使用真实所属模块编译配方，独立编译并创建静态库 | 提供真实 Target 与模块编译上下文 |
 | 编译 UE 模块与最终链接 | 不负责 | 提供宿主静态库和构建回执 | UBT 编译模块自身代码，将库链接到所属二进制 |
 
-当前 C# UHT 适配器先调用 MHT `generate`，再调用 MBT `build-host`；已验证的 Win64 MSVC 后端从真实 UBT 编译数据库转交所属模块的生产者配方。MHT 在 `compilationUnits` 中列出全部独立编译单元，MBT 逐项编译并创建宿主库。所属模块通过私有 External 依赖登记库，MBT 成功后刷新 UE 文件缓存，UBT 才继续最终链接。更完整的 Prepare/Finalize 动作和可信最终链接记录仍需后续接入。MBT 不在回调中递归启动当前 Target，跨目标要求交给外层原生构建入口或 CI 分别执行。
+当前 Win64 x64 MSVC 适配按下列顺序运行。Target 规则准备独立工具和依赖标记，C# UHT Exporter 在标准 CodeGen 后调用 MHT。MBT 按真实拥有者配方构建各归档，MST 生成宿主链接头，UBT 链接后由 MBT 核对目标回执及 PE 见证符号。MDT 根据独立 SDK 请求构建并发布。[^R04][^R21]
 
 ```mermaid
 flowchart TD
-    A[用户使用原生 UE Build] --> B[UBT 取得实际 Target]
-    B --> C[MBT Prepare：核对构建输入]
-    C --> D[UHT 与 MHT Exporter 适配器]
-    D --> E[MHT：声明与类型分析]
-    E --> F[MHT：连接、SDK、验证代码与生成清单]
-    F --> L[MBT：按 compilationUnits 独立编译并归档]
-    L --> G[UBT：编译 UE 模块并链接所属宿主库]
-    G --> H[MBT Finalize：核对实际产物]
-    H --> I{发布所需目标是否齐备}
-    I -->|是| J[MBT：发布 SDK Bundle]
-    I -->|否| K[保留目标记录，等待其他原生构建]
+    A[UBT 准备工具和编译上下文] --> B[标准 UHT CodeGen]
+    B --> C[UHT Exporter 准备配置和蓝图快照]
+    C --> D[MHT 生成连接、契约和清单]
+    D --> E[MBT 编译宿主和客户端静态库]
+    E --> F[MST 生成宿主链接头]
+    F --> G[UBT 编译 UE 模块并链接宿主库]
+    G --> H[MBT 核对当前目标的最终链接]
+    E --> I[MDT 消费匹配的契约和库任务]
+    I --> J[UAT 构建作者 SDK 和制作插件]
 ```
 
-图中箭头是逻辑依赖，不是已验证的引擎回调顺序。UE 5.6 提供 C# UHT Exporter 与 Target 的 PreBuildSteps/PostBuildSteps；Prepare 相对 UHT 的位置、Exporter 相对标准 Codegen 的关系、增量跳过路径及 Finalize 的执行条件，仍须在锁定的 Profile 中实测。需要多轮 UHT 或后置 Clang 分析的组合使用下述显式阶段，不宣称单次 PreBuildSteps 能提供任意中间屏障。[^R04][^R21]
+不同 Target 保留不同的上下文和生成目录。Linux CI 验证 Game/Editor 编译和制作插件。自动生成与最终链接仍以 [Win64 UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)为准。
 
 ### MHT 的声明关联与统一 IR
 
-Export Generator 是逻辑能力，MHT 是唯一的导出语义分析与生成核心。C# UHT Exporter 适配器负责把 UHT 已解析的类型模型、模块及源位置交给 MHT，不另建一套投影规则。MBT 从 UBT 实际构建上下文取得目标类型、平台/架构、配置、WITH_EDITOR 等宏、include 根、强制包含、语言模式、工具链及依赖摘要，形成可核对的构建输入；不能手写一个近似编译环境代替该 Target。
+标准 UHT 负责 UE 反射及生成头。适配器准备对应目标的编译数据库、模块生产者参数和 Clang 资源头。MHT 负责全部导出语义及代码生成，MBT 消费真实所属模块上下文进行校验和编译。[^R04][^R18][^R19]
 
-UhtTypeAdapter 消费已反射类型的已解析信息；非 UFUNCTION 成员或需要完整 C++ 限定符、重载与模板信息的声明交给 CppTypeAnalyzer。该分析器由 MHT 自己完成词法标记记录和 Clang PPCallbacks/AST 关联，以具体 CXXMethodDecl 区分重载，生成精确成员指针 static_cast，不按函数名在全类中猜测。UHT 类型模型不等价于任意 C++ AST；某条后端不能完整还原签名时必须拒绝或进入已验证的完整分析阶段。具体 Clang 版本及 UE/MSVC 兼容选项由工具链 Profile 锁定并验收。[^R04][^R18][^R19]
-
-当前实现处理 C++ 声明扫描、参数校验，以及首个同步 UObject API 后端的 AST 绑定、对象视图和宿主代码生成。完整设计中，蓝图声明仍由独立的 ExportCodeGenerator/Commandlet 前端通过 Asset Registry 发现和加载，导出资产、图、节点和 Pin 身份后向 MHT 生成核心提交 IR；MHT 不承担资产扫描，MBT 只管理该 IR 的输入依赖。最终覆盖报告包含所有要求参与的模块和资产，缺失所需输入不得发布“完整契约”。C++ AST 不以某个 Editor 进程恰好加载的 UFunction 集合作为唯一成员来源。
+MHT 的 `scan` 执行词法扫描与元数据校验。`generate` 从真实 UBT 编译参数和 libclang AST 绑定活动 API、Hook、Event，处理条件编译、类型身份、签名和投影。`ModExportBlueprints` 负责编译并提取配置所列蓝图资产的声明，MHT 读取 `BlueprintExports.json` 并合并生成。未支持的投影在生成阶段报错，生成批次锁定来源和目标上下文。下面的 IR 结构是进一步扩展时的职责模型。
 
 | IR 记录 | 已解析的信息 |
 | --- | --- |
@@ -566,7 +529,7 @@ Event 的转换失败按事件声明的诊断/升级策略处理，不增加决�
 
 默认通过 C# UHT Exporter 适配器接入 MHT，标准 UHT 继续处理 UE 反射。先确认三类声明标记与 UCLASS/UFUNCTION/UPROPERTY、delegate、访问控制、条件编译、GENERATED_BODY 及 `.generated.h` 的具体组合。Exporter 扩展不等于可以任意增加 UHT 关键字，普通编译器能消去空宏也不能证明 UHT 接受该落点；未验收的组合保持 NotVerified。[^R04]
 
-UHT 调用 Exporter 时，MHT 不能假设本轮所有 `.generated.h` 已经写出。仅需 UHT 已解析反射信息的路径通过 UhtTypeAdapter 工作；需要完整 Clang AST 且依赖生成头的路径，必须先通过经验证的原生扩展或显式多阶段原生构建完成标准 Codegen，再运行 MHT 完整分析，由 MBT 独立编译宿主实现，最后由 UBT 链接。Exporter 的调用本身不构成生成头就绪屏障，MBT Prepare 也不通过递归调用当前 UBT 来补足这一条件。
+Win64 适配在标准 UHT CodeGen 后执行 MHT，Clang 使用生成头以及当前 Target 的真实编译参数。其他 UHT 调用和目标组合要分别确认生成头就绪时序。需要生成新反射类型的 SDK 使用后续消费目标的正常 UHT。
 
 MHT 负责识别 Target 的活动预处理分支，Editor-only 声明不能无条件进入 Shipping 契约。仅含非反射 C++ 声明的头不一定触发 UHT，Profile 必须为这些输入和配置依赖登记等价的 MHT 执行入口与失效规则。UBT 增量跳过 UHT 时，只有生成清单覆盖全部当前输入且摘要匹配才允许复用；不能把“UHT 没有运行”当作生成代码仍然有效的证据。
 
@@ -574,7 +537,7 @@ Exporter 通过 UHT 的 AddExternalDependency 登记 Schema、选项目录和其
 
 默认不复制或改写全项目源码。若以后确需隔离快照，标记变换、友元接缝和完整源码映射由 MHT 负责；MBT 只管理已声明的模块路径、输入文件、依赖、输出与失效。UHT、MHT 和编译器必须读取同一份正式输入，插入内容及 GENERATED_BODY 行号也必须可追溯。快照后端另行验收，不能让 MBT 实现第二套宏或类型解释器。
 
-首次构建先准备源码基线中的真实类型和可发现的模块描述，不用本轮尚未生成的 Mod 视图定义原始游戏成员。需要新公共反射包装时，MHT 先生成源码，再由后续原生目标执行正常 UHT。当前选项目录由已编译 Editor 的 ModExportOptions 导出，缺失时由外层原生构建流程显式准备导出器。需要蓝图 IR 而导出器尚不可运行时同样采用标记为不可发布的引导批次，收集完整输入后重新生成和构建。
+首次构建先准备源码基线中的真实类型和可发现的模块描述，不用本轮尚未生成的 Mod 视图定义原始游戏成员。需要新公共反射包装时，MDT 根据 MHT 契约生成 SDK 源码，再由后续消费目标执行正常 UHT。Win64 配置 `metadataEditorTarget` 后，适配器在需要时构建 `-MhtBootstrap` Editor，再运行 `ModExportOptions` 和 `ModExportBlueprints`。引导模式跳过 Native 生成，正式 UE 构建才发布完整清单。
 
 ### 分阶段生成
 
@@ -586,13 +549,13 @@ Exporter 通过 UHT 的 AddExternalDependency 登记 Schema、选项目录和其
 | G3 代码与清单生成 | MHT 消费已解析 IR 和所属模块 | 宿主/SDK/Editor 源码、验证函数、契约及 Generated Artifact Manifest 同批完成 |
 | G4 宿主库与目标构建 | MBT 消费显式编译单元，UBT 消费声明和静态库 | MBT 编译全部具体调用、转换与校验；UBT 编译 UE 模块并链接宿主库；新反射源码另行参加对应 UHT |
 | G5 目标产物核对 | MBT Finalize 消费生成清单、实际输入及本次成功构建凭证 | 仅为本次 Target 记录已验证的 DLL、LIB 和模块元数据 |
-| G6 SDK 发布 | MBT 消费发布配置及全部必需目标的产物记录 | SDK 完整、批次及目标兼容；原子发布并保留证据 |
+| G6 SDK 发布 | MDT 消费完成的契约与 Host/Client 库任务，按需调用 MBT 和 UAT | 校验作者 Editor 工具链和 BuildId，发布带哈希库存的 Bundle |
 
 UE 标准流程由 UBT 调用 UHT，再调度 UE 模块编译。MHT 宿主实现位于插件 Intermediate，生成器显式输出独立 `.cpp`，并在生成清单的 `compilationUnits` 中登记；MBT 只编译清单列出的当前所属模块单元，UBT 不扫描这些源码，也不通过固定游戏 `.cpp` 包含实现。需要新 UCLASS/USTRUCT/UFUNCTION 的 SDK 包装源码须先进入后续消费模块的正式输入，再运行相应 UHT；这类反射包装与 MBT 宿主实现分别构建。G1 至 G4 是否单轮完成由 Profile 决定。[^R04]
 
 进入后续目标的 SDK 反射源码由构建准备步骤按生成清单原样放入正式模块的 Source 输入，模块描述使用明确的固定文件或生成结果；构建工具只登记路径、依赖并核对内容哈希，不编辑类型声明。普通非反射宿主连接保留在 Intermediate，由 MBT 直接编译，不复制到游戏 Source，也不作为实现被游戏源码包含。
 
-引导批次的清单标记 Bootstrap，不能进入 G6；完整 C++ 分析不要求先完整编译游戏，蓝图或配置导出器确需运行 Editor 时才引入显式引导。全部最终投影在消费目标编译前完成，CI 通过 Commandlet 和原生命令行完成，不要求人工打开面板。Cook、Stage、资源挂载、模组依赖决议及宿主生命周期由各自系统负责；当前 MBT 只核对发布配置所要求的已有描述和证据，不实现这些服务。
+引导模式跳过生成，MBT/MDT 的正式输入须是完整且经过哈希校验的生成批次。完整 C++ 分析可在宿主最终链接前完成，Editor 配置和蓝图导出需要适配的 Editor 二进制。全部最终投影在消费目标编译前完成，CI 通过 Commandlet 和原生命令行完成，不要求人工打开面板。Cook、Stage、资源挂载、模组依赖决议及宿主生命周期由各自系统负责；当前 MBT 只核对发布配置所要求的已有描述和证据，不实现这些服务。
 
 ### MBT Prepare、Finalize 与跨目标发布
 
@@ -609,31 +572,27 @@ Finalize 只接受成功构建的当前 Target，读取 MHT 生成清单、实�
 
 普通 MyGame Game Target 成功不能宣称 MyGameModSDKEditor DLL 已生成。每次 Finalize 只提交自己的目标记录，完整发布等待必需目标齐备；不同 Target 可以有不同生成上下文和目标专有声明，但必须来自同一发布输入集，并能证明共享公共契约兼容。目录之间随意复制 DLL、混用旧生成批次或修改 BuildId 均不构成兼容。
 
-下面是拟定的构建步骤与发布接口，均尚未实现；`prepare` 和 `finalize` 由相应原生回调接入，`publish-sdk` 在所需目标完成后调用：
+现行命令调用由 UHT、UBT 目标规则和 SDK 请求贯通。各输入使用对应 Target 的真实产物。
 
 ```text
-ModBuildTool prepare --project MyGame.uproject --target MyGameEditor --platform Win64 --configuration Development --output <build-input.json>
-ModBuildTool finalize --build-input <build-input.json> --generated-manifest <MyGame.generated-artifacts.json> --receipt <target-receipt> --output <editor-artifacts.json>
-ModBuildTool publish-sdk --artifacts <game-artifacts.json> --artifacts <editor-artifacts.json> --output <release-dir>
+ModHeaderTool generate <GenerationRequest.json>
+ModBuildTool build-host --context <Context.json> --generated-manifest <Game.generated-artifacts.json>
+ModBuildTool refresh-ue-watches --contexts <TargetContexts.json>
+ModBuildTool finalize-ue-target --contexts <TargetContexts.json> --ue-target-receipt <Target.target>
+ModSDKTool build --request <SdkBuildRequest.json> --output <Result.json>
 ```
 
-UHT Exporter 通过 `ModHeaderTool generate <GenerationRequest.json>` 启动语义生成。请求记录本次构建输入、生成目录和真实生产者上下文。词法扫描入口 `scan` 生成供 UHT 校验标记和参数的 JSON 报告。
-
-插件打包由外层原生流程使用 UAT BuildPlugin，调用前准备 SDK 与 Runtime 依赖，临时工程不能依赖只存在于原游戏目录的模块。MBT 从成功结果收集和整理产物；Windows 使用短暂存目录。
-
-```bat
-RunUAT.bat BuildPlugin -Plugin="<plugin.uplugin>" -Package="<package-directory>"
-```
+Win64 的链接核对在归档旁写出 `<owner>.lib.link.json` 和 `<owner>.lib.linked.json`。MDT 执行各目标的库任务并调用 UAT 构建插件，发布路径和配置由 SDK 请求指定。更通用的动作图及跨平台链接适配仍按前述目标设计验收。[MBT 最终链接核对](../UnrealModFramework/Plugins/ModRuntime/Tools/ModBuildTool/README.zh-CN.md#最终链接核对)
 
 ### Generated Artifact Manifest
 
-两个工具之间固定使用版本化生成清单，例如 `MyGame.generated-artifacts.json`。MHT 在完整生成成功后提交清单，内容包括所有生成文件；清单本身不表示 DLL 已存在，也不代表某个 Target 已构建成功。以下展示当前 Host/Client 独立编译后端的关键字段，省略目标身份、requiredSymbols 与依赖等字段，哈希为占位值：
+两个工具之间固定使用版本化生成清单，例如 `MyGame.generated-artifacts.json`。MHT 在完整生成成功后提交清单，内容包括所有生成文件；清单本身不表示 DLL 已存在，也不代表某个 Target 已构建成功。以下是 Host/Client 清单的示意片段。版本、哈希均为占位值，省略目标身份、必需符号及依赖。
 
 ```json
 {
   "schemaVersion": 3,
   "format": "UMF.GeneratedArtifacts",
-  "generatorVersion": "0.4.0-context-handles",
+  "generatorVersion": "<mht-generator-version>",
   "gameId": "MyGame",
   "generationId": "<generation-input-fingerprint>",
   "status": "Complete",
@@ -684,31 +643,17 @@ RunUAT.bat BuildPlugin -Plugin="<plugin.uplugin>" -Package="<package-directory>"
 
 消费者先从实际所属二进制取得查询入口，以版本、表大小和 ABI 哈希查询函数表，再调用客户端 Connect。宿主批准 Caller、作用域和权限后，使用 `FNativeAccess::Open` 签发 context/scope token 并交付；Getter 返回 object token，成员调用接收 context/object 和定宽参数。API 入口重新验证线程、类型、权限和生命周期；撤销 Caller 或关闭作用域使旧 token 失效。模块卸载前 Disconnect 并等待调用结束；连接表按模块共享，调用身份按 context 隔离。
 
-宿主四个单元与客户端单元均由 MBT 编译。清单 `requiredSymbols` 关联两类入口与相同 ExportId、签名及投影哈希，按所属模块检查唯一性。只有纯 C ABI 头是 `SdkHeader`；内部 UE 视图头是私有 `HostHeader`。MDT 消费匹配的 `.sdkcontract.json`，现有适配器支持 LocalPlayerSubsystem Getter 与 float 实例方法的调用图；超出适配形状时 SDK 契约明确标记 Unsupported，原生 ABI 仍按已支持的 MHT 签名生成。装载器的自动连接、运行中 token 交付与可信最终链接回执仍需后续接入。
-
-各清单分别承担不同作用：构建输入清单由 MBT 记录真实 Target 与依赖，生成清单由 MHT 记录本批生成内容，目标产物记录与 `MyGameModSDK.manifest.json` 由 MBT 关联原生构建及最终交付。未知 Schema、缺文件、内容哈希不符、Bootstrap 批次或目标身份不兼容时，MBT 拒绝完整发布并输出具体差异，不自行修复生成代码。
+宿主单元与客户端单元由 MBT 独立编译。`requiredSymbols` 关联两类入口与相同 ExportId、签名和投影哈希。公共角色包括纯 C API 头、适用的错误码和扩展 ABI 头。生成的 UE 视图头是私有宿主产物。MDT 消费匹配的 `.sdkcontract.json`，生成 LocalPlayerSubsystem Getter、支持标量和对象参数的类型化方法，以及 World 扩展适配。超出当前形状的适配契约标为 `Unsupported`。已授权的蓝图 World 提供者可由活动 `UModInstance` 取得。LocalPlayer 上下文由宿主集成显式选定并交付。
 
 ### 工具内部职责分区
 
-以下是逻辑模块划分，沿用现有独立 CMake/C++ 工具。MHT 的 `include/ModHeaderTool` 与 `src` 布局可以按这些职责组织；C# 只用于对接 UE 的 UHT/UBT 扩展，不要求将 MBT 改写为 C# 工具。
-
-```text
-ModHeaderTool/
-├── Frontend/       MacroParser、UhtTypeAdapter、CppTypeAnalyzer
-├── Contract/       ContractSchema、ContractIR、ContractValidator
-├── TypeSystem/     TypeResolver、TypeProjection、ConversionPlanner
-├── Generator/      ViewGenerator、HostBindingGenerator、ABIGenerator、
-│                   ValidationGenerator、ArtifactManifestWriter
-└── Diagnostics/    声明位置、类型依赖路径与生成诊断
-
-ModBuildTool/
-├── Integration/    UbtBuildAdapter、BuildProfileResolver
-├── Build/          BuildPreparation、DependencyTracker、BuildStateValidator
-├── Artifacts/      ArtifactCollector、BinaryValidator、SdkPackager
-└── Diagnostics/    构建身份、产物与发布差异
-```
-
-UHT Exporter 适配器归属 MHT 的集成层，只负责 UHT 模型与 MHT 输入的转换和调用；UbtBuildAdapter 归属 MBT，只处理实际构建上下文、依赖和产物回调。后续增加 Event、Hook 或类型后端时优先扩展 MHT 的契约、投影与生成能力，MBT 继续消费相同清单协议。
+| 入口 | 源码分工 |
+| --- | --- |
+| MHT | `src/Scan` 与 `src/Metadata` 读取标记和元数据，`src/Analysis` 解析，`src/Generation` 写出桥、ABI 和清单 |
+| MBT | `src/Build` 管理真实生产者上下文和构建，`src/Archive`、`src/Binary` 检查归档及链接产物 |
+| MST | `src/Analysis` 与 `src/Clang` 分析源码，`src/Errors` 管理错误分类，`src/Cli` 提供链接头及命令入口 |
+| MDT | `src/Manifest` 校验契约，`src/Generation` 生成 SDK，`src/Editor`、`src/Build` 和 `src/Bundle` 负责插件输入、构建与交付 |
+| UHT 适配层 | `Source/ModRuntimeUht` 对接 UHT/UBT，准备、校验并传递各工具的输入和产物 |
 
 ### 生成产物的职责
 
@@ -730,7 +675,7 @@ UHT Exporter 适配器归属 MHT 的集成层，只负责 UHT 模型与 MHT 输�
 | MyGameModClient.modclient.cpp | 独立客户端库的连接、断开、释放及类型化转发入口 |
 | MyGame.modcontract.json | 稳定契约身份、源/Mod 签名及投影/ABI 摘要 |
 
-MHT 完成这些文件与生成清单后结束生成工作。宿主实现先由 MBT 编译成所属模块的静态库，再由 UBT 链入游戏可执行文件或所属模块 DLL；后续 SDK 的 UE 反射包装按其消费目标另行构建。
+MHT 完成这些文件与生成清单后结束生成工作。宿主实现先由 MBT 编译成所属模块的静态库，再由 UBT 链入游戏可执行文件或所属模块 DLL；后续 SDK 的 UE 反射包装由 MDT 生成并按消费目标另行构建。
 
 | 类别 | 宿主产物 | Mod/SDK 与 Editor 产物 |
 | --- | --- | --- |
@@ -849,6 +794,8 @@ Character.InternalReset(); // 未生成，编译失败
 
 ## 12 Provider 与绑定租约
 
+当前 `UModAPIHostSubsystem` 按 GameInstance 管理注册表，以 `OpenLocalPlayer` 建立调用者及玩家上下文。World 蓝图实例使用 `RegisterWorldProvider` 和 `SetWorldCallerPolicy` 注册并授权。World 扩展还允许在 **On Mod Register** 提供版本化服务，在 **On Mod Bind** 通过生成 SDK 取得类型化引用。以下保留 Provider 与租约的设计约束。
+
 ### 提供者协议
 
 Provider 声明它提供的契约、作用域、ProviderKey、是否拥有实例、依赖和准备条件。实例来源可以是既有 Subsystem、由游戏创建的 UObject、指定 Actor/组件、玩家对象或 native context。禁止通过“场景里第一个同类 Actor”或“索引为零的玩家”实现隐式选择。
@@ -876,6 +823,8 @@ CheckedBinding 在 Game Thread 上按同一串行生命周期执行检查和调�
 不能向模组发放可绕过受控入口的裸函数/对象引用，同时承诺运行中强制撤销该权限。需要撤销的能力只发放生成的受控视图和 CheckedBinding 入口。宿主内部的原生对象引用不因实现直接调用而成为 Mod 侧的公开返回类型。
 
 ## 13 宿主状态机与就绪屏障
+
+实际 World 接入使用 `UModExtensionSubsystem::Prepare`、`IsReady` 和 `Stop`。首次准备为 GameInstance 固定包集合与授权。World 验证生成契约，准备内容和 Patch，执行注册与服务绑定，发布回调快照并计算玩法指纹。准备失败通过返回值与 `FWorldFailure` 向宿主报告，必要时标记进程重启。以下状态名描述交付语义。
 
 ### 模组与会话状态
 
@@ -913,7 +862,11 @@ WorldReady 同时要求必需模组 Bound、必需 Provider 就绪、签名一�
 
 ## 14 Native DLL 与稳定 C ABI
 
+当前 Win64 x64 Pak 宿主分别通过 `bAllowNativeExtensions` 和 `bAllowNativeModules` 开启独立 C ABI 回调与匹配宿主构建的 UE 模块。前者按 World 调用 `UMF_RegisterExtensionsV1`，回调排空后执行可选 `Close` 并释放 DLL 引用。后者在加载 Cooked 蓝图前注册 UE 类型，并驻留至进程退出。生成的 `ContextHandlesV1` 服务表用于原生 API 调用。[独立回调与包输入](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)
+
 ### 装载和协议协商
+
+以下描述扩展 ABI 的目标约束。上文列出的注册入口、World 上下文与关闭回调是现行接口。
 
 清单在执行 DLL 代码前给出架构、入口协议、导入依赖、能力和文件摘要。DLL 必须位于验证后冻结的本地缓存路径，以绝对路径加载；不能直接从 Pak 虚拟路径交给操作系统。Windows 依赖 DLL 按名称解析，已加载的同名库会影响后续绑定，因此私有依赖必须使用唯一名称或明确共享同一版本，不能靠放入不同目录声称隔离。[^R10]
 
@@ -947,6 +900,8 @@ NativeUEModule 与 NativeCABI 独立。前者要求精确工具链、运行库�
 
 ## 15 模组清单与依赖决议
 
+当前采用 `UMF.ModPackage` 归档主版本 1/2/3。v3 `extensions` 对象包含 `dependencies`、`incompatible`、`requiredGrants`、`contracts`、`services`、`provides`、`content` 与 `patches` 等字段。进程准入按包选择、固定 SHA-256、所需授权和稳定依赖顺序检查，World 准备再核对服务与扩展签名。多人发行身份可通过宿主 `GameplayReleases` 将不同目标包关联到同一玩法发行，下文签名与发布报告为设计目标。[当前归档与清单](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#mod-布局)
+
 清单至少包含 SchemaVersion、ModId、ModVersion、ModReleaseId、GameplayCompatibilityDigest、TargetArtifactDigest、GameId、运行时/协议范围、实际要求的契约成员、CookProfileId、目标平台与构建、依赖和冲突、能力请求、内容根、入口资产、原生文件、资源索引及签名信息。共同发行身份描述一组获准互操作的 Client/Server 目标产物；每个目标产物另有独立字节摘要。未知必需字段或必需能力拒绝；未知可选扩展可忽略并记录。
 
 发布摘要的输入为排除摘要字段本身及签名封装后的规范化清单正文，以及按稳定路径排序的载荷摘要表；签名覆盖该发布摘要，避免自引用。协议固定摘要算法标识、UTF-8 编码、规范化版本、键排序、数字表示和文件边界；每个载荷记录路径、长度与精确字节摘要。缓存键使用目标产物摘要，准备时重新确认文件未变化；路径规范化后验证仍位于允许缓存根，拒绝路径穿越、重复大小写身份、同名文件歧义和超限解包。文件完整性校验与来源信任分别记录，哈希正确不等于作者可信。
@@ -978,7 +933,7 @@ Cook Profile 锁定引擎精确构建、基础游戏发布标识、自定义序�
 
 ### 包身份与后端
 
-每个模组拥有稳定唯一的合法虚拟根，例如 /UMF_M<稳定标识>/，具体名称由包名验证器确定。物理缓存目录可以包含版本和摘要，逻辑包身份不包含本地缓存路径。同名包不能依靠挂载优先级成为普通模组冲突规则；游戏发行补丁若需要覆盖基础包，使用单独受控流程。
+每个模组归档拥有独立的 `/<PluginName>/` 虚拟根，例如 `/TestMod/`。物理缓存目录可以包含版本和摘要，逻辑包身份不包含本地缓存路径。同名包不能依靠挂载优先级成为普通模组冲突规则；游戏发行补丁若需要覆盖基础包，使用单独受控流程。
 
 PakCookedContent 和 IoStoreCookedContent 分别发布能力。UE 5.6 Zen Loader 在 Stage 离线处理包依赖，并将相关数据放入 utoc/ucas 容器；对应 Pak 挂载可关联容器挂载，但这不能证明任意外部容器与宿主互操作。其加载限制使运行时重定向不能作为修复任意已 Cook 包身份的方案。[^R11]
 
@@ -994,9 +949,9 @@ Cooked Runtime 的资产注册信息在 Cook 时生成并裁剪。IAssetRegistry
 
 ### 缓存与卸载
 
-缓存文件完成验证后以内容寻址方式保留，清理策略不得删除仍有进程挂载或会话租约的版本。会话释放租约不自动卸载容器。首版挂载、公共反射类型和 DLL 通常保留到进程退出；需要更换同身份版本时重启进程。
+验证后的载荷提取到 `Saved/ModCache/<整包 SHA-256>`，复用时重新校验。会话持有包租约。源包移除或 PIE 结束时，加载器在世界与实例释放后尝试卸载容器、Shader 库和包根。仍有外部引用时保留挂载并报告。已加载的 UE 原生模块留在进程中，替换需新进程。
 
-未来 RuntimeContainerUnmount 必须独立证明无对象、类/CDO、异步 I/O、渲染任务、Shader 库引用、其他会话租约，并有正确的索引和 Package Store 移除路径。仅关闭文件句柄不构成安全卸载。
+各 Cook Profile 的卸载验收应覆盖 UObject、原生反射、异步 I/O、渲染任务及其他会话引用，并核对 Asset Registry 和 Package Store 的实际移除行为。
 
 ## 17 Shader 与渲染能力
 
@@ -1024,7 +979,7 @@ HookDefinition 包含 HookId、输入和输出签名、Scope、`AllowedStages`�
 
 生成器为开放阶段生成类型化上下文、对象视图、处理器签名及游戏上下文的连接，`Next` 只供获授权的 `Wrap` 处理器使用。可写字段按声明生成转换、验证和提交代码。未知字段、只读写入和不支持的上下文投影在生成或编译阶段失败。
 
-首版基础能力是同步 `Pre` 和 `Post`。`Wrap` 和 `Replace` 各自启用。所有处理器使用类型化参数和专用调用入口。未注册处理器时直接执行 `Core`，运行时若检查空链，该分支也计入 Hook 成本。
+现行 World Hook 在 Game Thread 同步执行，支持 `Pre`、`On`、`Post`。具体操作须由声明开放并获宿主授权。C++ 和独立 DLL 可注册 `Wrap` 和 `Replace`，蓝图注册节点支持 `Replace`。UObject 回调投影为只读视图。未注册处理器时直接执行 `Core`，运行时若检查空链，该分支也计入 Hook 成本。
 
 ### 阶段规则
 
@@ -1048,7 +1003,7 @@ HookDefinition 包含 HookId、输入和输出签名、Scope、`AllowedStages`�
 
 ### 顺序与快照
 
-每个阶段先处理显式的先后约束，再以优先级、稳定 ModId、RegistrationId 处理并列项。约束循环在提交前拒绝。`Wrap` 按外层到内层进入，反向退出。`Pre` 和 `Post` 的处理器各自排序。
+每个阶段先处理显式的先后约束，再以优先级、稳定 ModId 和订阅 Key 处理并列项。约束循环在提交前拒绝。`Wrap` 按外层到内层进入，反向退出。`Pre` 和 `Post` 的处理器各自排序。
 
 优先级统一约定为小值先执行。使用 `Replace` 时须在 Ready 前决议出唯一替代者，多个未决候选拒绝。声明允许组合时，多个 `Wrap` 处理器可以嵌套。稳定字典序只用于有序组合的并列排序。
 
@@ -1057,6 +1012,8 @@ HookDefinition 包含 HookId、输入和输出签名、Scope、`AllowedStages`�
 同一调用持有一个不可变快照，执行期间不修改数组。注册变更只在规定安全点发布，旧快照在所有在途调用退出后释放。默认 Game Thread 注册/执行简化所有权；工作线程链需要独立的发布、保活和并发验收。签名和阶段固定后不允许处理器私自改变调用策略。
 
 ## 19 Event 通道与订阅
+
+当前 `Immediate` 在 Game Thread 同步分发。`NextTick` 使用每 World 256 项的队列，满时返回 `QueueFull`，投递时检查发布对象与载荷是否仍有效。C++ 用 `UnsubscribeRule = Immediate`，蓝图在声明开启立即退订。反射值载荷复制公开字段，UObject 的只读视图只在本次回调有效。下文包含可扩展的调度及并发合同。
 
 EventDefinition 包含 EventId、PayloadType、Scope、发布权限、线程、顺序要求、同步或队列模式、重入与容量策略。Event 表示发生的事实，不返回业务结果，不用订阅者 out 参数决定原操作是否成功；需要修改行为时使用 Hook。
 
@@ -1080,6 +1037,8 @@ EventDefinition 包含 EventId、PayloadType、Scope、发布权限、线程、�
 
 ## 20 内容注册与冲突决议
 
+宿主以 `DefineContentSlot` 指定默认资产、目标类型、允许操作和验证器。归档清单请求 `provide`、`replace` 或 `disable`，每个候选均由宿主规则和授权校验。`FWorldPolicy::ContentWinners` 可显式选择合法候选，否则按优先级选定，无法选出唯一胜者时准备失败。业务通过 `ResolveContent` 读取结果。以下描述内容系统更广的设计。
+
 游戏通过 ContentSlotDefinition 公开逻辑内容槽，字段包括稳定 SlotId、类型约束、允许 Extend/Replace/Transform、候选条件、冲突策略、默认候选和决议时机。模组注册 ContentCandidate，包含逻辑 ContentId、来源、资产引用/工厂、依赖和优先级。
 
 Extend 向集合增加独立内容；同一逻辑 ID 重复时按槽策略报错或显式别名。Replace 从多个候选中选择一个；允许用户/服务器明确指定胜者，其次执行槽声明的优先级规则，仍冲突则拒绝。Transform 是对某种可变数据的有序转换，必须定义输入副本、读写字段和验证器，首版默认不提供任意对象变换。
@@ -1091,6 +1050,8 @@ Extend 向集合增加独立内容；同一逻辑 ID 重复时按槽策略报错
 游戏原内容作为默认候选注册，其优先级与受保护规则明确发布。禁止模组通过物理包覆盖隐式替换基础资产，避免基础包路径、PIE 进程共享和 Cook 身份相互冲突。
 
 ## 21 世界扩展与 Patch
+
+当前 `RegisterAnchor` 登记关卡中的锚点及授权。扩展清单可要求生成 Actor、按宿主规则挂接场景组件或注册 Cooked 数据资产。可选 Patch 支持首次锚点等待。运行时通过 `GetPatchOrigin` 和 `ResolvePatchData` 提供来源或绑定后的数据，关卡移除时释放对应锚点效果。
 
 WorldExtensionPoint 是由游戏显式提供的稳定锚点和操作协议，包含 AnchorId、世界/关卡/流式单元身份、允许操作、可用阶段和回收策略。可以接入固定生成点、数据表注册区、组件挂接点或游戏定义的地图扩展接口，不以任意 Actor 名称或每帧全量扫描作为默认定位方式。
 
@@ -1131,6 +1092,8 @@ SDK 的静态成员集合由导出规则固定，不随每个 Mod 的实际授�
 首版默认 Content/Blueprint 与 Native 分级启用，Native 来源需要明确允许。内容包和蓝图也包含复杂反序列化与可执行业务，不能简单称为完全无风险。宿主可施加资源大小、对象数量、队列长度与执行预算，但对进程内无限循环无法提供安全抢占保证。
 
 ## 24 多人会话与存档
+
+`ExportTest` 的 `ModExtensions` 模式以 `FModNetworkHandshake` 比对登录身份和玩法指纹，并使用非无缝切图。`FModExtensionSave` 用于单机捕获快照、验证必需模组、迁移分版本数据并保留缺失可选模组的数据。以下列出游戏接入与验收约束。
 
 ### 多人握手
 
@@ -1177,6 +1140,8 @@ API 导出不自动成为 RPC，Event 不自动跨网络，ExportId 不能自动
 编辑器诊断显示每个声明的源签名、Mod 投影、生成入口、是否已实现、是否有 Provider、是否已接入业务、哪些 Target/Cook Profile 通过验证。生成错误包含问题字段、转换方向、所选规则和完整依赖路径；运行时的对象失效、授权失败或本次数据越限只进入预生成的错误分支，不触发类型分析或转换回退。诊断工具允许按 ID 查询；普通 Gameplay 调用不因此增加日志、字符串格式化或目录查询。性能采样显式开启并报告采样成本。
 
 ## 26 性能设计与验证方法
+
+仓库的独立 [UE 调用基准](../Test/Performance/ue-call-benchmark.md)已记录 200 个用例、可用路径各 1,000 次采样的结果。Win64 x64 对比宿主和已挂载模组各自的 C++／蓝图路径。这组数据用于比较测试场景中的调用成本。完整扩展链、发布场景和预算仍按下列矩阵测量。[基准复现步骤](DevelopmentWorkflow.zh-CN.md#运行调用性能基准)
 
 ### 计量原则
 
@@ -1306,6 +1271,17 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 
 ## 29 实施顺序与里程碑
 
+现有原型覆盖 P0 至 P5 的部分路径。下表对照已合入的代码与各阶段的发布退出条件。
+
+| 阶段 | 已有接入点 | 发布前的主要验证 |
+| --- | --- | --- |
+| P0 | Win64 UHT/MBT 构建与链接，独立作者工程和调用基准 | 独立验证 Pak/IoStore Shipping、双 PIE 和更多构建目标 |
+| P1 | 当前签名集的 C++ 与蓝图导出、SDK 契约和 MDT 发布 | 覆盖复杂签名、完整差异报告和消费目标矩阵 |
+| P2 | GameInstance API Registry、World/Player 绑定、World 就绪与停止 | 多玩家、旅行和完整关闭行为 |
+| P3 | Hook 三阶段、类型化 Event、内容槽、World Patch 与服务 | 失败、顺序、再入、幂等与回收用例 |
+| P4 | 独立回调 ABI、Win64 Pak UE 模块加载、容器与 Shader 库准备 | Shipping 链接、渲染与资源清理 |
+| P5 | 示例多人玩法计划握手和单机存档迁移 | 目标游戏联调、Dedicated Server 与长会话 |
+
 ### 阶段 P0 验证关键技术边界
 
 先确认声明宏落点与标准 UHT 的共存、UHT Exporter 和 MBT Prepare/Finalize 的真实时序、首次生成头准备、实际 Target 分析上下文与增量失效。需要后置 Clang 分析、新反射类型或不可发布引导时分别确认原生阶段边界；源码快照仅作独立后备路径。随后完成四个最小纵向样例：独立作者蓝图调用公共 Native/BP 实现；同对象同语义性能对照；一个指定 Cook 后端的外部模组资产进入 Shipping；双 PIE 与切图关闭。样例必须使用真正不在基础游戏包内的内容，避免误测基础副本。
@@ -1342,14 +1318,20 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 | B UE 5.6 原生构建集成 | UHT Exporter、UBT Prepare/Finalize、宏共存、真实 Target、生成头时序、首次引导与增量依赖 | P0/P1 |
 | C AST 与契约 IR | 重载/继承/限定符/角色解析、完整投影计划，发布前 unresolved 为零 | P1 |
 | D 三类代码与编译验证 | 所属模块的真实连接、SDK 受限访问面、Event/Hook 接缝及全部函数体编译 | P1/P2/P3 |
-| E SDK 与 Editor 交付 | MHT 生成清单、MBT 目标凭证和发布清单，分目标 GameModSDK/GameModSDKEditor 完整 Bundle | P1/P5 |
+| E SDK 与 Editor 交付 | MHT 生成清单、MBT 目标校验、MDT 组织 SDK 与制作插件交付 | P1/P5 |
 | F 游戏联调与能力发布 | 独立 Mod 进入真实宿主，固定 Target 的调用/生命周期/版本证据与报告 | P2 至 P5 |
 
 工作分工以契约/编辑器、运行时/生命周期、资源/构建、游戏业务接入四条线组织。共同依赖是稳定 IR、作用域身份和状态合同；这些先冻结再并行。计划按退出条件排期，不在缺少人员和现有代码数据时给出虚构工期。
 
 ## 30 游戏接入示例
 
-以下为伤害系统的示意数据和时序，用于联调，不是实现代码或性能测量。
+开发宿主已提供可追踪的接入点。
+
+1. 角色 API、`ChangeHealth` Hook 和三种生命值 Event 见[角色声明](../UnrealModFramework/Source/ExportTest/GameCharacter.h)与[生成 Helper 的业务接入](../UnrealModFramework/Source/ExportTest/GameCharacterExtensions.cpp)。
+2. 用 `?game=ModExtensions` 进入开发宿主的对应地图模式。`PrepareGameExtensions` 定义 `character.mesh` 内容槽和 `training.target` 锚点，选择 World 授权并调用 `Prepare`。单机可用 `ModWriteSave <槽位>` 保存至 `Saved/ModSaves`，用 `ModLoadSave <槽位>` 重新进入地图并迁移数据。[模式接入](../UnrealModFramework/Source/ExportTest/GameExtensionMode.cpp)
+3. 服务器登录和客户端地图切换前验证同一玩法计划。[服务端接入](../UnrealModFramework/Source/ExportTest/GameExtensionMode.cpp) · [客户端接入](../UnrealModFramework/Source/ExportTest/GameExtensionInstance.cpp)
+
+下面的伤害算例说明如何将同样的接入方式用于另一项游戏业务。
 
 游戏公开 World 作用域 DamageService，以及 DamageRequest、DamageResult 的公共投影。游戏侧伤害目标 Actor 继续作为真实类型的显式参数，不注册成进程级服务；生成的 Mod 签名使用相应 `FModRuntimeObject<T>`，请求/结果中的对象字段也递归投影。游戏提供者返回当前 World 的 DamageService 实例，生成入口关联当前调用者与租约，SDK 只公开受限视图、契约和所需投影类型。
 
@@ -1387,9 +1369,9 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 
 ## 32 首版决策与后续验证
 
-首版固定采用声明前宏、MHT 唯一导出语义与生成核心、原生 UHT/UBT 构建及 MBT 产物管理。MHT 在构建期完成完整类型分析、签名投影、全部转换/调用连接和验证代码，生成 Mod 侧受限视图及统一 ReturnError。两个工具以生成清单交接；UBT 按 Game/Editor 目标实际编译宿主、SDK 与适配产物，MBT 依据目标凭证和兼容信息交付完整 SDK Bundle。宏/UHT 共存、Exporter/构建回调时序、生成头及增量依赖分别验收。当前 MBT 的导出与 Mod 调用范围不扩展为 Cook、挂载、模组依赖决议或完整宿主生命周期管理。
+保持 MHT 生成、MBT 独立编译与链接核对、UBT 目标链接、MDT 交付 SDK 的职责边界。现行 Win64 目标及已支持的签名组合是后续验证的起点。新增目标须覆盖标准 UHT 共存、生成头就绪、增量失效、最终链接、独立 SDK 消费和实际 Cook 资产的集成。
 
-运行时不提供动态转换器选择或通用反射转换回退。整体 Runtime 在上述工具边界之上采用固定集合、Game Thread 玩法入口、固定服务实现、独立公共契约、显式业务接入、基础 `Pre` 和 `Post` Hook、有界事件队列、逻辑内容决议和受控 Patch。运行中更换相同包身份、DLL 和反射定义统一走新进程；只有没有进程级身份冲突且宿主已验证的场景才允许仅重建 Session。
+运行时不提供动态转换器选择或通用反射转换回退。整体 Runtime 在上述工具边界之上采用固定集合、Game Thread 玩法入口、固定服务实现、独立公共契约、显式业务接入、Game Thread `Pre`／`On`／`Post` Hook、有界事件队列、逻辑内容决议和受控 Patch。运行中更换相同包身份、DLL 和反射定义统一走新进程；只有没有进程级身份冲突且宿主已验证的场景才允许仅重建 Session。
 
 主要技术风险集中在公共蓝图符号与 Cook 身份、目标 Shipping 的模块导出、容器/索引互操作、Shader 注册阶段、可销毁目标的绑定安全、Patch 外部副作用和实际性能。每个风险都有对应 P0 样例或验收项；未验证结果不转成能力承诺。
 
@@ -1397,7 +1379,7 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 
 ## 参考资料
 
-引擎机制参考 Epic 官方 UE 5.6 文档，解析与 Windows 链接机制另参考 Clang、Microsoft 官方资料。MHT/MBT 接口、Schema、生成/构建/发布清单、阶段依赖、协议、默认语义、数据结构和验收门槛均为本框架的拟议设计，须通过锁定工具链与目标游戏实测。
+引擎机制参考 Epic 官方 UE 5.6 文档，解析与 Windows 链接机制另参考 Clang、Microsoft 官方资料。当前 MHT、MBT 和 MDT 接口见其工具指南与 Schema。拟议能力及验收门槛须通过锁定工具链与目标游戏实测。
 
 [^R01]: [Metadata Specifiers](https://dev.epicgames.com/documentation/en-us/unreal-engine/metadata-specifiers-in-unreal-engine?application_version=5.6)。依据：元数据的编辑器边界。
 

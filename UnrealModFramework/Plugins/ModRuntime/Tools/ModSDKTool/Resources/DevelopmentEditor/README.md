@@ -13,7 +13,7 @@ Run `ModSDKTool build-editor` to generate the authoring plugin and compile it wi
 - An enabled project content plugin with `CanContainContent: true`, no C++ modules, and at least one `.uasset` or `.umap`. Keep its own `/<PluginName>/` package root. For a C++ project, use **打包当前工程** (Package Current Project).
 - A three-part numeric Mod version, such as `1.0.0`.
 - A game ID and base release supplied by the target game's SDK. The release root contains `<ReleaseVersion>/<CookPlatform>/AssetRegistry.bin`. An empty root uses the project's `Releases` directory. The Cook platform for `Win64` is `Windows`.
-- A target platform, IoStore/Pak choice, and engine-content policy matching the target release. The author project also needs the corresponding UE Cooker, SDK, and public types/assets actually referenced by the Mod.
+- Match the target platform and Pak or IoStore backend to the target release. Keep engine content disabled and use a separate package root for archives intended for ModLoader. The author project also needs the corresponding UE Cooker, SDK, and public types/assets actually referenced by the Mod.
 - An output directory, defaulting to `Saved/PackagedMods`. The file is named `<PluginName>-<ModVersion>-<TargetPlatform>.mod`; existing packages are never replaced.
 
 The same options appear in **Project Settings → Plugins → Mod 打包** and persist in the local project's EditorPerProjectUserSettings.
@@ -92,6 +92,6 @@ When the author SDK supplies `ModInstance` and `ModInstanceSubSystem`, the packa
 
 `Content/<StageRelativePath>` preserves UE output. `Metadata/CookReceipt.json` records package roots, staged paths, build configuration, and release provenance. `UMF.ModPackageBuildResult` v1 status `Packaged` means packaging and byte verification succeeded and includes the final file's SHA-256.
 
-Version 2 adds a `nativeCode` manifest with the host target, configuration, architecture, BuildId, and module names. The packager builds individual modules with UBT and writes a matching `.modules` file using the host receipt. The module manifest and DLLs live under `Native/` and share the archive's hashed index. Loaded native modules stay resident until process exit. Updating one of those modules takes effect after restarting the host.
+Archive v2 and any v3 archive with UE modules carry a `nativeCode` manifest with the host target, configuration, architecture, BuildId, and module names. The packager builds individual modules with UBT and writes a matching `.modules` file using the host receipt. The module manifest and DLLs live under `Native/` and share the archive's hashed index. Loaded native modules stay resident until process exit. Updating one of those modules takes effect after restarting the host.
 
-The manifest and result report `shippingValidated: false`, with `exportRequirements: "NotVerified"` in the manifest.
+The manifest and result record `shippingValidated: false`. The manifest's `exportRequirements` is `SdkVerified` when packaging verifies an extension manifest against the supplied SDK contract, and `NotVerified` otherwise. The loader still checks the actual host contracts and grants at admission.

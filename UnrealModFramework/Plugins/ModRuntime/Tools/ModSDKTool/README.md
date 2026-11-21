@@ -138,6 +138,10 @@ Plugin compilation uses `BuildPlugin -NoTargetPlatforms` for the author Editor.
 MDT checks actual module binaries, architecture, matching BuildId, and the file
 inventory. Generated Build.cs rejects missing client profiles.
 
+### World extension contracts
+
+The SDK's `extensions` contract identifies the extension IDs and signatures and drives generated Blueprint subscription, struct, object projection, and service acquisition support. The lifecycle projection exposes **On Mod Register** and **On Mod Bind**. The SDK carries the ABI headers for independent native callbacks. Pass the same `Contract/SdkContract.json` to the packager when building with extension manifest v2. [Author packaging and registration](Resources/DevelopmentEditor/README.md)
+
 ## Editor entry and output
 
 Enable `ModDevelopmentSDKEditor`. Under **Tools → Mod SDK**, choose **Plan Mod
@@ -164,13 +168,7 @@ carry MDT, MBT, and their license notices in its
   Build/NativeResults.json
 ```
 
-`Built` means native archives and author-Editor plugins were built and verified.
-Final game linkage, a game-target SDK Runtime module, and live API binding are
-explicitly unverified in the result. A matching Runtime SDK module must exist in
-the game before cooked Blueprint calls can execute. Blueprint export, trusted
-host-link records, and player-context delivery remain upstream prerequisites.
-Public module/type/function/parameter names form
-reflection identity and must remain stable across compatible releases.
+`Built` confirms compilation and verification of the native archives and author Editor plugins. Final game linkage, the Game-target SDK Runtime build, and live API binding are host-side verification steps. The UE 5.6 Win64 host post-build step can produce MBT link records. Cooked Blueprint calls require the matching Runtime SDK module in the game. Preserve public module, type, function, and parameter names across compatible releases.
 
 The optional `Host/Plugins/<game-sdk>` uses the same runtime module and
 Blueprint names as the author SDK. Provide the Host and Client library requests

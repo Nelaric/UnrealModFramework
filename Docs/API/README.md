@@ -4,7 +4,19 @@ English | [简体中文](README.zh-CN.md)
 
 # UnrealModFramework API
 
-UnrealModFramework develops a portable game-side mod runtime and an independently built mod authoring editor for Unreal Engine 5.6. This documentation describes the project's public contracts and coding standards. Implemented export declarations and tooling do not yet constitute a stable native mod ABI or a complete package-loading runtime.
+UnrealModFramework provides a game-side mod runtime and an independently built authoring editor for Unreal Engine 5.6. Its public contracts cover package loading and lifecycle, generated API calls, and World-scoped extensions.
+
+## Runtime entry points
+
+| Use case | Source contract |
+| --- | --- |
+| Validate, mount, and observe `.mod` loads | [ModLoader.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModLoader/Public/ModLoader.h), [ModInstance.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModLoader/Public/ModInstance.h) |
+| Register host providers and issue scoped bindings | [ModAPIHostSubsystem.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModAPI/Public/ModAPIHostSubsystem.h) |
+| Prepare a World, subscribe to Hook/Event, and resolve content, Patch data, or services | [ModExtensionSubsystem.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModAPI/Public/ModExtensionSubsystem.h) |
+| Integrate multiplayer admission and save migration | [ModExtensionSession.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModAPI/Public/ModExtensionSession.h), [ModExtensionSave.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModAPI/Public/ModExtensionSave.h) |
+| Register independent native extension callbacks | [ModExtensionABI.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModLoader/Public/ModExtensionABI.h) and the game's generated SDK headers |
+
+Native compatibility is bound to the generated SDK contract and target profile. Match the game release, engine build, platform, and signatures before distributing a package. [SDK guide](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.md)
 
 ## Contracts and standards
 

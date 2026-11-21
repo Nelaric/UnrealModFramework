@@ -77,6 +77,10 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
 
 插件通过 `BuildPlugin -NoTargetPlatforms` 构建作者 Editor 产物；核对实际二进制、架构、BuildId 和完整文件库存。生成的 Build.cs 在缺少匹配客户端 Profile 时拒绝构建。
 
+### World 扩展契约
+
+SDK 的 `extensions` 契约用于校验扩展 ID 和签名，并生成蓝图订阅、值结构体、对象投影及跨模组服务获取所需的适配代码。生成的生命周期声明提供 **On Mod Register** 和 **On Mod Bind**。独立原生回调使用打包进 SDK 的扩展 ABI 头。作者打包扩展清单 v2 时，将同一份 `Contract/SdkContract.json` 交给打包器。[制作插件打包与注册流程](Resources/DevelopmentEditor/README.zh-CN.md)
+
 ## 编辑器入口与交付
 
 启用 `ModDevelopmentSDKEditor`，在 **Tools → Mod SDK** 选择 **Plan Mod SDK...** 或 **Build Mod SDK...**，再选请求 JSON。编辑器可使用随插件打包的 MDT 或ModRuntime 插件 `Tools/build/ModSDKTool` 中的本地构建，也可手动选择并保存可执行文件路径。日志异步进入 Output Log，结果 JSON 写入 `Intermediate/ModTools/ModSDKTool/Results`。**Cancel Mod SDK task** 终止进程树。
@@ -96,7 +100,7 @@ MHT 将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 S
   Build/NativeResults.json
 ```
 
-`Built` 表示原生库与作者 Editor 插件实际构建并检查，不代表最终游戏链接、Game Target 的 SDK Runtime 或运行时 API 绑定已验证；结果明确将这些能力记为 false。Cook 后调用要求游戏中有匹配的 SDK Runtime。蓝图导出、可信宿主链接回执和玩家上下文交付仍是上游依赖。公开模块、类型和函数/参数名形成反射身份，兼容发布须保持稳定。
+`Built` 表示 MDT 构建并校验了原生库和作者 Editor 插件。最终游戏链接、Game Target 的 SDK Runtime 构建以及运行时 API 绑定由宿主执行和验证。UE 5.6 Win64 的宿主后置步骤可生成 MBT 链接凭证。Cook 后的蓝图调用要求游戏中存在匹配的 SDK Runtime。公开模块、类型和函数及参数名构成反射身份，兼容发布须保持稳定。
 
 可选的 `Host/Plugins/<游戏SDK>` 与制作端 SDK 使用相同的运行时模块和蓝图名称。为参与构建和 Cook 的目标提供对应的 Host 和 Client 库请求。在游戏工程中安装并启用宿主版本后再构建及 Cook。若导出 Commandlet 需要加载尚未编译的模块，先用 `-MhtBootstrap` 构建 Development Editor。
 
