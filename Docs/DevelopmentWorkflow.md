@@ -15,7 +15,7 @@ This page explains contribution checks, Linux builds, and documentation publishi
 
 ## Checks on a pull request
 
-The [Quality workflow](../.github/workflows/quality.yml) checks PR and commit naming, formatting and text conventions, and API documentation. It uses the pinned versions in the workflow and `.config/dotnet-tools.json`.
+The [Quality workflow](../.github/workflows/quality.yml) checks PR and commit naming, formatting and text conventions, and API documentation. A separate Linux job builds MST and checks cross-file exception analysis using GCC and Clang compile databases. Tool pins are in the workflow and `.config/dotnet-tools.json`.
 
 The [trusted PR build workflow](../.github/workflows/fork-pr-linux.yml) is enabled with the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` after completing the [CircleCI setup](CircleCI.md). Before that variable is enabled, its jobs are skipped. The existing CircleCI push pipeline remains separate.
 
@@ -32,7 +32,7 @@ Both the push configuration and trusted PR configuration build `UnrealModFramewo
 | `build_game_linux` | Compile `UnrealModFrameworkDev` and its enabled runtime modules. |
 | `build_editor_linux` | Compile `UnrealModFrameworkDevEditor` and its supported editor modules, then build and verify the independent `ModDevelopmentSDKEditor` plugin with `ModSDKTool build-editor`. |
 
-The jobs use separate writable staging directories and run the UE containers without network access after pulling the private engine image. Automatic host generation currently requires Win64 x64 MSVC. See the [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md) for tool and input preparation.
+The jobs use separate writable staging directories and run the UE containers without network access after pulling the private engine image. The development host's automatic generation and final-link path runs on Win64 x64 MSVC. Linux skips that path, so these jobs cover compilation of the Linux framework targets and the standalone authoring plugin. See the [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md) for tool and input preparation.
 
 There is no Server target. These jobs validate compilation and plugin packaging; they do not publish downloadable packages or run Unreal automation tests. Coverage of other platforms and newer supported engine releases remains a build coverage gap.
 
@@ -41,6 +41,16 @@ Each independent framework capability requires behavior-focused automated tests 
 ```text
 python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
 ```
+
+## Run the call benchmark
+
+From the repository root, run the [benchmark driver](../Test/Performance/run_benchmark.py) with a UE 5.6 installation and an explicit report path to preserve the checked-in measurement.
+
+```powershell
+python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/ue-call-benchmark.local.md'
+```
+
+The standalone benchmark runs 200 cases with 1,000 samples per available path. Win64 x64 measures host C++, host Blueprint, and the C++ and Blueprint paths in a mounted `BenchmarkMod`. Use an engine source build that can produce a modular Development Game, or pass the matching modular runtime through `--modular-runtime`. Other supported platforms run the host-only paths. The report marks unavailable paths as `未测试`. Its summary is the mean of the available case means for each column and reflects the tested machine and fixtures. [Checked-in results](../Test/Performance/ue-call-benchmark.md)
 
 ## If a check fails
 

@@ -6,7 +6,7 @@ English | [简体中文](README.zh-CN.md)
 
 MBT independently compiles generated host binding sources into one native static archive per owning module. The game build links that archive into the owning binary without adding MHT sources to UBT's C++ compilation list. The intended authoring interface remains an export marker followed by the original function declaration.
 
-This implementation provides archive builds, required-symbol verification, explicit public artifacts for ModSDKTool (MDT), and association with trusted successful final-link records. The [UHT adapter](../../Source/ModRuntimeUht/README.md) now invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets, and private External module rules attach each host archive to its owner. A general UBT action extension and trusted final-link record production remain future work. An MHT `scan` report is not a generated-artifact manifest. `Built` proves archive construction; `Linked` proves the checked association with a trusted record and actual image bytes. Neither proves gameplay behavior.
+This implementation provides archive builds, required-symbol verification, explicit public artifacts for ModSDKTool (MDT), and association with trusted successful final-link records. The [UHT adapter](../../Source/ModRuntimeUht/README.md) now invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets, and private External module rules attach each host archive to its owner. The Win64 UBT post-build step checks the owning PE image and publishes link records. Extending this integration to other action graphs and platforms remains future work. An MHT `scan` report is not a generated-artifact manifest. `Built` proves archive construction; `Linked` proves the checked association with a trusted record and actual image bytes. Neither proves gameplay behavior.
 
 ## Build and commands
 
@@ -24,6 +24,8 @@ ModBuildTool build-host --context HostCompileContext.json --generated-manifest M
 ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
 ModBuildTool verify-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool finalize-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --link-receipt Target.link.json
+ModBuildTool finalize-ue-target --contexts TargetContexts.json --ue-target-receipt Target.target
+ModBuildTool refresh-ue-watches --contexts TargetContexts.json
 ModBuildTool hash-context --file HostCompileContext.json
 ModBuildTool hash-file --file <path>
 ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol>
@@ -77,8 +79,8 @@ The local-character and add-health APIs are ordinary manifest data, not special 
 ```json
 {
   "requiredSymbols": [
-    { "ownerModule": "ExportTest", "symbol": "UMF_ExportTest_GetLocalCharacter", "exportId": "Game.Player.GetLocalCharacter" },
-    { "ownerModule": "ExportTest", "symbol": "UMF_ExportTest_AddHealth", "exportId": "Game.Character.AddHealth" }
+    { "ownerModule": "ExportTest", "symbol": "UMF_UnrealModFrameworkDev_ExportTest_A_b88dc4c71053a716_Host", "exportId": "api/game.local_player_api/getlocalcharacter" },
+    { "ownerModule": "ExportTest", "symbol": "UMF_UnrealModFrameworkDev_ExportTest_A_b846156f4c92057a_Host", "exportId": "api/game.character/addhealth" }
   ]
 }
 ```
@@ -97,7 +99,7 @@ The `UMF.ModHostLinkedArtifacts` / `Linked` output includes public files, contra
 
 ## UE 5.6 integration
 
-The current adapter runs MHT and MBT synchronously inside UHT after standard CodeGen. Generated headers contain declarations; all generated implementations are `.cpp` files listed for MBT only. `ExportMetadata.ConfigureHost` writes actual Target descriptors and adds an owner-private External dependency. That External module uses `PublicPreBuildLibraries` to link the stable MBT archive even when it did not exist at the start of the first build. Normal cached builds use registered external dependencies; a forced repeat can run MBT and reuse a valid receipt. No engine patch is installed. Clean-checkout bootstrap and compilation-database preparation remain prerequisites.
+The current adapter runs MHT and MBT synchronously inside UHT after standard CodeGen. Generated headers contain declarations; all generated implementations are `.cpp` files listed for MBT only. `ExportMetadata.ConfigureHost` writes actual Target descriptors and adds an owner-private External dependency. That External module uses `PublicPreBuildLibraries` to link the stable MBT archive even when it did not exist at the start of the first build. Normal cached builds use registered external dependencies; a forced repeat can run MBT and reuse a valid receipt. The adapter uses UE's existing hooks. With the toolchain configured, a normal Win64 build prepares the compilation database and bootstraps the Editor as needed. The pre-build step calls `refresh-ue-watches` for dependency changes and the post-build step calls `finalize-ue-target` to verify the linked image and publish link records.
 
 The following broader action-graph integration is still a future contract:
 

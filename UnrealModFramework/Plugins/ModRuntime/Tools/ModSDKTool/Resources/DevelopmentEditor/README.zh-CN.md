@@ -13,7 +13,7 @@
 - 内容插件须已在工程中启用，`CanContainContent` 为 `true`，没有 C++ 模块，至少包含一个 `.uasset` 或 `.umap`，并使用独立的 `/<插件名>/` 包根。C++ 工程可选择 **打包当前工程**。
 - Mod 版本使用三段数字，例如 `1.0.0`。
 - 游戏标识和基础发布版本取自目标游戏 SDK。基础发布目录应包含 `<基础发布版本>/<Cook 平台>/AssetRegistry.bin`；目录留空时使用作者工程的 `Releases`。`Win64` 的 Cook 平台名为 `Windows`。
-- 平台、IoStore/Pak 和“允许新增引擎内容”应与目标游戏发布要求一致。作者工程还必须具备对应平台的 UE Cooker、目标 SDK 和实际引用的公共类型/资产。
+- 平台与 IoStore/Pak 选项须匹配目标游戏发布。用于 ModLoader 的包关闭“允许新增引擎内容”，并使用独立包根。作者工程还必须具备对应平台的 UE Cooker、目标 SDK 和实际引用的公共类型/资产。
 - 输出目录留空时使用 `Saved/PackagedMods`。目标文件名为 `<插件名>-<Mod版本>-<目标平台>.mod`；已有文件不会覆盖。
 
 这些选项也可以在 **项目设置 → 插件 → Mod 打包** 中修改，保存在本机项目的 EditorPerProjectUserSettings 中。
@@ -92,6 +92,6 @@ Manifest 格式为 `UMF.ModPackage`，其版本与 Header 主版本一致，记�
 
 载荷中的 `Content/<Stage相对路径>` 保留原生 Cook 产物；`Metadata/CookReceipt.json` 记录资源根、Stage 路径、构建配置和发布信息。结果格式为 `UMF.ModPackageBuildResult` v1，状态 `Packaged` 仅表示打包和文件校验完成，包含最终文件的 SHA-256。
 
-v2 在清单中增加 `nativeCode`，记录宿主 Target、配置、架构、BuildId 和模块名。打包器用 UBT 编译所选模块，并根据宿主回执生成对应的 `.modules`。模块清单和 DLL 写入 `Native/`，使用同一份索引校验。已加载的原生模块驻留到进程退出，替换原生模块版本需要重启宿主。
+归档 v2 和含 UE 模块的归档 v3 在清单中记录 `nativeCode`，记录宿主 Target、配置、架构、BuildId 和模块名。打包器用 UBT 编译所选模块，并根据宿主回执生成对应的 `.modules`。模块清单和 DLL 写入 `Native/`，使用同一份索引校验。已加载的原生模块驻留到进程退出，替换原生模块版本需要重启宿主。
 
-Manifest 和结果记录 `shippingValidated: false`，Manifest 中 `exportRequirements` 为 `NotVerified`。
+Manifest 和结果记录 `shippingValidated: false`。打包器校验扩展清单及提供的 SDK 契约后，Manifest 的 `exportRequirements` 为 `SdkVerified`，其余情况为 `NotVerified`。宿主装载时还会核对实际生成的扩展契约和授予权限。

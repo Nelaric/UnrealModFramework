@@ -34,7 +34,7 @@ Both Actions and CircleCI start from trusted `main` configuration. Actions never
 
 ## Build isolation and verification
 
-After pulling the private engine image, UE containers run with `--network none`. Each job copies `UnrealModFramework/` to its own writable temporary directory. The staged project is `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`; the Editor job packages the independent plugin inside that staging directory. Generated packages are not uploaded.
+After pulling the private engine image, UE containers run with `--network none`. Each job copies `UnrealModFramework/` to its own writable temporary directory. The staged project is `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`; the Editor job packages the independent plugin inside that staging directory. Generated packages stay in the staging directory. The development host skips automatic generation and final-link verification on Linux. The MST GCC/Clang fixture runs separately in [GitHub Actions](../.github/workflows/quality.yml).
 
 Validate both configurations before requesting review:
 

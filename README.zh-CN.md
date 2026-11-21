@@ -9,22 +9,17 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.zh-CN.md)
 
-UnrealModFramework 是以 UE 5.6 为开发基线的工程，目标是提供可迁移的游戏侧 Mod Runtime 和独立构建的模组开发编辑器。仓库目前只包含工程及插件模块骨架；模组包加载、内容解析、原生模组 API 和编辑器工作流仍待实现与验证。
+UnrealModFramework 为 Unreal Engine 5.6 提供游戏侧模组运行时和独立构建的模组制作编辑器。开发宿主已接入 C++ 与蓝图契约生成、`.mod` 打包和加载，以及 World 作用域的模组扩展。
 
-下表路径均相对于仓库根目录。UE 工程位于 `UnrealModFramework/`，仓库配置、文档和质量检查脚本位于与其同级的根目录中。
-
-| 路径 | 用途 |
+| 路径 | 内容 |
 | --- | --- |
-| `UnrealModFramework/UnrealModFrameworkDev.uproject` | 开发宿主工程 |
-| `UnrealModFramework/Plugins/ModRuntime/` | 游戏侧源码插件；`Source/Runtime/` 与 `Source/Editor/` 按目标归类模块 |
-| `UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/` | MDT 生成制作插件时使用的源码资源 |
-| `Docs/CodingStandards/` | 项目编码与贡献规范 |
-| `.circleci/config.yml` | UE 5.6.1 Linux 构建配置 |
-| `Scripts/` | 本地质量检查 |
+| [UnrealModFrameworkDev.uproject](UnrealModFramework/UnrealModFrameworkDev.uproject) | 开发宿主工程和 `ExportTest` 接入样例 |
+| [ModRuntime](UnrealModFramework/Plugins/ModRuntime/) | 游戏运行时、编辑器导出、UHT 适配层和独立工具 |
+| [TestMod](ExampleMods/TestMod/TestMod.uproject) | 独立作者工程，包含角色预览、原生模块和蓝图生命周期回调 |
+| [技术设计](Docs/UnrealModFramework_设计文档.md) | 总体架构和分目标发布要求 |
+| [调用性能基准](Test/Performance/ue-call-benchmark.md) | 独立 UE 调用测量结果，另见[复现步骤](Docs/DevelopmentWorkflow.zh-CN.md#运行调用性能基准) |
 
-`Binaries`、`Intermediate`、`Saved` 和 `Dist` 是生成产物，不进入 Git。`ModSDKTool build-editor` 在临时目录生成制作插件源码，用 UAT `BuildPlugin` 编译并发布通过校验的产物。
-
-修改代码或构建文件前，请阅读[编码规范](Docs/CodingStandards/README.zh-CN.md)、[贡献指南](CONTRIBUTING.zh-CN.md)和 [CircleCI 接入说明](Docs/CircleCI.zh-CN.md)。
+`Binaries`、`Intermediate`、`Saved` 和 `Dist` 保存生成产物。
 
 ## 快速开始
 
@@ -48,6 +43,20 @@ Setup 可使用 `PATH` 上的 CMake 3.20 或更高版本。新克隆的工作区
 
 Setup 的构建范围仅包括四个独立工具的 Release 版本，分别是 `ModHeaderTool`、`ModBuildTool`、`ModSourceTool` 和 `ModSDKTool`。可执行文件位于 `UnrealModFramework/Plugins/ModRuntime/Tools/build/<工具名>/`，可用 `--help` 检查工具能否启动。使用 Ninja 或 Unix Makefiles 时，可通过 `--jobs 8` 将并行任务数限制为 8。
 
+### 在 Win64 构建开发宿主
+
+使用 UE 5.6 和 MSVC x64 构建 `UnrealModFrameworkDevEditor` 与 `UnrealModFrameworkDev` 的 Development 目标。如果仓库配置中的 libclang 路径不可用，将 `UMF_MHT_LIBCLANG` 设为 `libclang.dll` 的完整路径，并确保 LLVM 安装包含对应的 Clang 资源头文件。
+
+```powershell
+$env:UMF_MHT_LIBCLANG = 'C:\LLVM\bin\libclang.dll'
+$project = (Resolve-Path .\UnrealModFramework\UnrealModFrameworkDev.uproject).Path
+$build = 'C:\UE_5.6\Engine\Build\BatchFiles\Build.bat'
+& $build UnrealModFrameworkDevEditor Win64 Development "-Project=$project"
+& $build UnrealModFrameworkDev Win64 Development "-Project=$project"
+```
+
+UBT 准备 UHT 所需工具，按需生成 Editor 元数据，并链接生成的宿主库。自动契约生成和宿主链接当前在 Win64 x64 MSVC 上运行。[UHT 构建及首次准备](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
+
 ### 导出宏字段
 
 字段名和候选值区分大小写，定义见 [ModExportMetadataSchema.h](UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ExportMetadata/Public/ModExportMetadataSchema.h)。
@@ -56,14 +65,27 @@ Setup 的构建范围仅包括四个独立工具的 Release 版本，分别是 `
 | --- | --- | --- |
 | 全部 | — | `ExportVersion` 默认 `"1.0.0"`，以及 `DisplayName`、`Description` |
 | `MOD_EXPORT_API` | `Scope`、`Thread`、`FailureRule` | `Permissions` 默认空列表，以及 `FullView`、`CompatibleNames` |
-| `MOD_EXPORT_EVENT` | `SourceScope`、`PublishRule` | `PayloadType` |
-| `MOD_EXPORT_HOOK` | — | `ContextType`、`AllowedStages`（默认 `(Post)`）、`AllowedOperations`（默认 `()`） |
+| `MOD_EXPORT_EVENT` | `SourceScope`、`PublishRule` | `PayloadType`、`ExportId`、`Permission`、`PublishPermission`、`UnsubscribeRule`、`Authority` |
+| `MOD_EXPORT_HOOK` | — | `ContextType`、`ExportId`、`Permission`、`Authority`、`AllowedStages`（默认 `(Post)`）、`AllowedOperations`（默认 `()`） |
 
-UE 宿主工程的构建步骤和 libclang 配置见 [ModRuntime UHT 接入](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
+完整生成按所选目标校验活动声明。当前的 Hook 和 Event 生成使用 World 作用域，并在 Game Thread 执行。宿主在实际玩法调用点显式接入生成的 C++ helper 或蓝图扩展节点。[宿主声明与签名范围](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
 
-## SDK 构建工具
+## 构建并加载模组
 
-`ModSDKTool`（MDT）提供 `plan`、`build` 和 `inspect`，根据导出契约及链接产物构建游戏专属 SDK，也可用 `build-editor` 单独构建制作插件。工具的构建入口为 `Tools/Build.bat --target ModSDKTool`，请求和产物格式见 [MDT 文档](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)。
+1. 构建宿主导出，再用 MDT 发布匹配的游戏 SDK 和生成的 `ModDevelopmentSDKEditor` 插件。使用示例时，将 `UMFDevSDK` 和 `ModDevelopmentSDKEditor` 安装到 `ExampleMods/TestMod/Plugins`。[SDK 请求与产物](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
+2. 在作者工程的关卡编辑器工具栏选择 **Mod → 打包 Mod…**，按目标游戏的基础发布和 Cook 设置打包已启用的内容插件或当前 C++ 工程。打包当前 C++ 工程需要匹配的 Win64 x64 模块化宿主回执和 Pak 后端。[打包指南](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md)
+3. 将 `.mod` 放入实际游戏可执行文件同级的 `Mods`。在 Windows PIE 中使用匹配 Editor 的包，放到宿主工程的 `Binaries/Win64/Mods`。在宿主 `[ModLoader]` 中填写发布身份、后端与需要开放的原生代码权限。[加载器配置](Docs/CodingStandards/Modules.zh-CN.md#模组加载器)
+
+宿主在开局前显式准备 World 扩展。运行时支持 Hook/Event 订阅、内容选用、World Patch 锚点和版本化跨模组服务。开发宿主的 `ModExtensions` 模式演示 World 准备、多人玩法计划比对和单机存档迁移。Shipping 构建和更多工具链组合仍需按目标分别验收。[游戏端实现进度与里程碑](Docs/UnrealModFramework_游戏端详细设计.md)
+
+## 独立工具文档
+
+| 工具 | 职责 |
+| --- | --- |
+| [ModHeaderTool（MHT）](UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md) | 扫描声明，生成宿主连接代码、公开契约和原生 ABI 产物 |
+| [ModBuildTool（MBT）](UnrealModFramework/Plugins/ModRuntime/Tools/ModBuildTool/README.zh-CN.md) | 编译并校验生成的静态库，核对最终链接回执 |
+| [ModSourceTool（MST）](UnrealModFramework/Plugins/ModRuntime/Tools/ModSourceTool/src/Cli/CommandLine.cpp) | 跟踪失败返回和异常，维护错误目录，生成所属模块的宿主链接头 |
+| [ModSDKTool（MDT）](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md) | 规划、构建与检查 SDK，并单独构建制作插件 |
 
 ## 参与贡献
 

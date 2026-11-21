@@ -58,7 +58,7 @@ under the project. Scan validates marker parameters.
 
 ## Complete generation
 
-Set `mode` to `generate` and list the export modules in `generation`. During a
+Set `mode` to `generate` and list the export modules in `generation`. The development project skips `generate` on Linux and macOS and continues with the normal UE target build. During a
 normal build the adapter runs UBT's `GenerateClangDatabase` with the selected
 target and MSVC toolchain. It expands the export modules' response files before
 the regular action graph is written. The variant's `HostTargets` directory holds
@@ -98,6 +98,11 @@ native tool and LLVM paths for your installation.
   "options": "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json",
   "metadataEditorTarget": "UnrealModFrameworkDevEditor",
   "libclang": "<LLVM>/bin/libclang.dll",
+  "blueprintExports": [{
+    "asset": "/Game/Blueprints/BP_ModBlueprintAPIExportTest.BP_ModBlueprintAPIExportTest",
+    "typeId": "game.blueprint_test",
+    "module": "ExportTest"
+  }],
   "generation": {
     "gameId": "UnrealModFrameworkDev",
     "typeIdentities": "Config/ModAPITypes.json",
@@ -152,6 +157,12 @@ it with its active `UModInstance` to connect the generated tables and
 acquire a reference for the typed SDK methods. The host invokes the actual
 Blueprint instance with `ProcessEvent`. Mod unload, world closure, or
 policy replacement revokes the corresponding callers.
+
+### Host Blueprint Hook and Event exports
+
+Add the saved asset to `blueprintExports`. Declare the Hook or Event in **蓝图Mod导出**, then connect the execution input on the corresponding **Hook Point** or **Publish Event** node. Unconnected declarations are skipped. A Hook's original-behavior graph takes and returns the same payload type, and the node exposes the result, status, cancellation, and commit state. Events support `Immediate` and `NextTick` with optional immediate unsubscription. Payloads may use supported scalars, reflected value structs, or UObjects with a generated World view.
+
+For C++, associate the macro with a member signature on a type with a World identity and call the generated `<owner>.modextensions.h` entry from the real gameplay code. In `ExportTest`, the character example wraps the health operation with `Invoke` and sends scalar, struct, and object notifications through `Publish`. [Generated contracts and payload limits](../../Tools/ModHeaderTool/README.md#world-extension-artifacts)
 
 ## Independent host compilation and linking
 

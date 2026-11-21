@@ -25,7 +25,7 @@ C# 启动独立的 MHT、MBT 进程，传递真实编译配方、登记依赖与
 
 ## 完整生成模式
 
-设置 `mode` 为 `generate` 并在 `generation` 中列出导出模块。以下示例使用开发宿主的模块和类型身份，工具和 LLVM 路径应指向本机安装位置。
+设置 `mode` 为 `generate` 并在 `generation` 中列出导出模块。开发工程在 Linux 和 macOS 跳过 `generate`，保留正常 UE 目标构建。以下示例使用开发宿主的模块和类型身份，工具和 LLVM 路径应指向本机安装位置。
 
 ```json
 {
@@ -37,6 +37,11 @@ C# 启动独立的 MHT、MBT 进程，传递真实编译配方、登记依赖与
   "options": "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json",
   "metadataEditorTarget": "UnrealModFrameworkDevEditor",
   "libclang": "<LLVM>/bin/libclang.dll",
+  "blueprintExports": [{
+    "asset": "/Game/Blueprints/BP_ModBlueprintAPIExportTest.BP_ModBlueprintAPIExportTest",
+    "typeId": "game.blueprint_test",
+    "module": "ExportTest"
+  }],
   "generation": {
     "gameId": "UnrealModFrameworkDev",
     "typeIdentities": "Config/ModAPITypes.json",
@@ -80,6 +85,12 @@ if (UUMFDevSDKLibrary::Acquire_FModObject_T_f4f57c0936062c84(*this, Provider))
 	UUMFDevSDKLibrary::TestModAPIExport(Provider, 1.0, Outcome, ErrorCode);
 }
 ```
+
+### 从宿主蓝图导出 Hook 和 Event
+
+在 `blueprintExports` 中配置资产。在「蓝图Mod导出」声明 Hook/Event 后，在业务图连接对应的 **Hook Point** 或 **Publish Event** 节点的执行输入。未连线的声明跳过导出。Hook 的原版逻辑图接收一个载荷并返回同类型结果，节点输出结果、状态码、取消和已提交标志。Event 支持 `Immediate` 和 `NextTick`，可选立即退订。载荷可用受支持的标量、反射值结构体或具有生成 World 视图的 UObject。
+
+C++ Hook/Event 用导出宏关联所属类型的成员签名。声明所属类型必须有 World 类型身份。游戏在实际业务里调用 `<owner>.modextensions.h` 的生成入口。`ExportTest` 的角色样例使用 `Invoke` 包围生命值变更，并用 `Publish` 发送标量、结构体及对象事件。[生成契约与载荷限制](../../Tools/ModHeaderTool/README.zh-CN.md#world-扩展产物)
 
 ## 独立宿主编译与链接
 

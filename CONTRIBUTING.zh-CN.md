@@ -22,7 +22,7 @@
 
 开发基线为 Unreal Engine 5.6。仓库包含开发宿主工程和游戏侧 `ModRuntime` 插件。独立的 `ModDevelopmentSDKEditor` 插件由 MDT 生成并构建。当前实现与规划能力见[项目概览](README.zh-CN.md)和[模块边界](Docs/CodingStandards/Modules.zh-CN.md)。
 
-提出改动时，请说明它属于运行时、制作编辑器、共享模组包协议、导出/构建工具还是宿主游戏 SDK。具体游戏行为应位于可复用框架模块之外。涉及公开 API、原生模组 ABI、模组包兼容性或独立构建时，应说明影响。
+提出改动时，请说明它属于运行时、制作编辑器、共享模组包协议、导出/构建工具还是宿主游戏 SDK。具体游戏行为应位于可复用框架模块之外。涉及运行时扩展时，注明受影响的清单或 SDK 契约版本、目标配置以及宿主接入点。涉及公开 API、原生模组 ABI、模组包兼容性或独立构建时，应说明影响。
 
 ## 创建 Pull Request 前
 
@@ -36,7 +36,7 @@
 
 按照[构建脚本、工具与审查规范](Docs/CodingStandards/BuildAndReview.zh-CN.md)运行与改动相关的检查。在 PR 中写明已运行的检查，以及因工具或环境限制未能运行的检查。
 
-GitHub Actions 会检查命名、格式和 API 文档。可信 PR 编译工作流验证准确的提交版本，再触发 CircleCI 使用 Unreal Engine 5.6.1 编译 Linux Game 和 Editor Target；Editor Job 还会打包独立制作插件。该流程支持 Fork 和源仓库 PR，贡献者无需 CircleCI 账号或额外 CI 配置。Fork PR 如需修改受保护的 CI 工作流、自动化脚本、Unreal 或 CMake 构建脚本、可执行辅助脚本或插件描述文件，应由维护者在源仓库分支处理。检查顺序和构建范围见[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)。每项独立框架功能都必须有自动化测试；CI 不强制数值化的代码覆盖率门槛。
+GitHub Actions 检查命名、格式、API 文档和 Linux 上的 MST 源码分析用例。可信 PR 编译工作流验证准确的提交版本，再触发 CircleCI 使用 Unreal Engine 5.6.1 编译 Linux Game 和 Editor Target；Editor Job 还会打包独立制作插件。该流程支持 Fork 和源仓库 PR，贡献者无需 CircleCI 账号或额外 CI 配置。Fork PR 如需修改受保护的 CI 工作流、自动化脚本、Unreal 或 CMake 构建脚本、可执行辅助脚本或插件描述文件，应由维护者在源仓库分支处理。检查顺序和构建范围见[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)。每项独立框架功能都必须有自动化测试；CI 不强制数值化的代码覆盖率门槛。
 
 PR 的目标分支是 `main`。仓库保护要求六项检查通过，并由最后推送者以外的维护者批准后合并：命名、格式与文本、API 文档、Linux Game、Linux Editor 和 Linux 构建汇总。维护者会审查正确性、模块边界、API 契约、性能、安全性，以及与 Unreal Engine 5.6 及以上版本的兼容性。
 

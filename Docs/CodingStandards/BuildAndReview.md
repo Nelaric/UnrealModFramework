@@ -24,7 +24,7 @@ Apply this rule to every new project-authored file and to existing project-autho
 
 - Apply CSharpier to `.Build.cs` and `.Target.cs`. It is as mandatory as clang-format for C++.
 - Keep module dependencies minimal and classify them as public or private according to the headers that need them. Do not put vendor SDK dependencies in Runtime.
-- Target UE 5.6 and later. Before requesting review, build the development host Game and Editor targets with UE 5.6; build a Server target when one is introduced. CI should eventually cover the minimum and latest supported engine releases. The current GitHub Actions workflow checks text, formatting, naming, and API documentation; it does not claim to compile Unreal Engine targets.
+- Target UE 5.6 and later. Before requesting review, build the development host Game and Editor targets with UE 5.6; build a Server target when one is introduced. CI should eventually cover the minimum and latest supported engine releases. GitHub Actions checks text, formatting, naming, API documentation, and the standalone MST source analysis fixture. CircleCI builds the UE Linux Game and Editor targets and packages the independent authoring plugin. [Build coverage](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.md#linux-build-scope)
 
 ## Automation tests
 

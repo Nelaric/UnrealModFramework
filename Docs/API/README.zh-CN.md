@@ -4,7 +4,19 @@
 
 # UnrealModFramework API
 
-UnrealModFramework 以 Unreal Engine 5.6 为开发基线，提供可迁移的游戏侧模组运行时和独立构建的模组制作编辑器。本文档说明项目的公开契约与编码规范。已实现的导出声明及工具尚不构成稳定的原生模组 ABI 或完整的模组包加载运行时。
+UnrealModFramework 为 Unreal Engine 5.6 提供游戏侧模组运行时和独立构建的制作编辑器。公开契约涵盖模组包加载与生命周期、生成 API 调用和 World 作用域扩展。
+
+## 运行时入口
+
+| 用途 | 源码契约 |
+| --- | --- |
+| 校验、挂载和监听 `.mod` 加载结果 | [ModLoader.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModLoader/Public/ModLoader.h)、[ModInstance.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModLoader/Public/ModInstance.h) |
+| 注册宿主 API 提供者并签发作用域绑定 | [ModAPIHostSubsystem.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModAPI/Public/ModAPIHostSubsystem.h) |
+| 准备 World、订阅 Hook/Event、决议内容、Patch 数据与服务 | [ModExtensionSubsystem.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModAPI/Public/ModExtensionSubsystem.h) |
+| 接入多人准入与存档迁移 | [ModExtensionSession.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModAPI/Public/ModExtensionSession.h)、[ModExtensionSave.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModAPI/Public/ModExtensionSave.h) |
+| 注册独立原生扩展回调 | [ModExtensionABI.h](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ModLoader/Public/ModExtensionABI.h) 与目标游戏生成的 SDK 头文件 |
+
+原生兼容性由生成的 SDK 契约和目标配置共同限定。分发前核对游戏发布、引擎构建、平台和签名。[SDK 指南](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
 
 ## 契约与规范
 
