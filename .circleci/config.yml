@@ -81,16 +81,18 @@ jobs:
           command: |
             set -euo pipefail
             generated="$UE_PROJECT_DIR/UnrealModFramework/Intermediate/ModTools/ModHeaderTool/Generated"
+            test_path=Nelaric.UnrealModFramework.Host.ChangeHealthDispatch
+            test_name=ChangeHealthDispatch
             if ! find "$generated" -name HookSources.json -print -quit 2>/dev/null | grep -q .; then
-              echo "This target has no generated Hook substitutions."
-              exit 0
+              test_path=System.Core.String.AppendInt
+              test_name=AppendInt
             fi
             docker run --rm --network none --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
               umf-ue-build:5.6.1 /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
               /workspace/UnrealModFramework/UnrealModFrameworkDev.uproject -unattended -nullrhi -nosound -nosplash \
-              "-ExecCmds=Automation RunTests Nelaric.UnrealModFramework.Host.ChangeHealthDispatch" \
-              "-TestExit=Automation Test Queue Empty" -abslog=/workspace/ChangeHealth.log
-            grep -F 'Result={Success} Name={ChangeHealthDispatch}' "$UE_PROJECT_DIR/ChangeHealth.log"
+              "-ExecCmds=Automation RunTests $test_path;SoftQuit" \
+              -stdout -FullStdOutLogOutput -abslog=/workspace/ChangeHealth.log
+            grep -F "Result={Success} Name={$test_name}" "$UE_PROJECT_DIR/ChangeHealth.log"
       - run:
           name: Compile the authoring editor with MDT for Linux
           no_output_timeout: 30m
