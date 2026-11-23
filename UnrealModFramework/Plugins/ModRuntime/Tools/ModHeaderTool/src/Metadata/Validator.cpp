@@ -28,11 +28,6 @@ Validator::Validator(ExportMacro& InMacro, const MetadataOptions* InOptions, con
 
 std::vector<std::string> Validator::Validate()
 {
-	if (Macro.Name == "MOD_EXPORT_HOOK")
-	{
-		ResolveHookPolicy();
-		return Diagnostics;
-	}
 	std::set<std::string> Names;
 	for (const MetadataField& Field : Macro.Fields)
 	{
@@ -48,6 +43,11 @@ std::vector<std::string> Validator::Validate()
 			continue;
 		}
 		ValidateValue(*Spec, Field.Value);
+	}
+	if (Macro.Name == "MOD_EXPORT_HOOK")
+	{
+		ResolveHookPolicy();
+		return Diagnostics;
 	}
 	const auto CompleteFields = [this, &Names](std::span<const Schema::FFieldSpec> Fields)
 	{

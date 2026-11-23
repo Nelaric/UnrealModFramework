@@ -154,6 +154,11 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 			            << "    Entry.Operations = static_cast<Mod::Extension::EOperation>("
 			            << unsigned(Entry.Operations) << ");\n    Entry.Permission = " << Name(Entry.Permission)
 			            << ";\n    Entry.PublishPermission = " << Name(Entry.PublishPermission) << ";\n";
+			if (!Entry.DispatchId.empty())
+			{
+				Definitions << "    Entry.DispatchId = " << Name(Entry.DispatchId) << ";\n    }\n";
+				continue;
+			}
 			if (Entry.PayloadKind == "Struct")
 			{
 				Definitions << "    Entry.Payload.Struct = FSoftObjectPath("

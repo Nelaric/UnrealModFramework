@@ -40,25 +40,55 @@ def verify_hook_marker(header, source, flags, args, project, options, request):
         metadata = report["Exports"][0]["Metadata"]
         assert metadata["AllowedStages"] == ["Pre", "On", "Post"]
         assert metadata["AllowedOperations"] == ["ModifyInputs", "Cancel", "Replace"]
-        for field in (
-            ",",
-            "HostEndpoint=Hook",
-            'ExportVersion="1.0"',
-            'ExportId="hook/game/other", Permission="Health.Observe", AllowedStages=(Post)',
+        compile_cpp = [args.clang, *flags, "-DMOD_API_BOOTSTRAP=1", "-fsyntax-only", source]
+        for field, error in (
+            (",", "expected a field name"),
+            ("HostEndpoint=Hook", "unknown field 'HostEndpoint'"),
+            ('ExportVersion="1.0"', "unknown field 'ExportVersion'"),
+            ('CompatibleNames=("OldHealth"), Permission="Other"', "unknown field 'Permission'"),
+            ("AllowedStages=(Post)", "unknown field 'AllowedStages'"),
         ):
             invalid = declaration.replace("MOD_EXPORT_HOOK()", f"MOD_EXPORT_HOOK({field})")
             header.write_text(invalid, encoding="utf-8")
             rejected = subprocess.run(scan, capture_output=True, text=True)
-            assert rejected.returncode and "MOD_EXPORT_HOOK() takes no arguments" in rejected.stderr
-        compile_cpp = [args.clang, *flags, "-DMOD_API_BOOTSTRAP=1", "-fsyntax-only", source]
-        rejected = subprocess.run(compile_cpp, capture_output=True, text=True)
-        assert rejected.returncode and "MOD_EXPORT_HOOK" in rejected.stderr
+            assert rejected.returncode and error in rejected.stderr, rejected.stderr
+            rejected = subprocess.run(compile_cpp, capture_output=True, text=True)
+            assert rejected.returncode and "MOD_EXPORT_HOOK" in rejected.stderr, rejected.stderr
         # Even a third-party header that still swallows arguments must fail MHT generation.
         header.write_text(
-            invalid.replace('#include "ModExportMacros.h"', "#define MOD_EXPORT_HOOK(...)"), encoding="utf-8"
+            declaration.replace('#include "ModExportMacros.h"', "#define MOD_EXPORT_HOOK(...)").replace(
+                "MOD_EXPORT_HOOK()", "MOD_EXPORT_HOOK(AllowedStages=(Post))"
+            ),
+            encoding="utf-8",
         )
         rejected = subprocess.run([args.mht, "generate", request], capture_output=True, text=True)
-        assert rejected.returncode and "MOD_EXPORT_HOOK() takes no arguments" in rejected.stderr
+        assert rejected.returncode and "unknown field 'AllowedStages'" in rejected.stderr, rejected.stderr
+        for names, error in (
+            ('"OldHealth", "OldHealth"', "duplicate 'CompatibleNames' entry"),
+            ("OldHealth", "expects a quoted function identifier"),
+            ('"Bad-Name"', "expects a quoted function identifier"),
+            ('"changeHealth"', "duplicate or inconsistent extension ID"),
+            ('"Old_Health", "OldHealth"', "duplicate or inconsistent extension ID"),
+        ):
+            header.write_text(
+                declaration.replace("MOD_EXPORT_HOOK()", f"MOD_EXPORT_HOOK(CompatibleNames = ({names}))"),
+                encoding="utf-8",
+            )
+            rejected = subprocess.run([args.mht, "generate", request], capture_output=True, text=True)
+            assert rejected.returncode and error in rejected.stderr, rejected.stderr
+        header.write_text(
+            declaration.replace("MOD_EXPORT_HOOK()", 'MOD_EXPORT_HOOK(CompatibleNames = ("AddHealth"))').replace(
+                "float Health;", "MOD_EXPORT_HOOK()\nfloat AddHealth(float Delta);\nfloat Health;"
+            ),
+            encoding="utf-8",
+        )
+        rejected = subprocess.run([args.mht, "generate", request], capture_output=True, text=True)
+        assert rejected.returncode and "duplicate or inconsistent extension ID" in rejected.stderr, rejected.stderr
+        header.write_text(
+            declaration.replace("MOD_EXPORT_HOOK()", "MOD_EXPORT_HOOK(CompatibleNames = ())"), encoding="utf-8"
+        )
+        assert json.loads(run(scan, capture_output=True).stdout)["Exports"][0]["Metadata"]["CompatibleNames"] == []
+        run(compile_cpp)
     finally:
         header.write_text(declaration, encoding="utf-8")
 
@@ -153,11 +183,33 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
             "sourceTool": str(args.mst),
             "libclang": str(args.libclang),
             "metadataOptions": options,
+            "lifecycleSource": str(EXPORT_HEADERS.parents[1] / "ModLoader/Public"),
         },
     )
+    contract_file = generated / "Contract/Game.sdkcontract.json"
+    original_contract = None
     if (platform, arch) == ("Win64", "x64"):
         verify_hook_marker(header, source, flags, args, project, options, request)
+        run([args.mht, "generate", request])
+        (original_contract,) = json.loads(contract_file.read_bytes())["extensions"]
+    header.write_text(
+        header.read_text().replace("ChangeHealth", "AdjustHealth").replace(
+            "MOD_EXPORT_HOOK()", 'MOD_EXPORT_HOOK(CompatibleNames = ("ChangeHealth", "UpdateHealth"))'
+        ),
+        encoding="utf-8",
+    )
+    source.write_text(source.read_text().replace("ChangeHealth", "AdjustHealth"), encoding="utf-8")
     run([args.mht, "generate", request])
+    contracts = {entry["id"]: entry for entry in json.loads(contract_file.read_bytes())["extensions"]}
+    prefix = "hook/game.character/"
+    assert set(contracts) == {prefix + name for name in ("change-health", "adjust-health", "update-health")}
+    if original_contract is not None:
+        assert contracts[original_contract["id"]] == original_contract
+    native = (generated / "SDK/Public/Game.modextensionsabi.h").read_text(encoding="utf-8-sig")
+    for hook_id, contract in contracts.items():
+        symbol = "UMF_Ext_" + hook_id.replace("/", "_").replace(".", "_").replace("-", "_")
+        assert f'#define {symbol}_ID "{hook_id}"' in native
+        assert f'#define {symbol}_SIGNATURE "{contract["signatureHash"]}"' in native
     units = load_sources(generated, "Game", "Game", "Development", platform, arch)
     if (platform, arch) in (("Linux", "x64"), ("IOS", "iossimulator")):
         input_path = Path(build_input)
@@ -171,6 +223,9 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
     witness = units[source]["witness"]
     host = (generated / "Host/Game/Game.modhost.cpp").read_text(encoding="utf-8-sig")
     assert f'extern "C" UMF_HOOK_LOCAL void {witness}();' in host and f"    {witness}();" in host
+    assert host.count('Entry.DispatchId = FName(TEXT("hook/game.character/adjust-health"));') == 2
+    helpers = (generated / "Host/Game/Game.modextensions.h").read_text(encoding="utf-8-sig")
+    assert helpers.count("static FValue Dispatch(") == 1 and "struct AGameCharacter_AdjustHealth" in helpers
 
     # Stand-ins for engine types let the actual MHT-generated header compile without an SDK/sysroot.
     for name in ("CoreGlobals.h", "Logging/LogMacros.h", "Math/UnrealMathUtility.h"):

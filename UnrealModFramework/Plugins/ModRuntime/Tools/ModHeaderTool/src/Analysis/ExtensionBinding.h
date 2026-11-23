@@ -8,6 +8,6 @@
 
 namespace Mod::HeaderTool
 {
-Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& Source, ExportMacro Macro,
-                        CXCursor Member);
+void BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& Source, ExportMacro Macro,
+                   CXCursor Member);
 }

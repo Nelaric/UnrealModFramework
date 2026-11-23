@@ -46,7 +46,9 @@ ABI 使用显式 `cdecl`、64 位进程内 token、定宽整数/标量和 `uint3
 
 Hook 接收一个载荷并返回同类型结果。Event 的发布函数接收一个载荷并返回 `void`。支持 `float`、`double`、`int32`、`int64`、`bool`、`uint8`，以及受支持的反射值结构体或具备生成 World 视图的 UObject。结构体只复制声明的公开字段，对象投影在回调期间只读。蓝图的标量 API 及已连线的 Hook/Event 来自 Editor 快照。[宿主导出步骤](../../Source/ModRuntimeUht/README.zh-CN.md)
 
-`MOD_EXPORT_HOOK()` 是无参标记，用于在 `.cpp` 中定义的标量成员。传入任何字段都会导致构建报错。生成的 ID 由 World 类型 ID 和带连字符的成员名组成，例如 `hook/game.character/change-health`。`Pre` 支持 `ModifyInputs` 和 `Cancel`，`On` 支持 `Replace`，`Post` 观察结果。基础授权使用 Hook ID，写操作授权在该 ID 后加操作后缀。MHT 与 MST 生成 `Diagnostics/HookSources.json`，UBT 构建驱动按目标平台和架构编译对应源码副本。[自动 Hook 构建](../../Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)
+`MOD_EXPORT_HOOK()` 用于在 `.cpp` 中定义的标量成员。生成的 ID 由 World 类型 ID 和带连字符的成员名组成，例如 `hook/game.character/change-health`。`Pre` 支持 `ModifyInputs` 和 `Cancel`，`On` 支持 `Replace`，`Post` 观察结果。基础授权使用 Hook ID，写操作授权在该 ID 后加操作后缀。MHT 与 MST 生成 `Diagnostics/HookSources.json`，UBT 构建驱动按目标平台和架构编译对应源码副本。[自动 Hook 构建](../../Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)
+
+Hook 只接受 `CompatibleNames` 字段。改名时可填写一个或多个曾用名，例如 `MOD_EXPORT_HOOK(CompatibleNames = ("ChangeHealth", "UpdateHealth"))`。函数签名和策略兼容时，每个旧名都保留原来的 ID、签名和授权名。通过新旧 ID 注册的回调在每个阶段共用同一份有序列表。不同名字如果生成了相同的 ID，MHT 会报错。
 
 ### 生成 C++ Event 发布函数
 

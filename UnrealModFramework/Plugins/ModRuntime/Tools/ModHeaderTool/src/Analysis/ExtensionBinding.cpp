@@ -314,8 +314,8 @@ void BindEventHostMember(ClangLibrary& Clang, CXCursor Member, Extension& Entry)
 }
 } // namespace
 
-Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& Source, ExportMacro Macro,
-                        CXCursor Member)
+void BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& Source, ExportMacro Macro,
+                   CXCursor Member)
 {
 	const auto Parent = Clang.clang_getCursorSemanticParent(Member);
 	const auto Location = CursorSource::ReadLocation(Clang, Clang.clang_getCursorLocation(Parent), true);
@@ -349,8 +349,23 @@ Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Sourc
 	if (Entry.bHook)
 	{
 		BindHook(Model, Clang, Source, Member, Entry);
-		Entry.Id = "hook/" + Identity->second.Id + "/" + HookSlug(Entry.Name);
+		const auto Prefix = "hook/" + Identity->second.Id + "/";
+		Entry.Id = Prefix + HookSlug(Entry.Name);
 		Entry.Permission = Entry.Id;
+		const auto Names = std::ranges::find(Entry.Macro.Fields, "CompatibleNames", &MetadataField::Name);
+		if (Names != Entry.Macro.Fields.end())
+		{
+			for (const auto& OldName : Names->Value.Items)
+			{
+				Extension Alias = Entry;
+				Alias.Name = OldName.Text;
+				Alias.Id = Prefix + HookSlug(Alias.Name);
+				Alias.Permission = Alias.Id;
+				Alias.DispatchId = Entry.Id;
+				Alias.DefinitionUsr.clear();
+				AddExtension(Model, std::move(Alias));
+			}
+		}
 	}
 	else
 	{
@@ -359,6 +374,6 @@ Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Sourc
 		BindEvent(Model, Clang, Source, Member, Entry);
 		BindEventHostMember(Clang, Member, Entry);
 	}
-	return Entry;
+	AddExtension(Model, std::move(Entry));
 }
 } // namespace Mod::HeaderTool

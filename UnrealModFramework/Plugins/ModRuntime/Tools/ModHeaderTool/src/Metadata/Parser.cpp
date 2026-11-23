@@ -21,10 +21,6 @@ Parser::Parser(const ExportMacro& InMacro, const std::string& InSource)
 std::vector<MetadataField> Parser::Parse()
 {
 	std::vector<MetadataField> Result;
-	if (Macro.Name == "MOD_EXPORT_HOOK" && !IsPunctuation(Lexer.Peek(), ')'))
-	{
-		Fail(Lexer.Peek().Begin, "MOD_EXPORT_HOOK() takes no arguments.");
-	}
 	while (!IsPunctuation(Lexer.Peek(), ')'))
 	{
 		const Token Name = Lexer.Read();

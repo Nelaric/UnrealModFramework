@@ -22,10 +22,53 @@
  */
 #define MOD_EXPORT_EVENT(...)
 
-#if defined(_MSVC_TRADITIONAL) && _MSVC_TRADITIONAL
-// The traditional MSVC preprocessor only warns about extra arguments to a nullary macro.
-#define MOD_EXPORT_HOOK(...) static_assert(sizeof("" #__VA_ARGS__) == 1, "MOD_EXPORT_HOOK() takes no arguments");
-#else
-/// Marks a gameplay method for generated Pre, On and Post dispatch.
-#define MOD_EXPORT_HOOK()
-#endif
+namespace Mod::ExportMetadata::Private
+{
+// Stringification trims outer whitespace and folds each inner whitespace run to one space.
+// Check the field even in bootstrap builds. MHT validates the names and their generated IDs.
+constexpr bool HasOnlyHookNames(const char* Text)
+{
+	if (!*Text)
+	{
+		return true;
+	}
+	for (const char* Key = "CompatibleNames"; *Key; ++Key)
+	{
+		if (*Text++ != *Key)
+		{
+			return false;
+		}
+	}
+	if (*Text == ' ')
+	{
+		++Text;
+	}
+	if (*Text++ != '=')
+	{
+		return false;
+	}
+	if (*Text == ' ')
+	{
+		++Text;
+	}
+	if (*Text++ != '(')
+	{
+		return false;
+	}
+	int Depth = 1;
+	while (*Text && Depth)
+	{
+		Depth += (*Text == '(') - (*Text == ')');
+		++Text;
+	}
+	return Depth == 0 && !*Text;
+}
+} // namespace Mod::ExportMetadata::Private
+
+/** @brief Marks a method for generated Pre, On and Post dispatch.
+ *
+ * @param ... Optional CompatibleNames list of former function names.
+ */
+#define MOD_EXPORT_HOOK(...)                                                                                           \
+	static_assert(::Mod::ExportMetadata::Private::HasOnlyHookNames("" #__VA_ARGS__),                                   \
+	              "MOD_EXPORT_HOOK accepts only CompatibleNames = (...)");

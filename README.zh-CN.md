@@ -55,12 +55,14 @@ python Scripts/build_hooks.py --engine "<UE 安装目录>"
 
 ### 导出 C++ Hook
 
-在原函数声明上加一行 `MOD_EXPORT_HOOK()`，`.cpp` 里照常写业务逻辑。括号里填写任何字段都会报错。
+在原函数声明上加一行 `MOD_EXPORT_HOOK()`，`.cpp` 里照常写业务逻辑。
 
 ```cpp
 MOD_EXPORT_HOOK()
 float ChangeHealth(float Delta);
 ```
+
+如果以后把 `ChangeHealth` 改名为 `AdjustHealth`，就在新声明上写 `MOD_EXPORT_HOOK(CompatibleNames = ("ChangeHealth"))`。旧 Mod 可以沿用原 Hook ID、签名和授权，与使用新 ID 的 Mod 进入同一次调用。多次改名时，在列表中保留每个已发布的旧函数名。
 
 生成器根据类型和函数名生成 Hook ID。C++ 和蓝图调用都会进入同一个入口。具有相应授权的 Mod 可以在 `Pre` 修改参数或取消调用，在 `On` 替换原函数，并在 `Post` 读取结果。
 

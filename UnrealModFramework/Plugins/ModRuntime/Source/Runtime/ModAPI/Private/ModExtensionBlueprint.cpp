@@ -320,12 +320,12 @@ TModResult<FSubscription> UModExtensionSubsystem::RegisterBlueprint(UModInstance
 	{
 		return Fail(EError::NotRegistered);
 	}
-	const auto Channel = State->Channels.FindRef(Id);
-	if (!Channel)
+	const auto* Found = State->FindDefinition(Id);
+	if (!Found)
 	{
 		return Fail(EError::NotRegistered);
 	}
-	const auto& Definition = Channel->GetDefinition();
+	const auto& Definition = *Found;
 	if (Definition.Payload.IsObject())
 	{
 		if (Operation != EOperation::None || Stage == EStage::On)
@@ -638,7 +638,7 @@ TModResult<FSubscription> UModExtensionSubsystem::RegisterBlueprint(UModInstance
 		Handler.SetCalls<T>(MoveTemp(Calls));
 		return Register(Owner, Id, FString(), MoveTemp(Handler));
 	};
-	switch (Channel->GetDefinition().Scalar)
+	switch (Definition.Scalar)
 	{
 	case EScalar::Float:
 		return RegisterTyped.template operator()<float>();

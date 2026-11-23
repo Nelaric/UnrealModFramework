@@ -35,6 +35,7 @@ struct Extension
 	bool bAuthorityOnly = true;
 	std::uint8_t Operations = 0;
 	std::string Id;
+	std::string DispatchId;
 	std::string Module;
 	std::string Name;
 	std::string Owner;

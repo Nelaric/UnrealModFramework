@@ -55,12 +55,14 @@ The build tools prepare a bootstrap Editor automatically when needed. [Platform 
 
 ### Export a C++ Hook
 
-Add `MOD_EXPORT_HOOK()` to the function declaration and keep the gameplay implementation in its `.cpp` file. Passing an argument to the Hook marker is a build error.
+Add `MOD_EXPORT_HOOK()` to the function declaration and keep the gameplay implementation in its `.cpp` file.
 
 ```cpp
 MOD_EXPORT_HOOK()
 float ChangeHealth(float Delta);
 ```
+
+If you later rename `ChangeHealth` to `AdjustHealth`, write `MOD_EXPORT_HOOK(CompatibleNames = ("ChangeHealth"))` on `AdjustHealth`. Mods registered under the old ID keep their signature and grants and share the same dispatch with mods using the new ID. List each published former name when renaming again.
 
 The generator derives the Hook ID from the type and function name. C++ and Blueprint calls enter the same dispatcher. A mod with the appropriate grants can change arguments or cancel a call in `Pre`, replace the original function in `On`, and observe the result in `Post`.
 

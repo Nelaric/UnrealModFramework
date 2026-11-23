@@ -499,12 +499,12 @@ uint32 FNativeExtension::Add(const UMF_ExtensionRegistrationV1& Registration, ui
 		return UMF_ExtensionInvalid;
 	}
 	const FName ChannelId(Id);
-	const auto Channel = State->Channels.FindRef(ChannelId);
-	if (!Channel)
+	const auto* Found = State->FindDefinition(ChannelId);
+	if (!Found)
 	{
 		return UMF_ExtensionUnknown;
 	}
-	const auto& Definition = Channel->GetDefinition();
+	const auto& Definition = *Found;
 	const auto& Requirements =
 	    State->Mods[State->Instances.FindChecked(FObjectKey(Instance))].Package->Extensions.Contracts;
 	if (!Requirements.ContainsByPredicate(

@@ -112,6 +112,8 @@ inline constexpr std::array<FFieldSpec, 3> CommonFields = {{
     {"DisplayName", EFieldType::NonEmptyText, nullptr, false},
     {"Description", EFieldType::Text, nullptr, false},
 }};
+/// Former names accepted by API and Hook declarations.
+inline constexpr FFieldSpec CompatibleNames{"CompatibleNames", EFieldType::FunctionNameList, nullptr, false};
 /// Fields belonging to API declarations.
 inline constexpr std::array<FFieldSpec, 6> APIFields = {{
     {"Scope", EFieldType::Choice, "APIScopes", true},
@@ -119,8 +121,10 @@ inline constexpr std::array<FFieldSpec, 6> APIFields = {{
     {"FailureRule", EFieldType::Choice, "APIFailureRules", true},
     {"Permissions", EFieldType::ChoiceList, "APIPermissions", false},
     {"FullView", EFieldType::ClassNameList, nullptr, false},
-    {"CompatibleNames", EFieldType::FunctionNameList, nullptr, false},
+    CompatibleNames,
 }};
+/// Fields belonging to Hook declarations.
+inline constexpr std::array HookFields{CompatibleNames};
 /// Fields belonging to Event declarations.
 inline constexpr std::array<FFieldSpec, 10> EventFields = {{
     {"SourceScope", EFieldType::Choice, "EventSourceScopes", true},
@@ -145,21 +149,24 @@ inline constexpr std::span<const FFieldSpec> FieldsFor(std::string_view Macro)
 	{
 		return EventFields;
 	}
+	if (Macro == "MOD_EXPORT_HOOK")
+	{
+		return HookFields;
+	}
 	return {};
 }
 
 /// Finds a field in the common and declaration-specific schemas.
 inline constexpr const FFieldSpec* FindField(std::string_view Macro, std::string_view Name)
 {
-	if (Macro != "MOD_EXPORT_API" && Macro != "MOD_EXPORT_EVENT")
+	if (Macro == "MOD_EXPORT_API" || Macro == "MOD_EXPORT_EVENT")
 	{
-		return nullptr;
-	}
-	for (const FFieldSpec& Field : CommonFields)
-	{
-		if (Name == Field.Name)
+		for (const FFieldSpec& Field : CommonFields)
 		{
-			return &Field;
+			if (Name == Field.Name)
+			{
+				return &Field;
+			}
 		}
 	}
 	for (const FFieldSpec& Field : FieldsFor(Macro))

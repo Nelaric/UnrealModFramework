@@ -81,7 +81,7 @@ When a project directory is supplied, it must contain exactly one .uproject.
 Scans Plugins, Source, and Directories from the optional <project>.modexpot JSON.
 Relative configured directories resolve from the project directory.
 scan writes its JSON report to stdout.
-MOD_EXPORT_HOOK() takes no arguments. API and Event fields are checked against the metadata schema.
+MOD_EXPORT_HOOK() accepts only CompatibleNames = ("FormerName") when retaining a renamed Hook.
 Choices come from the UE ModExportOptions commandlet, not Blueprint assets.
 UHT stores its default snapshot at Intermediate/ModTools/ModHeaderTool/MetadataOptions.json.
 Invalid metadata or stale catalogs produce "file"(line,column) diagnostics and

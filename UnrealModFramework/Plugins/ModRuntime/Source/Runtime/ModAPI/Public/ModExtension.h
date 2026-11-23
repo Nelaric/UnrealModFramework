@@ -135,6 +135,8 @@ struct FDefinition
 	FName BlueprintParameter;
 	FName BlueprintResult;
 	API::EBlueprintParameter BlueprintResultRole = API::EBlueprintParameter::Output;
+	/// The current Hook ID when this definition describes a former name.
+	FName DispatchId;
 };
 
 /// How to order this registration relative to other participating Mods.

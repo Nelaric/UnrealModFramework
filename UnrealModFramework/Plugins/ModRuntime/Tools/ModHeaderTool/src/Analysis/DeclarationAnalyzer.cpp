@@ -276,7 +276,7 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 					}
 					if (Macro.Name != "MOD_EXPORT_API")
 					{
-						AddExtension(Model, BindExtension(Model, Clang, Source, std::move(Macro), Candidate));
+						BindExtension(Model, Clang, Source, std::move(Macro), Candidate);
 						continue;
 					}
 					API API;
