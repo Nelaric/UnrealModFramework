@@ -43,32 +43,38 @@ Setup 可使用 `PATH` 上的 CMake 3.20 或更高版本。新克隆的工作区
 
 Setup 的构建范围仅包括四个独立工具的 Release 版本，分别是 `ModHeaderTool`、`ModBuildTool`、`ModSourceTool` 和 `ModSDKTool`。可执行文件位于 `UnrealModFramework/Plugins/ModRuntime/Tools/build/<工具名>/`，可用 `--help` 检查工具能否启动。使用 Ninja 或 Unix Makefiles 时，可通过 `--jobs 8` 将并行任务数限制为 8。
 
-### 在 Win64 构建开发宿主
+### 构建开发宿主
 
-使用 UE 5.6 和 MSVC x64 构建 `UnrealModFrameworkDevEditor` 与 `UnrealModFrameworkDev` 的 Development 目标。如果仓库配置中的 libclang 路径不可用，将 `UMF_MHT_LIBCLANG` 设为 `libclang.dll` 的完整路径，并确保 LLVM 安装包含对应的 Clang 资源头文件。
+准备 UE 5.6、目标平台 SDK 和构建主机的 libclang。以下命令构建当前桌面平台的 Development Editor。
 
-```powershell
-$env:UMF_MHT_LIBCLANG = 'C:\LLVM\bin\libclang.dll'
-$project = (Resolve-Path .\UnrealModFramework\UnrealModFrameworkDev.uproject).Path
-$build = 'C:\UE_5.6\Engine\Build\BatchFiles\Build.bat'
-& $build UnrealModFrameworkDevEditor Win64 Development "-Project=$project"
-& $build UnrealModFrameworkDev Win64 Development "-Project=$project"
+```sh
+python Scripts/build_hooks.py --engine "<UE 安装目录>"
 ```
 
-UBT 准备 UHT 所需工具，按需生成 Editor 元数据，并链接生成的宿主库。自动契约生成和宿主链接当前在 Win64 x64 MSVC 上运行。[UHT 构建及首次准备](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
+首次构建需要引导编辑器时，工具链会自动准备。[平台选择与宿主编译](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)
 
-### 导出宏字段
+### 导出 C++ Hook
+
+在原函数声明上加一行 `MOD_EXPORT_HOOK()`，`.cpp` 里照常写业务逻辑。括号里填写任何字段都会报错。
+
+```cpp
+MOD_EXPORT_HOOK()
+float ChangeHealth(float Delta);
+```
+
+生成器根据类型和函数名生成 Hook ID。C++ 和蓝图调用都会进入同一个入口。具有相应授权的 Mod 可以在 `Pre` 修改参数或取消调用，在 `On` 替换原函数，并在 `Post` 读取结果。
+
+### API 与 Event 的导出字段
 
 字段名和候选值区分大小写，定义见 [ModExportMetadataSchema.h](UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ExportMetadata/Public/ModExportMetadataSchema.h)。
 
 | 宏 | 必填字段 | 可选字段 |
 | --- | --- | --- |
-| 全部 | — | `ExportVersion` 默认 `"1.0.0"`，以及 `DisplayName`、`Description` |
+| API 与 Event 共用 | — | `ExportVersion` 默认 `"1.0.0"`，以及 `DisplayName`、`Description` |
 | `MOD_EXPORT_API` | `Scope`、`Thread`、`FailureRule` | `Permissions` 默认空列表，以及 `FullView`、`CompatibleNames` |
 | `MOD_EXPORT_EVENT` | `SourceScope`、`PublishRule` | `PayloadType`、`ExportId`、`Permission`、`PublishPermission`、`UnsubscribeRule`、`Authority` |
-| `MOD_EXPORT_HOOK` | — | `ContextType`、`ExportId`、`Permission`、`Authority`、`AllowedStages`（默认 `(Post)`）、`AllowedOperations`（默认 `()`） |
 
-完整生成按所选目标校验活动声明。当前的 Hook 和 Event 生成使用 World 作用域，并在 Game Thread 执行。宿主在实际玩法调用点显式接入生成的 C++ helper 或蓝图扩展节点。[宿主声明与签名范围](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
+MHT 按构建目标校验活动声明。World 作用域的 Hook 和 Event 在游戏线程执行。[宿主声明与签名范围](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
 
 ## 构建并加载模组
 

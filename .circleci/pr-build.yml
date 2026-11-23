@@ -38,12 +38,7 @@ commands:
             : "${GHCR_TOKEN:?Set GHCR_TOKEN in CircleCI project settings}"
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
             docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1
-            printf '%s\n' \
-              'FROM ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1' \
-              'USER root' \
-              'RUN apt-get update && apt-get install -y --no-install-recommends cmake g++ make && rm -rf /var/lib/apt/lists/*' \
-              'USER ue4' |
-              docker build --tag umf-ue-build:5.6.1 -
+            docker build --tag umf-ue-build:5.6.1 - < .circleci/ue-linux.Dockerfile
             docker logout ghcr.io
   stage_project:
     steps:
@@ -53,6 +48,8 @@ commands:
             set -euo pipefail
             project_dir="$(mktemp -d)"
             cp -a UnrealModFramework "$project_dir/UnrealModFramework"
+            mkdir "$project_dir/Scripts"
+            cp Scripts/build_hooks.py "$project_dir/Scripts/"
             chmod -R a+rwX "$project_dir"
             printf 'export UE_PROJECT_DIR=%q\n' "$project_dir" >> "$BASH_ENV"
   compile_target:
@@ -69,10 +66,8 @@ commands:
             docker run --rm --network none \
               --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
               umf-ue-build:5.6.1 \
-              /home/ue4/UnrealEngine/Engine/Build/BatchFiles/Linux/Build.sh \
-              << parameters.target >> Linux Development \
-              -Project=/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject \
-              -WaitMutex -NoHotReload
+              python3 /workspace/Scripts/build_hooks.py --engine /home/ue4/UnrealEngine \
+              --target << parameters.target >> --platform Linux --architecture x64
 
 jobs:
   build_game_linux:
@@ -99,6 +94,16 @@ jobs:
       - stage_project
       - compile_target:
           target: UnrealModFrameworkDevEditor
+      - run:
+          name: Run the C++ and Blueprint ChangeHealth Hook test on Linux
+          command: |
+            set -euo pipefail
+            docker run --rm --network none --mount "type=bind,src=$UE_PROJECT_DIR,dst=/workspace" \
+              umf-ue-build:5.6.1 /home/ue4/UnrealEngine/Engine/Binaries/Linux/UnrealEditor \
+              /workspace/UnrealModFramework/UnrealModFrameworkDev.uproject -unattended -nullrhi -nosound -nosplash \
+              "-ExecCmds=Automation RunTests Nelaric.UnrealModFramework.Host.ChangeHealthDispatch" \
+              "-TestExit=Automation Test Queue Empty" -abslog=/workspace/ChangeHealth.log
+            grep -F 'Result={Success} Name={ChangeHealthDispatch}' "$UE_PROJECT_DIR/ChangeHealth.log"
       - run:
           name: Compile the authoring editor with MDT for Linux
           no_output_timeout: 30m

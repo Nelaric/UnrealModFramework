@@ -31,7 +31,7 @@ APIGenerator::APIGenerator(const fs::path& BuildInput, const fs::path& HostConte
 {
 	if (HostContexts.empty())
 	{
-		throw std::runtime_error("Complete generation requires a context set for all Host and Client producers.");
+		return;
 	}
 	ContextFile = fs::canonical(HostContexts);
 	ContextSet = Json::parse(TextFile::ReadTextFile(ContextFile));
@@ -91,11 +91,13 @@ fs::path APIGenerator::ResolveAnalysisDatabase() const
 }
 
 void APIGenerator::Generate(const fs::path& OutputDirectory, const fs::path& Options, const fs::path& ClangLibrary,
-                            const fs::path& LifecycleSource, const fs::path& BlueprintSnapshot) &&
+                            const fs::path& LifecycleSource, const fs::path& BlueprintSnapshot,
+                            const fs::path& ConfiguredSourceTool) &&
 {
 	const fs::path AnalysisDatabase = ResolveAnalysisDatabase();
 	auto Model = DeclarationAnalyzer::Analyze(std::move(Input), Options, ClangLibrary, AnalysisDatabase);
-	const auto SourceToolPath = ContextSet.value("sourceTool", "");
+	const auto SourceToolPath =
+	    ContextFile.empty() ? Path::PathToUtf8(ConfiguredSourceTool) : ContextSet.value("sourceTool", "");
 	const auto SourceTool =
 	    SourceToolPath.empty() ? fs::path{} : ContextFile.parent_path() / Path::PathFromUtf8(SourceToolPath);
 	SourceErrorAnalyzer::AnalyzeSourceErrors(Model, AnalysisDatabase, ClangLibrary, SourceTool);
@@ -110,7 +112,10 @@ void APIGenerator::Generate(const fs::path& OutputDirectory, const fs::path& Opt
 			Model.Dependencies.insert(fs::canonical(Model.LifecycleSource / (Name + ".h")));
 		}
 	}
-	Model.Dependencies.insert(ContextFile);
+	if (!ContextFile.empty())
+	{
+		Model.Dependencies.insert(ContextFile);
+	}
 	for (const auto& [Owner, File] : Model.Input.HostContexts)
 	{
 		Model.Dependencies.insert(File);

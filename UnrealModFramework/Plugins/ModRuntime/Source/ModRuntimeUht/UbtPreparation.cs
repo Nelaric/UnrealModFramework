@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using EpicGames.Core;
@@ -18,6 +19,9 @@ namespace Mod.Uht;
 /// <summary>Prepares native generation inputs before UBT creates the regular compile actions.</summary>
 internal static class UbtPreparation
 {
+	private static readonly StringComparer PathComparer = OperatingSystem.IsWindows()
+		? StringComparer.OrdinalIgnoreCase
+		: StringComparer.Ordinal;
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
 	internal static string PrepareInput(
@@ -36,7 +40,12 @@ internal static class UbtPreparation
 			throw new UhtException("ModRuntime MHT: configure libclang or UMF_MHT_LIBCLANG for automatic generation.");
 		}
 		string llvmRoot = Path.GetFullPath("..", Path.GetDirectoryName(clang)!);
-		string resources = FindClangResources(llvmRoot);
+		string resources =
+			Environment.GetEnvironmentVariable("UMF_MHT_CLANG_RESOURCE_DIR") ?? FindClangResources(llvmRoot);
+		if (!File.Exists(Path.Combine(resources, "include", "stddef.h")))
+		{
+			throw new UhtException("ModRuntime MHT: invalid Clang resource directory: " + resources);
+		}
 		if (
 			generation.ValueKind != JsonValueKind.Object
 			|| !generation.TryGetProperty("modules", out JsonElement modules)
@@ -49,10 +58,12 @@ internal static class UbtPreparation
 		JsonElement firstModule = modules[0];
 		string owner = MbtHostBuild.Identifier(firstModule, "name");
 		string descriptorPath = Path.Combine(variantDirectory, owner + ".target.json");
-		using JsonDocument descriptor = JsonDocument.Parse(File.ReadAllText(descriptorPath));
-		JsonElement toolchain = descriptor.RootElement.GetProperty("toolchain");
+		using JsonDocument? descriptor =
+			variant.Platform == "Win64" ? JsonDocument.Parse(File.ReadAllText(descriptorPath)) : null;
+		JsonElement toolchain = descriptor?.RootElement.GetProperty("toolchain") ?? default;
+		bool windowsTarget = descriptor != null;
 		string database = Path.Combine(variantDirectory, "Ubt", "compile_commands.json");
-		string databaseKey = database.ToUpperInvariant();
+		string databaseKey = database;
 		string projectRoot = Path.GetDirectoryName(project)!;
 		if (AppDomain.CurrentDomain.GetData(databaseKey) is true || !File.Exists(database))
 		{
@@ -61,34 +72,43 @@ internal static class UbtPreparation
 				.EnumerateArray()
 				.SelectMany(module => module.GetProperty("translationUnits").EnumerateArray())
 				.Select(unit => Path.GetFullPath(unit.GetString()!, projectRoot))
-				.ToHashSet(StringComparer.OrdinalIgnoreCase);
+				.ToHashSet(PathComparer);
 			logger.LogInformation(
 				"ModRuntime MHT: preparing UBT compile actions for {Target}/{Configuration}.",
 				variant.Target,
 				variant.Configuration
 			);
+			List<string> arguments = new()
+			{
+				"-Mode=GenerateClangDatabase",
+				variant.Target,
+				variant.Platform,
+				variant.Configuration,
+				$"-Architecture={variant.Architecture}",
+			};
+			if (windowsTarget)
+			{
+				arguments.AddRange(
+					new[]
+					{
+						$"-Compiler={toolchain.GetProperty("compiler").GetString()}",
+						$"-CompilerVersion={toolchain.GetProperty("compilerVersion").GetString()}",
+						$"-WindowsSDKVersion={toolchain.GetProperty("windowsSdkVersion").GetString()}",
+					}
+				);
+			}
 			Run(
 				logger,
 				engine,
 				project,
-				new[]
-				{
-					"-Mode=GenerateClangDatabase",
-					variant.Target,
-					variant.Platform,
-					variant.Configuration,
-					$"-Architecture={variant.Architecture}",
-					$"-Compiler={toolchain.GetProperty("compiler").GetString()}",
-					$"-CompilerVersion={toolchain.GetProperty("compilerVersion").GetString()}",
-					$"-WindowsSDKVersion={toolchain.GetProperty("windowsSdkVersion").GetString()}",
-				},
+				arguments,
 				timeout,
 				"ModRuntime MHT compile database",
 				path => CaptureDatabase(path, database, sources)
 			);
 		}
 		string source = Path.GetFullPath(firstModule.GetProperty("translationUnits")[0].GetString()!, projectRoot);
-		string compatibility = CompilerCompatibility(database, source);
+
 		JsonObject input = JsonNode.Parse(generation.GetRawText())!.AsObject();
 		input["schemaVersion"] = 1;
 		input["objectReturnPolicy"] = "ErrorIfNull";
@@ -100,13 +120,34 @@ internal static class UbtPreparation
 		input["compilationDatabase"] = database;
 		JsonArray analysis = input["analysisArguments"]?.AsArray() ?? new JsonArray();
 		analysis.Insert(0, "-resource-dir=" + resources);
-		analysis.Insert(1, "-fms-compatibility-version=" + compatibility);
+		if (windowsTarget)
+		{
+			if (CompilerCompatibility(database, source) is string compatibility)
+			{
+				analysis.Insert(1, "-fms-compatibility-version=" + compatibility);
+			}
+			analysis.Add(
+				"--target="
+					+ (
+						variant.Architecture switch
+						{
+							"arm64" => "aarch64",
+							"x64" => "x86_64",
+							_ => variant.Architecture,
+						}
+					)
+					+ "-pc-windows-msvc"
+			);
+		}
 		input["analysisArguments"] ??= analysis;
 		JsonObject roots = input["pathRoots"]?.AsObject() ?? new JsonObject();
 		roots["Engine"] = engine;
 		roots["LlvmResource"] = llvmRoot;
-		roots["MSVC"] = toolchain.GetProperty("msvcDirectory").GetString();
-		roots["WindowsSDK"] = toolchain.GetProperty("windowsSdkDirectory").GetString();
+		if (windowsTarget)
+		{
+			roots["MSVC"] = toolchain.GetProperty("msvcDirectory").GetString();
+			roots["WindowsSDK"] = toolchain.GetProperty("windowsSdkDirectory").GetString();
+		}
 		input["pathRoots"] ??= roots;
 		string path = Path.Combine(variantDirectory, "BuildInput.json");
 		ModRuntimeExporter.WriteFileIfChanged(path, JsonSerializer.SerializeToUtf8Bytes(input, JsonOptions));
@@ -122,7 +163,15 @@ internal static class UbtPreparation
 				logger,
 				engine,
 				project,
-				new[] { target, "Win64", "Development", "-MhtBootstrap", "-NoUBTMakefiles" },
+				new[]
+				{
+					target,
+					MetadataSnapshot.HostPlatform,
+					"Development",
+					"-Architecture=" + MetadataSnapshot.HostArchitecture,
+					"-MhtBootstrap",
+					"-NoUBTMakefiles",
+				},
 				timeout,
 				"ModRuntime MHT metadata bootstrap"
 			);
@@ -134,11 +183,12 @@ internal static class UbtPreparation
 				Path.GetDirectoryName(project)!,
 				"Intermediate/ModTools/ModHeaderTool/HostTargets",
 				target,
-				"Win64/Development/x64"
+				MetadataSnapshot.HostPlatform,
+				"Development"
 			);
 			if (Directory.Exists(variant))
 			{
-				foreach (string path in Directory.EnumerateFiles(variant, "*.target.json"))
+				foreach (string path in Directory.EnumerateFiles(variant, "*.target.json", SearchOption.AllDirectories))
 				{
 					using JsonDocument descriptor = JsonDocument.Parse(File.ReadAllText(path));
 					string header = descriptor.RootElement.GetProperty("hostLinkHeader").GetString()!;
@@ -166,11 +216,11 @@ internal static class UbtPreparation
 		try
 		{
 			string ubt = Path.Combine(engine, "Binaries", "DotNET", "UnrealBuildTool", "UnrealBuildTool.dll");
-			string launcher = Path.ChangeExtension(ubt, ".exe");
+			string launcher = Path.ChangeExtension(ubt, OperatingSystem.IsWindows() ? ".exe" : null);
 			List<string> arguments = new();
 			if (
 				Environment.ProcessPath is string process
-				&& Path.GetFileName(process).Equals("dotnet.exe", StringComparison.OrdinalIgnoreCase)
+				&& Path.GetFileNameWithoutExtension(process).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
 			)
 			{
 				launcher = process;
@@ -199,6 +249,7 @@ internal static class UbtPreparation
 			}
 			environment["TEMP"] = work.FullName;
 			environment["TMP"] = work.FullName;
+			environment["TMPDIR"] = work.FullName;
 			environment["UnrealBuildTool_TMP"] = work.FullName;
 			environment["UseSharedCompilation"] = "false";
 			MhtProcess.Run(
@@ -222,7 +273,7 @@ internal static class UbtPreparation
 	{
 		using JsonDocument database = JsonDocument.Parse(File.ReadAllText(raw));
 		var entries = new List<object>();
-		var captured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		var captured = new HashSet<string>(PathComparer);
 		foreach (JsonElement entry in database.RootElement.EnumerateArray())
 		{
 			string directory = entry.GetProperty("directory").GetString()!;
@@ -237,7 +288,8 @@ internal static class UbtPreparation
 			}
 			string[] command = CommandLineArguments.Split(entry.GetProperty("command").GetString()!);
 			List<string> arguments = new() { command[0] };
-			MbtHostBuild.Expand(command.Skip(1), directory, arguments, 0);
+			string driver = Path.GetFileNameWithoutExtension(command[0]);
+			MbtHostBuild.Expand(command.Skip(1), directory, arguments, 0, driver != "cl" && driver != "clang-cl");
 			entries.Add(
 				new
 				{
@@ -247,11 +299,92 @@ internal static class UbtPreparation
 				}
 			);
 		}
-		if (sources.Except(captured, StringComparer.OrdinalIgnoreCase).FirstOrDefault() is string missing)
+		if (sources.Except(captured, PathComparer).FirstOrDefault() is string missing)
 		{
 			throw new UhtException($"ModRuntime MHT: UBT did not produce a compile action for \"{missing}\".");
 		}
 		ModRuntimeExporter.WriteFileIfChanged(output, JsonSerializer.SerializeToUtf8Bytes(entries, JsonOptions));
+	}
+
+	internal static List<string> SplitGnuResponse(string text)
+	{
+		List<string> tokens = new();
+		StringBuilder token = new();
+		char quote = '\0';
+		for (int i = 0; i < text.Length; ++i)
+		{
+			char c = text[i];
+			if (c == '\\' && i + 1 < text.Length)
+			{
+				token.Append(text[++i]);
+			}
+			else if (quote != '\0')
+			{
+				if (c == quote)
+				{
+					quote = '\0';
+				}
+				else
+				{
+					token.Append(c);
+				}
+			}
+			else if (c == '"' || c == '\'')
+			{
+				quote = c;
+			}
+			else if (char.IsWhiteSpace(c))
+			{
+				if (token.Length > 0)
+				{
+					tokens.Add(token.ToString());
+					token.Clear();
+				}
+				continue;
+			}
+			else
+			{
+				token.Append(c);
+			}
+		}
+		if (quote != '\0')
+		{
+			throw new UhtException("Unterminated quote in compiler response file.");
+		}
+		if (token.Length > 0)
+		{
+			tokens.Add(token.ToString());
+		}
+		return tokens;
+	}
+
+	internal static string? FindHostLibClang()
+	{
+		if (OperatingSystem.IsWindows())
+		{
+			string library = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+				"LLVM",
+				"bin",
+				"libclang.dll"
+			);
+			return File.Exists(library) ? library : null;
+		}
+		var libraries = OperatingSystem.IsMacOS()
+			? new[]
+			{
+				"/opt/homebrew/opt/llvm/lib/libclang.dylib",
+				"/usr/local/opt/llvm/lib/libclang.dylib",
+				"/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libclang.dylib",
+			}
+			: Directory
+				.EnumerateDirectories("/usr/lib", "llvm-*")
+				.OrderByDescending(path => int.TryParse(Path.GetFileName(path)[5..], out int major) ? major : 0)
+				.SelectMany(path =>
+					new[] { Path.Combine(path, "lib/libclang.so.1"), Path.Combine(path, "lib/libclang.so") }
+				)
+				.ToArray();
+		return libraries.FirstOrDefault(File.Exists);
 	}
 
 	private static string FindClangResources(string llvmRoot)
@@ -270,7 +403,7 @@ internal static class UbtPreparation
 		return matches[0];
 	}
 
-	private static string CompilerCompatibility(string database, string source)
+	private static string? CompilerCompatibility(string database, string source)
 	{
 		using JsonDocument commands = JsonDocument.Parse(File.ReadAllText(database));
 		foreach (JsonElement entry in commands.RootElement.EnumerateArray())
@@ -285,7 +418,7 @@ internal static class UbtPreparation
 			string compiler = entry.GetProperty("arguments")[0].GetString()!;
 			if (!Path.GetFileName(compiler).Equals("cl.exe", StringComparison.OrdinalIgnoreCase))
 			{
-				throw new UhtException("ModRuntime MHT: automatic generation requires UBT's MSVC toolchain.");
+				return null;
 			}
 			FileVersionInfo version = FileVersionInfo.GetVersionInfo(compiler);
 			return $"{version.FileMajorPart}.{version.FileMinorPart}";

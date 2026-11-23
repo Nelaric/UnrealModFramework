@@ -8,7 +8,6 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
-#include <vector>
 
 namespace Mod::HeaderTool
 {
@@ -20,12 +19,7 @@ struct ExtensionHostMember
 	std::string ParameterType;
 	std::string ReturnType;
 	bool bNoexcept = false;
-	std::string Core;
-	std::string ReadState;
-	std::string ValidateInput;
-	std::string ValidateResult;
 	std::string CommitPayload;
-	std::vector<std::string> PublishOnCommit;
 
 	bool operator==(const ExtensionHostMember&) const = default;
 };

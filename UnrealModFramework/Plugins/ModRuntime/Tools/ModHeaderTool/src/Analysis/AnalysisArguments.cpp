@@ -124,7 +124,8 @@ std::vector<std::string> AnalysisArguments::AnalysisCommand(const std::vector<st
 	std::string Driver = Path::PathToUtf8(Path::PathFromUtf8(Expanded.front()).filename());
 	std::transform(Driver.begin(), Driver.end(), Driver.begin(), [](unsigned char C) { return std::tolower(C); });
 	const bool bMsvc = Driver == "cl.exe" || Driver == "clang-cl.exe";
-	std::vector<std::string> Result{"clang", "-x", "c++", "-working-directory", Path::PathToUtf8(Directory)};
+	std::vector<std::string> Result{bMsvc ? "clang" : Expanded.front(), "-x", "c++", "-working-directory",
+	                                Path::PathToUtf8(Directory)};
 	if (bMsvc)
 	{
 		Result.insert(Result.end(), {"-fms-extensions", "-fms-compatibility", "-fdelayed-template-parsing"});

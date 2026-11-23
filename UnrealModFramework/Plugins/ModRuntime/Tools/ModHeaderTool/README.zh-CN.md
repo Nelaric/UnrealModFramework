@@ -46,15 +46,11 @@ ABI 使用显式 `cdecl`、64 位进程内 token、定宽整数/标量和 `uint3
 
 Hook 接收一个载荷并返回同类型结果。Event 的发布函数接收一个载荷并返回 `void`。支持 `float`、`double`、`int32`、`int64`、`bool`、`uint8`，以及受支持的反射值结构体或具备生成 World 视图的 UObject。结构体只复制声明的公开字段，对象投影在回调期间只读。蓝图的标量 API 及已连线的 Hook/Event 来自 Editor 快照。[宿主导出步骤](../../Source/ModRuntimeUht/README.zh-CN.md)
 
-无参 `MOD_EXPORT_HOOK()` 为有 `.cpp` 定义的标量成员启用 Win64 x64 原型。默认 ID 由 World 类型 ID 和带连字符的成员名组成，例如 `hook/game.character/change-health`。`Pre` 支持 `ModifyInputs` 和 `Cancel`，`On` 支持 `Replace`，`Post` 观察结果。基础授权使用 Hook ID，写操作授权在该 ID 后加操作后缀。MHT 与 MST 生成 `Diagnostics/HookSources.json`，Win64 构建驱动据此编译对应源码副本。[Win64 构建驱动](../../Source/ModRuntimeUht/README.zh-CN.md#win64-自动-hook-原型)
+`MOD_EXPORT_HOOK()` 是无参标记，用于在 `.cpp` 中定义的标量成员。传入任何字段都会导致构建报错。生成的 ID 由 World 类型 ID 和带连字符的成员名组成，例如 `hook/game.character/change-health`。`Pre` 支持 `ModifyInputs` 和 `Cancel`，`On` 支持 `Replace`，`Post` 观察结果。基础授权使用 Hook ID，写操作授权在该 ID 后加操作后缀。MHT 与 MST 生成 `Diagnostics/HookSources.json`，UBT 构建驱动按目标平台和架构编译对应源码副本。[自动 Hook 构建](../../Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)
 
-### 生成 C++ 成员函数体
+### 生成 C++ Event 发布函数
 
 将 `HostEndpoint` 设为 `Mod::Extension::FEndpoint` 成员的名称，即可在 `<owner>.modhost.cpp` 中生成声明对应的函数定义。生成的 Event 函数体将参数转发给 `Publish`。游戏也可以自行定义成员函数并调用辅助函数。
-
-生成类型为 `T` 的标量 Hook 时，`HostCore` 指定签名为 `T(T)` 的业务函数，`HostReadState` 指定签名为 `T()` 的状态读取函数，`HostValidateInput` 和 `HostValidateResult` 指定签名为 `bool(T)` 的校验函数。生成的函数在调用 Hook 前读取状态，核心操作使状态变化时标记为已提交。Hook 报错时，函数记录错误并返回当前状态。
-
-`HostPublishOnCommit` 接受同一类中带引号的 Event 成员名列表。列表内的 Event 需要声明 `HostEndpoint` 和 `HostCommitPayload`。载荷函数接收操作前的状态并返回该事件的载荷。核心操作提交后，生成的函数按声明顺序构造并发布载荷，即使随后 Post Hook 报错也会发布。显式生成成员函数时，`MOD_API_BOOTSTRAP=1` 的构建使用游戏源码里的兜底定义。
 
 ## API 兼容名
 

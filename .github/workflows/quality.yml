@@ -84,11 +84,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Build MST
+      - name: Build MST and MHT
         run: |
           tools=UnrealModFramework/Plugins/ModRuntime/Tools
-          cmake -S "$tools/ModSourceTool" -B "$RUNNER_TEMP/mst" -DCMAKE_BUILD_TYPE=Release
-          cmake --build "$RUNNER_TEMP/mst" --parallel 2
+          cmake -S "$tools" -B "$RUNNER_TEMP/mst" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/mst" --target ModSourceTool ModHeaderTool --parallel 2
+      - name: Compile and link automatic Hooks for COFF, ELF and Mach-O targets
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang-18 lld-18 llvm-18 libclang-18-dev
+          python3 Scripts/test_hook_targets.py --clang /usr/lib/llvm-18/bin/clang \
+            --resource-dir "$(clang-18 -print-resource-dir)" --libclang /usr/lib/llvm-18/lib/libclang.so.1 \
+            --mht "$RUNNER_TEMP/mst/bin/Release/ModHeaderTool" --mst "$RUNNER_TEMP/mst/bin/Release/ModSourceTool"
       - name: Compare existing cross-file exception paths
         run: |
           export MST_RESOURCE_DIR="$(clang++-18 -print-resource-dir)"

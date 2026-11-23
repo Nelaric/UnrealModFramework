@@ -31,7 +31,7 @@ private:
 
 	void Error(std::size_t Offset, const std::string& Reason);
 
-	void ValidateHookPolicy();
+	void ResolveHookPolicy();
 
 	void CheckChoice(const Schema::FFieldSpec& Spec, const MetadataValue& Value);
 

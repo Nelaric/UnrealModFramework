@@ -199,11 +199,26 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 			const bool bVariantMatches = Variant != Traversal.Macros.end()
 			                                 ? Variant->second == Model.Input.Configuration
 			                                 : Model.Input.Configuration != "DebugGame";
+			const auto Info = Clang.clang_getTranslationUnitTargetInfo(Tu);
+			if (!Info)
+			{
+				throw std::runtime_error("libclang did not report a compilation target for " + Unit.string());
+			}
+			const auto Triple = Clang.String(Clang.clang_TargetInfo_getTriple(Info));
+			Clang.clang_TargetInfo_dispose(Info);
+			const auto Cpu = Triple.substr(0, Triple.find('-'));
+			const auto& Arch = Model.Input.Architecture;
+			const bool bSimulator = Arch.ends_with("simulator");
+			const auto ExpectedCpu = Arch == "x64" ? "x86_64" : Arch == "arm64" || bSimulator ? "aarch64" : Arch;
+			if ((Cpu == "arm64" ? "aarch64" : Cpu) != ExpectedCpu ||
+			    (Triple.find("-apple-") != std::string::npos && Triple.ends_with("-simulator") != bSimulator))
+			{
+				throw std::runtime_error("Target architecture " + Arch + " does not match compiler triple " + Triple);
+			}
 			if (Traversal.Macros["UE_TARGET_NAME"] != Model.Input.Target ||
 			    Traversal.Macros["UE_MODULE_NAME"] != "\"" + Module.Name + "\"" ||
 			    Traversal.Macros["UBT_COMPILED_PLATFORM"] != Model.Input.Platform ||
-			    Traversal.Macros["UE_BUILD_" + Configuration] != "1" || !Traversal.Macros.contains("_M_X64") ||
-			    !bVariantMatches)
+			    Traversal.Macros["UE_BUILD_" + Configuration] != "1" || !bVariantMatches)
 			{
 				throw std::runtime_error(
 				    "Compilation database does not match the declared UBT Target/module/configuration/platform: " +

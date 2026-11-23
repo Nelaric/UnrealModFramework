@@ -33,8 +33,14 @@ void Generation::Generate(const fs::path& RequestFile)
 		}
 		return Value.empty() ? fs::path{} : Root / Path::PathFromUtf8(Value);
 	};
-	APIGenerator(ReadPath("buildInput", true), ReadPath("hostContexts", true))
+	const auto Producer = Request.value("hostCompiler", std::string("MBT"));
+	if ((Producer != "UBT" && Producer != "MBT") || (Producer == "UBT" && Request.contains("hostContexts")))
+	{
+		throw std::runtime_error("Specify independent MBT contexts or UBT host compilation.");
+	}
+	APIGenerator(ReadPath("buildInput", true), ReadPath("hostContexts", Producer == "MBT"))
 	    .Generate(ReadPath("outputDirectory", true), ReadPath("metadataOptions", false), ReadPath("libclang", false),
-	              ReadPath("lifecycleSource", false), ReadPath("blueprintSnapshot", false));
+	              ReadPath("lifecycleSource", false), ReadPath("blueprintSnapshot", false),
+	              ReadPath("sourceTool", false));
 }
 } // namespace Mod::HeaderTool

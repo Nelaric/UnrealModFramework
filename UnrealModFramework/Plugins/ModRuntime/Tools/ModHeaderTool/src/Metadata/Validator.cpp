@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
-#include <initializer_list>
 #include <set>
 #include <span>
 #include <string>
@@ -29,20 +28,10 @@ Validator::Validator(ExportMacro& InMacro, const MetadataOptions* InOptions, con
 
 std::vector<std::string> Validator::Validate()
 {
-	if (Macro.Name == "MOD_EXPORT_HOOK" && Macro.Fields.empty())
+	if (Macro.Name == "MOD_EXPORT_HOOK")
 	{
-		Macro.bAutomaticHook = true;
-		const auto AddList = [this](const char* Name, std::initializer_list<const char*> Values)
-		{
-			MetadataValue List{MetadataValue::EKind::List, {}, {}, Macro.Offset};
-			for (const char* Value : Values)
-			{
-				List.Items.push_back({MetadataValue::EKind::Identifier, Value, {}, Macro.Offset});
-			}
-			Macro.Fields.push_back({Name, Macro.Offset, std::move(List)});
-		};
-		AddList("AllowedStages", {"Pre", "On", "Post"});
-		AddList("AllowedOperations", {"ModifyInputs", "Cancel", "Replace"});
+		ResolveHookPolicy();
+		return Diagnostics;
 	}
 	std::set<std::string> Names;
 	for (const MetadataField& Field : Macro.Fields)
@@ -100,27 +89,7 @@ std::vector<std::string> Validator::Validate()
 	};
 	CompleteFields(Schema::CommonFields);
 	CompleteFields(Schema::FieldsFor(Macro.Name));
-	const bool bGenerateHostMember = Names.contains("HostEndpoint");
-	if (Macro.Name == "MOD_EXPORT_HOOK" && Diagnostics.empty())
-	{
-		ValidateHookPolicy();
-		for (const char* Name : {"HostCore", "HostReadState", "HostValidateInput", "HostValidateResult"})
-		{
-			if (bGenerateHostMember && !Names.contains(Name))
-			{
-				Error(Macro.Offset, std::string("'HostEndpoint' requires '") + Name + "'.");
-			}
-			else if (!bGenerateHostMember && Names.contains(Name))
-			{
-				Error(Macro.Offset, std::string("'") + Name + "' requires 'HostEndpoint'.");
-			}
-		}
-		if (!bGenerateHostMember && Names.contains("HostPublishOnCommit"))
-		{
-			Error(Macro.Offset, "'HostPublishOnCommit' requires 'HostEndpoint'.");
-		}
-	}
-	if (!bGenerateHostMember && Names.contains("HostCommitPayload"))
+	if (Names.contains("HostCommitPayload") && !Names.contains("HostEndpoint"))
 	{
 		Error(Macro.Offset, "'HostCommitPayload' requires 'HostEndpoint'.");
 	}
@@ -186,30 +155,29 @@ void Validator::Error(std::size_t Offset, const std::string& Reason)
 	                      ": error: " + Macro.Name + ": " + Reason);
 }
 
-void Validator::ValidateHookPolicy()
+void Validator::ResolveHookPolicy()
 {
-	const auto& Stages = std::ranges::find(Macro.Fields, "AllowedStages", &MetadataField::Name)->Value.Items;
-	const auto& Operations = std::ranges::find(Macro.Fields, "AllowedOperations", &MetadataField::Name)->Value.Items;
-	for (const MetadataValue& Stage : Stages)
+	const auto Add = [this](const Schema::FFieldSpec& Spec, MetadataValue Value)
 	{
-		if (!Schema::IsHookStage(Stage.Text))
-		{
-			Error(Stage.Offset, "unknown Hook stage '" + Stage.Text + "'.");
-		}
-	}
-	for (const MetadataValue& Operation : Operations)
+		ValidateValue(Spec, Value);
+		Macro.Fields.push_back({Spec.Name, Macro.Offset, std::move(Value)});
+	};
+	const auto AddList = [&](const char* Name, const char* Choices, const auto& Values)
 	{
-		const Schema::FHookOperationSpec* Spec = Schema::FindHookOperation(Operation.Text);
-		if (!Spec)
+		MetadataValue List{MetadataValue::EKind::List, {}, {}, Macro.Offset};
+		for (std::string_view Value : Values)
 		{
-			Error(Operation.Offset, "unknown Hook operation '" + Operation.Text + "'.");
-			continue;
+			List.Items.push_back({MetadataValue::EKind::Identifier, std::string(Value), {}, Macro.Offset});
 		}
-		if (std::ranges::find(Stages, Spec->Stage, &MetadataValue::Text) == Stages.end())
-		{
-			Error(Operation.Offset, "Hook operation '" + Operation.Text + "' requires stage '" + Spec->Stage + "'.");
-		}
-	}
+		Add({Name, Schema::EFieldType::ChoiceList, Choices, false}, std::move(List));
+	};
+	constexpr std::string_view Operations[]{"ModifyInputs", "Cancel", "Replace"};
+	AddList("AllowedStages", "HookStages", Schema::HookStages);
+	AddList("AllowedOperations", "HookOperations", Operations);
+	Add({"ExportVersion", Schema::EFieldType::Version, nullptr, false},
+	    {MetadataValue::EKind::String, Schema::DefaultExportVersion, {}, Macro.Offset});
+	Add({"Authority", Schema::EFieldType::Choice, "ExtensionAuthorities", false},
+	    {MetadataValue::EKind::Identifier, "Server", {}, Macro.Offset});
 }
 
 void Validator::CheckChoice(const Schema::FFieldSpec& Spec, const MetadataValue& Value)

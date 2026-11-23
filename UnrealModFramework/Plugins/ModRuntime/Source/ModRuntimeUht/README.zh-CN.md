@@ -10,7 +10,7 @@ C# 启动独立的 MHT、MBT 进程，传递真实编译配方、登记依赖与
 
 ## 工具发现与默认调用
 
-调用了 `ExportMetadata.ConfigureTarget(this)` 的 Win64 x64、Linux 和 macOS Target 会在正常构建中先编译 ModHeaderTool、ModBuildTool 和 ModSourceTool，再启动 UHT。直接调用 UHT 时，先运行原生工具构建脚本。UHT 按以下顺序查找 MHT。
+调用了 `ExportMetadata.ConfigureTarget(this)` 的 Target 会在正常构建中先编译 ModHeaderTool、ModBuildTool 和 ModSourceTool，再启动 UHT。直接调用 UHT 时，先运行原生工具构建脚本。UHT 按以下顺序查找 MHT。
 
 1. 环境变量 `UMF_MHT_EXECUTABLE`。
 2. 项目可选配置 `Config/ModHeaderTool.json` 中的 `executable`。
@@ -21,11 +21,11 @@ C# 启动独立的 MHT、MBT 进程，传递真实编译配方、登记依赖与
 
 元数据选项默认使用 `Intermediate/ModTools/ModHeaderTool/MetadataOptions.json`。生成前，适配层通过 MHT 检查快照。快照缺失、过期或版本较旧时，适配层调用当前引擎的 `ModExportOptions` commandlet，校验通过后发布快照。修改 `DefaultEngine.ini` 等已登记的配置会触发下一次增量构建的检查。scan 模式刷新已有的默认快照；源码无需快照时，也可以直接扫描。通过 `options` 指定其他路径的快照由调用方维护。
 
-在 Win64 上，`metadataEditorTarget` 指定元数据 commandlet 使用的 Development Editor Target。缺少所需的项目二进制时，适配层会调用 UBT 构建引导版本。未设置此项的项目可用 `-MhtBootstrap` 准备 Editor。
+在构建主机上，`metadataEditorTarget` 指定元数据 commandlet 使用的 Development Editor Target。缺少所需的项目二进制时，适配层会调用 UBT 构建引导版本。未设置此项的项目可用 `-MhtBootstrap` 准备 Editor。
 
 ## 完整生成模式
 
-设置 `mode` 为 `generate` 并在 `generation` 中列出导出模块。开发工程在 Linux 和 macOS 跳过 `generate`，保留正常 UE 目标构建。以下示例使用开发宿主的模块和类型身份，工具和 LLVM 路径应指向本机安装位置。
+设置 `mode` 为 `generate` 并在 `generation` 中列出导出模块。UBT 把目标平台、配置和架构写入 UHT 清单，MHT 使用该目标的实际编译参数。以下示例使用开发宿主的模块和类型身份，工具和 LLVM 路径应指向本机安装位置。
 
 ```json
 {
@@ -62,9 +62,9 @@ ModSourceTool（MST）依次查找环境变量 `UMF_MOD_SOURCE_TOOL_EXECUTABLE`�
 
 也可通过 `UMF_MHT_BUILD_INPUT` 指定本次 build input，它会选择 generate 模式并覆盖 Target 配置；`UMF_MHT_LIBCLANG` 覆盖 libclang。环境变量变化需要让 UHT 再次执行，例如在 UBT 命令中使用 `-ForceHeaderGeneration`。
 
-generate 按实际 Target、平台、配置和架构选择 build input，校验它与当前工程和 UHT 会话一致。适配层在变体的 `HostTargets` 目录写入 `GenerationRequest.json`，其中包含构建输入、生成目录、生产者上下文集，以及已解析的元数据快照、libclang 和生命周期源码路径。UHT 执行 `ModHeaderTool generate <GenerationRequest.json>`，检查完整清单后逐个调用 `ModBuildTool build-host`。工程的生成根目录是 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。每次覆盖当前变体的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 和 `<gameId>.generated-artifacts.json`。相同内容保留时间戳，完整清单最后提交。导出插件所属模块的生成文件也按相对路径写入插件的 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。共享契约、客户端 ABI 和完整清单归工程。
+generate 按实际 Target、平台、配置和架构选择 build input，校验它与当前工程和 UHT 会话一致。适配层在变体的 `HostTargets` 目录写入 `GenerationRequest.json`，其中包含构建输入、生成目录、生产者上下文集，以及已解析的元数据快照、libclang 和生命周期源码路径。UHT 执行 `ModHeaderTool generate <GenerationRequest.json>`，检查清单后，Win64 x64 MSVC 逐个调用 `ModBuildTool build-host`，其他目标通过 UHT 的 `CompileOutput` 在所属模块编译生成的宿主单元。工程的生成根目录是 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。每次覆盖当前变体的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 和 `<gameId>.generated-artifacts.json`。相同内容保留时间戳，完整清单最后提交。导出插件所属模块的生成文件也按相对路径写入插件的 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。共享契约、客户端 ABI 和完整清单归工程。
 
-正常构建时，适配层使用当前 Target 和 MSVC 工具链运行 UBT 的 `GenerateClangDatabase`，并在正式编译动作生成前展开导出模块的响应文件。变体的 `HostTargets` 目录保存 `BuildInput.json` 和 `Ubt/compile_commands.json`。UBT 复用 Makefile 时，适配层读取已保存的编译参数。Target 或变体显式配置的 `buildInput` 由调用方维护，其编译数据库及响应文件须匹配当前 Target。Clang 还依赖标准 UHT CodeGen 生成的头文件。
+正常构建时，适配层使用当前 Target 和目标编译器运行 UBT 的 `GenerateClangDatabase`，并在正式编译动作生成前展开导出模块的响应文件。变体的 `HostTargets` 目录保存 `BuildInput.json` 和 `Ubt/compile_commands.json`。UBT 复用 Makefile 时，适配层读取已保存的编译参数。Target 或变体显式配置的 `buildInput` 由调用方维护，其编译数据库及响应文件须匹配当前 Target。Clang 还依赖标准 UHT CodeGen 生成的头文件。
 
 ### 从宿主蓝图导出 API
 
@@ -90,13 +90,23 @@ if (UUMFDevSDKLibrary::Acquire_FModObject_T_f4f57c0936062c84(*this, Provider))
 
 在 `blueprintExports` 中配置资产。在「蓝图Mod导出」声明 Hook/Event 后，在业务图连接对应的 **Hook Point** 或 **Publish Event** 节点的执行输入。未连线的声明跳过导出。Hook 的原版逻辑图接收一个载荷并返回同类型结果，节点输出结果、状态码、取消和已提交标志。Event 支持 `Immediate` 和 `NextTick`，可选立即退订。载荷可用受支持的标量、反射值结构体或具有生成 World 视图的 UObject。
 
-C++ Hook/Event 用导出宏关联具备 World 类型身份的成员签名。无参 `MOD_EXPORT_HOOK()` 通过下面的 Win64 原型包装已有的 `.cpp` 定义。显式 Hook/Event 声明也支持直接调用生成的辅助函数，或指定 `HostEndpoint` 生成成员函数定义。[生成契约与载荷限制](../../Tools/ModHeaderTool/README.zh-CN.md#world-扩展产物)
+C++ Hook/Event 用导出宏关联具备 World 类型身份的成员签名。无参 `MOD_EXPORT_HOOK()` 通过下方的构建驱动包装已有的 `.cpp` 定义。C++ Event 可调用生成的发布函数，或使用 `HostEndpoint` 生成发布函数体。[生成契约与载荷限制](../../Tools/ModHeaderTool/README.zh-CN.md#world-扩展产物)
 
-### Win64 自动 Hook 原型
+### 自动 Hook 构建
 
-在仓库根目录运行 `python Scripts/build_win64_hooks.py --engine "C:\Program Files\Epic Games\UE_5.6"`。默认构建 Development Editor，传 `--target UnrealModFrameworkDev` 构建 Game。驱动从 UBT 取得过期动作，把命中的编译输入替换为 MST 生成的副本，再由 UBT 执行。对象文件路径和链接动作沿用 UBT 的原配置。强制包含的宿主链接头要求每个改写单元提供本次生成对应的符号，漏编副本会在链接时报错。
+在执行 UBT 编译动作的主机上使用 Python 3.10 或更新版本，并安装目标平台的 UE SDK。一次构建一个架构。
 
-MHT 解析声明，把 Clang 声明标识和真实分析编译数据库传给 MST。MST 把原函数体放进局部可调用对象，生成完整的源码副本。C++ 调用和 UHT 生成的蓝图调用桩通过同一个符号进入分派。`-MhtBootstrap` 构建 Development Editor 时直接编译游戏的原始源码。Editor 自动化测试 `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` 同时验证 C++ 调用与实际编译、执行的蓝图调用。
+```sh
+python Scripts/build_hooks.py --engine /opt/UE_5.6
+python Scripts/build_hooks.py --engine /opt/UE_5.6 --platform Android
+python Scripts/build_hooks.py --engine /Users/Shared/UE_5.6 --platform IOS --architecture iossimulator
+```
+
+Windows 架构可选 `x64`、`arm64` 或 `arm64ec`。Apple 设备选择 `arm64`，iOS 与 visionOS 模拟器使用 UBT 的 `iossimulator`，tvOS 模拟器使用 `tvossimulator`。旧入口 `build_win64_hooks.py` 仍选择 Win64 x64。`UMF_MHT_LIBCLANG` 指定构建主机上的 libclang，`UMF_MHT_CLANG_RESOURCE_DIR` 可指定配套的资源目录。项目可通过 `hostLibclang` 按构建主机设置库路径。目标 SDK、头文件和架构来自 UBT 的编译数据库。
+
+MHT 和 MST 通过 Clang 定位标记的成员函数并生成源码副本。驱动替换 UBT 动作及嵌套响应文件中的源码输入，沿用原定的对象文件和链接输出。生成的注册代码引用副本定义的版本符号，COFF 和 ELF 链接时会拒绝原文件。Apple 构建还用 Xcode 的 nm 检查实际 Mach-O 产物，能发现动态查找模式下遗留的 Hook 导入。C++ 和蓝图进入同一个公开函数。工具链需要引导编辑器时会调用 UBT 的 `-MhtBootstrap`，生成的 Development Editor 直接执行原函数。`Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` 覆盖这两种调用入口。
+
+构建规则对 Win64 x64 MSVC 使用独立 MBT 库，对其他工具链使用 UBT 编译宿主。直接编译路径的清单格式为 `UMF.UbtHostArtifacts`。主机专有 SDK、远程 Mac 动作、通用二进制打包和第三方原生 Mod 安装各自需要平台接入。
 
 ## 独立宿主编译与链接
 
