@@ -34,7 +34,7 @@ Actions 与 CircleCI 都从可信 `main` 配置开始。Actions 不会使用具�
 
 ## 构建隔离与验证
 
-拉取私有引擎镜像后，UE 容器使用 `--network none` 运行。每个 Job 把 `UnrealModFramework/` 复制到独立可写的临时目录。暂存工程路径为 `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`。Editor Job 在该目录中打包独立插件，生成包留在暂存目录。开发宿主在 Linux 跳过自动生成和最终链接校验。MST GCC/Clang 用例在独立的 [GitHub Actions Job](../.github/workflows/quality.yml)中运行。
+拉取私有引擎镜像后，UE 容器使用 `--network none` 运行。每个 Job 把 `UnrealModFramework/` 复制到独立可写的临时目录。暂存工程路径为 `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`。Linux 构建调用 MBT 的 `build-ue-target`。Editor Job 运行 ChangeHealth 的 C++ 和蓝图用例，并在该目录中打包独立插件。MST GCC/Clang 用例在独立的 [GitHub Actions Job](../.github/workflows/quality.yml)中运行。
 
 请求审查前验证两个配置：
 

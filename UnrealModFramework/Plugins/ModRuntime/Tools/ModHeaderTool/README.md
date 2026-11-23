@@ -72,15 +72,15 @@ The public header embeds the same version/hash for compiled consumers.
 
 A Hook takes one payload and returns the same type. An Event takes one payload and returns `void`. Supported payloads include `float`, `double`, `int32`, `int64`, `bool`, `uint8`, supported reflected value structs, and UObjects with a generated World view. Struct projection copies declared public fields, and object projection is read-only for the callback's lifetime. Blueprint scalar APIs and connected Hook/Event declarations come from the Editor snapshot. [Host export procedure](../../Source/ModRuntimeUht/README.md)
 
-An empty `MOD_EXPORT_HOOK()` enables the Win64 x64 prototype for an out-of-line scalar member. The default ID uses the World type ID and the dashed member name, as in `hook/game.character/change-health`. The Hook defines `Pre` with `ModifyInputs` and `Cancel`, `On` with `Replace`, and observation in `Post`. The base grant is the Hook ID, and operation grants use that ID with the operation suffix. MHT and MST emit the substitution map under `Diagnostics/HookSources.json`. The Win64 build driver compiles the source copies named there. [Win64 build driver](../../Source/ModRuntimeUht/README.md#win64-automatic-hook-prototype)
+`MOD_EXPORT_HOOK()` enables automatic dispatch for an out-of-line scalar member. The generated ID uses the World type ID and the dashed member name, as in `hook/game.character/change-health`. The Hook defines `Pre` with `ModifyInputs` and `Cancel`, `On` with `Replace`, and observation in `Post`. The base grant is the Hook ID, and operation grants use that ID with the operation suffix. MHT and MST emit the substitution map under `Diagnostics/HookSources.json`. The UBT driver compiles the source copies for the selected target and architecture. [Automatic Hook builds](../../Source/ModRuntimeUht/README.md#automatic-hook-builds)
 
-### Generated C++ member bodies
+Use the bare flags `NoPre`, `NoOn` and `NoPost` in any order to omit those stages. `NoPre` also removes `ModifyInputs` and `Cancel`. `NoOn` removes `Replace`, so calls that pass `Pre` run the game function. With all three flags, MHT omits the Hook and its former IDs from the SDK and MST leaves that function body intact.
+
+When renaming a member, list its former names in the same marker, for example `MOD_EXPORT_HOOK(NoOn, CompatibleNames = ("ChangeHealth", "UpdateHealth"))`. Each name uses the same stage policy and shares the same ordered handlers. A rename preserves the former ID, signature and grant names when the function signature and stage policy stay compatible. Changing the stage policy changes the contract signature for every name. MHT rejects duplicate IDs, including names that map to the same dashed spelling.
+
+### Generated C++ Event publishers
 
 Set `HostEndpoint` to the name of a member `Mod::Extension::FEndpoint` to emit the annotated member's definition in `<owner>.modhost.cpp`. The generated Event body forwards its argument to `Publish`. C++ declarations can also call the helpers from their own definitions.
-
-For a generated scalar Hook with type `T`, `HostCore` names a `T(T)` member for the gameplay operation. `HostReadState` names a `T()` getter for the committed state. `HostValidateInput` and `HostValidateResult` name `bool(T)` validators. The wrapper captures the state before invoking the Hook and marks the core operation committed when the state changes. On a Hook error it logs the error and returns the current state.
-
-`HostPublishOnCommit` accepts an ordered list of quoted Event member names on the same class. Each listed Event supplies `HostEndpoint` and `HostCommitPayload`. The payload member takes the previous state and returns a value for that Event. The wrapper evaluates each payload and publishes in the declared order when the core operation committed, including when a Post Hook subsequently reports an error. Builds with `MOD_API_BOOTSTRAP=1` use the game's fallback definitions for explicitly generated members.
 
 ## API compatibility names
 

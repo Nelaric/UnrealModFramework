@@ -4,9 +4,9 @@ English | [简体中文](README.zh-CN.md)
 
 # ModBuildTool
 
-MBT independently compiles generated host binding sources into one native static archive per owning module. The game build links that archive into the owning binary without adding MHT sources to UBT's C++ compilation list. The intended authoring interface remains an export marker followed by the original function declaration.
+MBT drives UBT builds with generated Hook sources and independently compiles generated host bindings into a native static archive per owning module. The game build links each independent host archive into its owning binary.
 
-This implementation provides archive builds, required-symbol verification, explicit public artifacts for ModSDKTool (MDT), and association with trusted successful final-link records. The [UHT adapter](../../Source/ModRuntimeUht/README.md) now invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets, and private External module rules attach each host archive to its owner. The Win64 UBT post-build step checks the owning PE image and publishes link records. Extending this integration to other action graphs and platforms remains future work. An MHT `scan` report is not a generated-artifact manifest. `Built` proves archive construction; `Linked` proves the checked association with a trusted record and actual image bytes. Neither proves gameplay behavior.
+The [UHT adapter](../../Source/ModRuntimeUht/README.md) invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets. Private External module rules attach each host archive to its owner. The Win64 UBT post-build step checks the owning PE image and publishes link records. `Built` records archive construction, and `Linked` records association with a successful link and its image bytes.
 
 ## Build and commands
 
@@ -19,6 +19,9 @@ From the repository root:
 An existing CMake build directory may also build the `ModBuildTool` target directly. Invoke the resulting executable:
 
 ```text
+ModBuildTool build-ue-target --engine <path> --project <project.uproject> --target <target>
+                             --platform <platform> --configuration <configuration>
+                             --architecture <architecture> --mode <normal|rebuild|bootstrap>
 ModBuildTool plan --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
@@ -31,6 +34,8 @@ ModBuildTool hash-file --file <path>
 ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol>
 ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 --kind Executable
 ```
+
+`build-ue-target` uses the engine's bundled .NET to run UBT for one target architecture. In `normal` mode, MBT exports outdated actions, verifies the MHT Hook source map and source hashes, substitutes generated inputs in the compile actions, and executes the updated plan through UBT. MBT records object hashes for incremental reuse. `rebuild` passes UBT's rebuild request before exporting actions. `bootstrap` runs UBT with `-MhtBootstrap` for the Development Editor and compiles the original functions. A normal build prepares its bootstrap Editor automatically when needed.
 
 `plan` validates inputs without compiling or creating directories. `build-host` locks the archive and returns `Built` or `UpToDate`. `build-planned-host` also checks the required fingerprint from an earlier plan under the archive lock. `verify-host` fails for stale inputs or artifacts. Exit code `0` means success. Exit code `1` means invalid input, build or I/O failure, or stale verification. JSON results go to stdout and child diagnostics go to stderr.
 

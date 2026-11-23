@@ -43,32 +43,44 @@ Setup can use CMake 3.20 or later from `PATH`. On a fresh checkout without a sui
 
 Setup builds Release versions of the standalone tools `ModHeaderTool`, `ModBuildTool`, `ModSourceTool`, and `ModSDKTool`. Find each executable under `UnrealModFramework/Plugins/ModRuntime/Tools/build/<tool>/` and run it with `--help` to check that it starts. With Ninja or Unix Makefiles, pass `--jobs 8` to limit the build to eight parallel jobs.
 
-### Build the development host on Win64
+### Build the development host
 
-Build the `UnrealModFrameworkDevEditor` and `UnrealModFrameworkDev` Development targets with UE 5.6 and MSVC x64. If the configured libclang path is unavailable, set `UMF_MHT_LIBCLANG` to the full path to `libclang.dll` in an LLVM installation with matching Clang resource headers.
+Use ModBuildTool with an Unreal Engine 5.6 installation, the target SDK and the build host's libclang. This example builds the Development Editor for Win64 x64.
 
 ```powershell
-$env:UMF_MHT_LIBCLANG = 'C:\LLVM\bin\libclang.dll'
-$project = (Resolve-Path .\UnrealModFramework\UnrealModFrameworkDev.uproject).Path
-$build = 'C:\UE_5.6\Engine\Build\BatchFiles\Build.bat'
-& $build UnrealModFrameworkDevEditor Win64 Development "-Project=$project"
-& $build UnrealModFrameworkDev Win64 Development "-Project=$project"
+$mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
+& $mbt build-ue-target --engine "<UE installation>" --project "UnrealModFramework/UnrealModFrameworkDev.uproject" `
+  --target UnrealModFrameworkDevEditor --platform Win64 --configuration Development --architecture x64 --mode normal
 ```
 
-UBT prepares the UHT tools, obtains Editor metadata when needed, and links the generated host archives. Automatic contract generation and host linking currently run on Win64 x64 MSVC. [UHT build and bootstrap guide](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
+The build tools prepare a bootstrap Editor automatically when needed. [Platform selection and host compilation](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#automatic-hook-builds)
 
-### Export macro fields
+### Export a C++ Hook
 
-Field names and allowed values are case-sensitive and defined in [ModExportMetadataSchema.h](UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ExportMetadata/Public/ModExportMetadataSchema.h).
+Add `MOD_EXPORT_HOOK()` to the function declaration and keep the gameplay implementation in its `.cpp` file.
+
+```cpp
+MOD_EXPORT_HOOK()
+float ChangeHealth(float Delta);
+```
+
+To omit a stage, add its flag to the same marker. `MOD_EXPORT_HOOK(NoOn)` lets mods use `Pre` and `Post`. A call that passes `Pre` runs the game function. Use `MOD_EXPORT_HOOK(NoPre, NoOn)` to expose only `Post`. With all three flags (`NoPre, NoOn, NoPost`), the build compiles the original function and publishes no Hook ID.
+
+If you later rename `ChangeHealth` to `AdjustHealth`, write `MOD_EXPORT_HOOK(CompatibleNames = ("ChangeHealth"))` on `AdjustHealth`. Mods registered under the old ID keep their signature and grants and share the same dispatch with mods using the new ID. List each published former name when renaming again.
+
+The generator derives the Hook ID from the type and function name. C++ and Blueprint calls enter the same dispatcher. A mod with the appropriate grants can change arguments or cancel a call in `Pre`, replace the original function in `On`, and observe the result in `Post`.
+
+### API and Event export fields
+
+The schema defines the case-sensitive field names and allowed values. [ModExportMetadataSchema.h](UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ExportMetadata/Public/ModExportMetadataSchema.h)
 
 | Macro | Required fields | Optional fields |
 | --- | --- | --- |
-| All three | — | `ExportVersion` defaults to `"1.0.0"`, plus `DisplayName` and `Description` |
+| API and Event | — | `ExportVersion` defaults to `"1.0.0"`, plus `DisplayName` and `Description` |
 | `MOD_EXPORT_API` | `Scope`, `Thread`, `FailureRule` | `Permissions` defaults to an empty list, plus `FullView` and `CompatibleNames` |
 | `MOD_EXPORT_EVENT` | `SourceScope`, `PublishRule` | `PayloadType`, `ExportId`, `Permission`, `PublishPermission`, `UnsubscribeRule`, `Authority` |
-| `MOD_EXPORT_HOOK` | — | `ContextType`, `ExportId`, `Permission`, `Authority`, `AllowedStages` (defaults to `(Post)`), `AllowedOperations` (defaults to `()`) |
 
-Complete generation checks active declarations against the selected target. Current Hook and Event generation uses World scope and runs on the game thread. The host connects generated C++ helpers or Blueprint extension nodes at the gameplay call sites. [Host authoring and supported signatures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
+MHT checks active declarations against the selected build target. World Hooks and Events run on the game thread. [Host authoring and supported signatures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
 
 ## Build and load a mod
 

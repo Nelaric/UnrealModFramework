@@ -112,12 +112,12 @@ MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Pe
 EXPORTTEST_API float GetCurrentHealth() const;
 ```
 
-`MOD_EXPORT_API` 关联具体成员，`MOD_EXPORT_EVENT` 关联显式发布函数，`MOD_EXPORT_HOOK` 关联业务函数。类型身份保存在宿主 `Config/ModAPITypes.json`。生成器使用当前 Target 的活动声明。真实业务中的调用点见[角色扩展示例](../UnrealModFramework/Source/ExportTest/GameCharacterExtensions.cpp)。字段及声明说明见[游戏端详细设计第 8 节](UnrealModFramework_游戏端详细设计.md#8-游戏声明与蓝图接入)。
+`MOD_EXPORT_API` 关联具体成员，`MOD_EXPORT_EVENT` 关联显式发布函数，`MOD_EXPORT_HOOK` 关联业务函数。类型身份保存在宿主 `Config/ModAPITypes.json`。生成器使用当前 Target 的活动声明。`ChangeHealth` 直接调用 `ApplyHealth`。[角色业务实现](../UnrealModFramework/Source/ExportTest/GameCharacter.cpp)字段及声明说明见[游戏端详细设计第 8 节](UnrealModFramework_游戏端详细设计.md#8-游戏声明与蓝图接入)。
 
 | 机制 | 声明提供的信息 | 游戏必须显式完成的接入 |
 | --- | --- | --- |
 | API | ID、具体 AST 成员、投影与调用策略 | 注册服务对象提供者或静态入口；指定 World/玩家作用域、线程与权限 |
-| Hook | ID、原版业务、开放阶段、允许操作与可写字段 | 在真实业务中调用生成的 Hook helper，定义提交、取消与错误边界 |
+| C++ Hook | 生成器根据所属类型、成员名和签名生成 ID 与阶段 | 在声明上写 `MOD_EXPORT_HOOK()`，在 `.cpp` 中实现原函数 |
 | Event | ID、实际事件源、载荷与回调策略 | 提供事件源实例，在业务发生时通过具体连接发布并管理生命周期 |
 
 #### 蓝图Mod导出
@@ -176,7 +176,7 @@ API 提供可主动调用的能力。Hook 是游戏在真实业务操作中设�
 | `On` | 执行核心业务，默认调用宿主原版逻辑 | `Wrap` 包装执行，`Replace` 接管执行 |
 | `Post` | 核心业务成功后，读取结果并执行后续处理 | `ModifyResult` 修改声明允许的结果 |
 
-每个 Hook 独立设置 `AllowedStages` 和 `AllowedOperations`，默认只开放 `Post` 且操作列表为空。每项操作都要求对应阶段开放。开启 `On` 后仍须分别显式授权 `Wrap` 或 `Replace` 才允许 Mod 介入核心执行。取消跳过 `On` 和 `Post`，失败由宿主返回并可单独发布事实通知。注册阶段建立稳定快照，阶段权限、顺序和错误规则见[游戏端详细设计第18节](UnrealModFramework_游戏端详细设计.md#18-hook-语义与执行计划)。
+C++ 的 `MOD_EXPORT_HOOK()` 默认生成 `Pre`、`On` 和 `Post`，并声明 `ModifyInputs`、`Cancel` 和 `Replace`。`NoPre`、`NoOn`、`NoPost` 分别关闭对应阶段及其操作，对 `CompatibleNames` 中的曾用名同样生效。蓝图编辑器中单独声明的 Hook 通过 `AllowedStages` 和 `AllowedOperations` 保存策略，默认只开放 `Post` 且操作列表为空。每项操作都要求对应阶段开放。开启 `On` 后仍须分别显式授权 `Wrap` 或 `Replace` 才允许 Mod 介入核心执行。取消跳过 `On` 和 `Post`，失败由宿主返回并可单独发布事实通知。注册阶段建立稳定快照，阶段权限、顺序和错误规则见[游戏端详细设计第18节](UnrealModFramework_游戏端详细设计.md#18-hook-语义与执行计划)。
 
 Hook 契约还需指定失败策略、重入规则、调用线程和网络权威。首版默认 Game Thread、同步，同键重入默认拒绝。跨线程或异步 Hook 必须单独声明并验证对象生命周期。Event 监听者接收只读载荷，宿主决定业务结果。Event Bus 在注册阶段缓存订阅者，广播前检查模组与源对象仍有效，Game Thread 为默认回调线程。原生 DLL 崩溃不能靠框架回调层隔离。
 

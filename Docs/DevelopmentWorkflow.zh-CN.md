@@ -32,7 +32,7 @@ push 配置和可信 PR 配置都使用 Unreal Engine 5.6.1，以 Linux Developm
 | `build_game_linux` | 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。 |
 | `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor` 及其支持的编辑器模块，再通过 `ModSDKTool build-editor` 构建并校验独立的 `ModDevelopmentSDKEditor` 插件。 |
 
-各 Job 使用独立的可写暂存目录，拉取私有引擎镜像后，UE 容器在无网络环境中运行。开发宿主的自动生成与最终链接链路在 Win64 x64 MSVC 上运行。Linux 会跳过该链路，编译范围为 Linux 框架目标和独立制作插件。工具与输入准备步骤见[ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
+各 Job 使用独立的可写暂存目录，拉取私有引擎镜像后，UE 容器在无网络环境中运行。MBT 的 `build-ue-target` 构建 Linux 目标，并在所属 UBT 模块中编译生成的宿主代码。Editor Job 运行 ChangeHealth 的 C++ 和蓝图用例。工具与输入准备步骤见[ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
 
 仓库没有 Server Target。这些 Job 验证编译和插件打包，不发布可下载包，也不运行 Unreal 自动化测试。其他平台及更新的支持引擎版本仍是构建覆盖缺口。
 

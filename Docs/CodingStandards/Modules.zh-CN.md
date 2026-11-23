@@ -57,7 +57,7 @@ MDT 把内嵌的 `DevelopmentEditor` 源码写入临时目录，再用 UAT `Buil
 
 ## 模组加载器
 
-`ModLoader` 负责发现、校验、提取和挂载 `.mod` 归档，并将结果分发给游戏会话。它读取 Cooked 内容包 v1、含 UE 原生模块的 v2，以及带扩展清单并可含原生代码的 v3。公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`HAL`、`RenderCore` 和引擎自带的 OpenSSL。Editor Target 另外私有依赖 `UnrealEd`，用于跟踪 PIE 会话和释放已加载的包。插件描述文件为 Win64、Linux 和 Mac 的 Game 与 Editor Target 启用模块。挂载要求 Pak 或 IoStore 后端、游戏、基础发布、引擎和平台身份匹配。Win64 x64 Pak 宿主用 `bAllowNativeModules=True` 开放 UE 模块加载，用 `bAllowNativeExtensions=True` 开放独立扩展 DLL。`ModLoader` 负责进程准入和包租约，`ModAPI` 提供生成契约校验及 World 回调与绑定。
+`ModLoader` 负责发现、校验、提取和挂载 `.mod` 归档，并将结果分发给游戏会话。它读取 Cooked 内容包 v1、含 UE 原生模块的 v2，以及带扩展清单并可含原生代码的 v3。公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`HAL`、`RenderCore` 和引擎自带的 OpenSSL。Editor Target 另外私有依赖 `UnrealEd`，用于跟踪 PIE 会话和释放已加载的包。运行时模块随 UBT 目标编译，桌面和移动宿主均可注册生成的 Hook。挂载要求 Pak 或 IoStore 后端、游戏、基础发布、引擎和平台身份匹配。Win64 x64 Pak 宿主用 `bAllowNativeModules=True` 开放 UE 模块加载，用 `bAllowNativeExtensions=True` 开放独立扩展 DLL。`ModLoader` 负责进程准入和包租约，`ModAPI` 提供生成契约校验及 World 回调与绑定。
 
 游戏可在引擎初始化完成后由 Game Thread 调用 `Mod::Loader::IModLoaderModule::Get().LoadPackage(Path, Policy)` 或 `LoadDirectory(Directory, Policy)`。C++ 调用方在自身模块的 Build.cs 声明 `ModLoader` 依赖。调用会同步验证文件和准备资源，应在进入玩法前完成。成功结果返回已挂载资源的长包名，宿主可据此按需加载资产。
 
