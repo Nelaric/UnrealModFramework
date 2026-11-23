@@ -4,7 +4,7 @@
 
 # ModBuildTool
 
-MBT 独立编译 MHT 或 ExportCodeGenerator 已生成的宿主连接代码，为一个所属模块产出原生静态库。游戏构建随后将该库链接到所属二进制；MHT 源文件不进入 UBT 的 C++ 编译列表。开发者的目标用法仍是导出宏与原函数声明。
+MBT 驱动 UBT 构建并接入生成的 Hook 源码，也负责为所属模块独立编译宿主连接代码并产出原生静态库。游戏构建将各宿主库链接到所属二进制。
 
 当前实现包含库构建、多符号校验、供 ModSDKTool（MDT）消费的公共产物清单，以及宿主库与成功链接记录的关联核对。[UHT 适配层](../../Source/ModRuntimeUht/README.zh-CN.md) 已为示例 UE 5.6 Win64 MSVC 目标调用 MHT 生成和 MBT 独立编译，私有 External 模块规则将库链接到所属模块。UE 5.6 的 PostBuildSteps 核对宿主库与实际链接产物并发布链接回执。现有 MHT `scan` 报告不能作为 MBT 输入。`Built` 表示宿主库构建完成，`Linked` 表示与可信链接记录及实际二进制的关联核对通过，均不证明游戏运行时行为。
 
@@ -19,6 +19,9 @@ MBT 独立编译 MHT 或 ExportCodeGenerator 已生成的宿主连接代码，�
 已配置的 CMake 构建目录也可直接构建 `ModBuildTool` target。使用具体构建目录中的程序调用：
 
 ```text
+ModBuildTool build-ue-target --engine <引擎目录> --project <工程.uproject> --target <目标>
+                             --platform <平台> --configuration <配置>
+                             --architecture <架构> --mode <normal|rebuild|bootstrap>
 ModBuildTool plan --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
@@ -31,6 +34,8 @@ ModBuildTool hash-file --file <path>
 ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol>
 ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 --kind Executable
 ```
+
+`build-ue-target` 使用引擎自带的 .NET 调用 UBT，每次构建一个目标架构。`normal` 模式下，MBT 导出待执行动作，核对 MHT 的 Hook 源码映射和文件哈希，替换编译输入，再通过 UBT 执行计划。MBT 记录对象文件的哈希供增量构建复用。`rebuild` 在导出动作前要求 UBT 重建。`bootstrap` 使用 UBT 的 `-MhtBootstrap` 构建 Development Editor，直接编译原函数。普通构建会按需自动准备引导 Editor。
 
 `plan` 返回当前输入指纹、所属模块、目标、宿主库位置及缓存状态。`build-host` 获取输出锁后检查缓存，命中时返回 `UpToDate`，否则独立编译并归档后返回 `Built`。`build-planned-host` 还会在持锁期间校验调用方传入的计划指纹。`verify-host` 在缓存或产物过期时返回非零。退出码 `0` 为成功，`1` 为参数、输入、编译、I/O 或验证失败。JSON 结果写入 stdout，工具链诊断写入 stderr。
 

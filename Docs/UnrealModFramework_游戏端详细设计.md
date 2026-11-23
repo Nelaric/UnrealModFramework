@@ -256,14 +256,13 @@ ExportHash 表示公共定义集合；CookProfileHash 表示资源构建兼容�
 
 C++ 导出采用声明前标记，指向真实游戏成员并提供导出范围、投影、作用域、权限与失败策略。游戏函数保持原始签名；MHT 从紧随标记的具体 AST 声明推导 Mod 侧签名，开发者无需重复写重载成员指针类型、第二套签名或常规对象包装。
 
-以下声明来自开发宿主的[角色导出](../UnrealModFramework/Source/ExportTest/GameCharacter.h)。
+开发宿主在 `ChangeHealth` 的声明上使用无参 Hook 标记。[角色声明](../UnrealModFramework/Source/ExportTest/GameCharacter.h)
 
 ```cpp
 MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldRead))
 EXPORTTEST_API float GetCurrentHealth() const;
 
-MOD_EXPORT_HOOK(ExportId = "hook/game.character/change-health", Permission = "Health.Change",
-                AllowedStages = (Pre, Post), AllowedOperations = (ModifyInputs, Cancel, ModifyResult))
+MOD_EXPORT_HOOK()
 UFUNCTION(BlueprintCallable, Category = "Character|Health")
 EXPORTTEST_API float ChangeHealth(float Delta);
 
@@ -275,7 +274,7 @@ EXPORTTEST_API void PublishHealthChanged(float CurrentHealth);
 | 标记 | 当前绑定形状 | 游戏接入 |
 | --- | --- | --- |
 | `MOD_EXPORT_API` | 受支持的同步 UObject 成员。标量和支持的 UObject 指针作为输入，结果可为标量、`void` 或生成的 World 对象视图 | 定义类型身份及实际提供者，配置调用者授权 |
-| `MOD_EXPORT_HOOK` | World 成员，接收一个载荷，返回同类型结果 | 在业务路径调用生成的 `Invoke`，提供原版逻辑及输入、结果校验 |
+| `MOD_EXPORT_HOOK()` | World 成员，在 `.cpp` 中定义，接收一个标量并返回同类型结果 | 在声明上标记宏，保留原函数体。MHT 和 MST 生成 `Pre`、`On`、`Post` 入口 |
 | `MOD_EXPORT_EVENT` | World 成员，接收一个载荷，返回 `void` | 在事实发生处调用生成的 `Publish` |
 
 关联只跨过支持的 UE 标记、属性及注释，随后按活动 AST 解析声明。宿主在 `Config/ModAPITypes.json` 保留稳定类型身份，ExportId、类型和权限参与契约校验。标记本身不构造对象，也不改变成员的 C++ 访问级别或跨模块导出。私有访问桥和额外类型级标记属于设计扩展。[^R08]
@@ -293,7 +292,7 @@ MHT 按类型和公开名生成 C++ API 的契约标识。类型映射、生成�
 | Event | 发布/订阅权限、发布/分发线程、同步/队列、载荷策略、顺序、重入/限深、容量/预算、溢出/合并、退订与监听失败 |
 | Hook | 参与权限、`AllowedStages`、`AllowedOperations`、输入和结果的可写字段、取消及完整结果、包装与替换规则、重入、阶段失败、排序与输入提交 |
 
-C++ 元数据和蓝图声明使用相同的阶段及操作名称。`AllowedStages` 至少包含一个阶段，默认 `(Post)`。`AllowedOperations` 默认 `()`，每项操作要求开放对应阶段，规则见[第18节](#18-hook-语义与执行计划)。C++ 生成与蓝图编译校验阶段和操作。当前 Hook 接入使用生成的类型化调用，由宿主为输入和结果提供校验。任意字段级修改策略仍需单独扩展。
+`MOD_EXPORT_HOOK()` 默认生成 `Pre`、`On` 和 `Post`，以及 `ModifyInputs`、`Cancel` 和 `Replace` 三种需授权的操作。`NoPre` 关闭 `Pre` 及修改入参、取消调用两项操作，`NoOn` 关闭 `On` 及替换操作，`NoPost` 关闭执行后通知。三项全写时，当前名和曾用名都不发布 Hook，游戏直接执行原函数。蓝图编辑器创建的 Hook 声明通过 `AllowedStages` 和 `AllowedOperations` 保存策略，初始值分别为 `(Post)` 和 `()`。每项操作要求开放对应阶段，规则见[第18节](#18-hook-语义与执行计划)。任意字段级修改策略仍需单独扩展。
 
 旧蓝图资产加载时，`Observe`、`Modify`、`Intercept` 分别映射为 `Post`、`Pre`、`On`，`AllowedOperations` 为空。需要修改输入、取消、包装、替换或修改结果时，由游戏开发者在对应 Hook 上显式授权。
 
@@ -1327,7 +1326,7 @@ Hook、Event、CheckedBinding、ABI 转换分别记录每次固定成本、每�
 
 开发宿主已提供可追踪的接入点。
 
-1. 角色 API、`ChangeHealth` Hook 和三种生命值 Event 见[角色声明](../UnrealModFramework/Source/ExportTest/GameCharacter.h)与[生成 Helper 的业务接入](../UnrealModFramework/Source/ExportTest/GameCharacterExtensions.cpp)。
+1. `ChangeHealth` 的公开声明只加 `MOD_EXPORT_HOOK()`，函数体直接调用 `ApplyHealth`。[角色声明](../UnrealModFramework/Source/ExportTest/GameCharacter.h) [业务实现](../UnrealModFramework/Source/ExportTest/GameCharacter.cpp)
 2. 用 `?game=ModExtensions` 进入开发宿主的对应地图模式。`PrepareGameExtensions` 定义 `character.mesh` 内容槽和 `training.target` 锚点，选择 World 授权并调用 `Prepare`。单机可用 `ModWriteSave <槽位>` 保存至 `Saved/ModSaves`，用 `ModLoadSave <槽位>` 重新进入地图并迁移数据。[模式接入](../UnrealModFramework/Source/ExportTest/GameExtensionMode.cpp)
 3. 服务器登录和客户端地图切换前验证同一玩法计划。[服务端接入](../UnrealModFramework/Source/ExportTest/GameExtensionMode.cpp) · [客户端接入](../UnrealModFramework/Source/ExportTest/GameExtensionInstance.cpp)
 

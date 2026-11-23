@@ -19,7 +19,7 @@ See Epic's [UE 5.6 UHT extension documentation](https://dev.epicgames.com/docume
 
 ## Native tool and default invocation
 
-Normal Win64 x64, Linux, and macOS builds configured with
+Targets configured with
 `ExportMetadata.ConfigureTarget(this)` build ModHeaderTool, ModBuildTool, and
 ModSourceTool before UHT. For a direct UHT invocation, prepare the tools with
 the native build script first. UHT looks for MHT in the following order.
@@ -48,7 +48,7 @@ as `DefaultEngine.ini` trigger this check on the next incremental build.
 Scan mode refreshes an existing default snapshot and can still scan a project
 with no snapshot when none of its declarations need it. An `options` override
 that points elsewhere is managed by the caller.
-On Win64, `metadataEditorTarget` names the Development Editor target that UBT
+On the build host, `metadataEditorTarget` names the Development Editor target that UBT
 builds in bootstrap mode when the commandlet needs project binaries. Projects
 that leave this setting out can prepare the Editor with `-MhtBootstrap`.
 
@@ -58,20 +58,9 @@ under the project. Scan validates marker parameters.
 
 ## Complete generation
 
-Set `mode` to `generate` and list the export modules in `generation`. The development project skips `generate` on Linux and macOS and continues with the normal UE target build. During a
-normal build the adapter runs UBT's `GenerateClangDatabase` with the selected
-target and MSVC toolchain. It expands the export modules' response files before
-the regular action graph is written. The variant's `HostTargets` directory holds
-the resulting `BuildInput.json` and `Ubt/compile_commands.json`. When UBT reuses
-its makefile, the adapter reads the saved compile arguments.
+Set `mode` to `generate` and list the export modules in `generation`. UBT records its actual platform, configuration and architecture in the UHT manifest. The adapter expands the target compiler's response files before the regular action graph is written. Each variant stores its `BuildInput.json` and pinned `Ubt/compile_commands.json` in `HostTargets`. MHT checks the target, module, configuration and CPU of the parsed translation unit.
 
-The adapter checks the input's project, target, platform, and configuration
-against the UHT session and uses the x64 architecture enforced by the rules. It
-exports owner-specific MBT contexts and writes `GenerationRequest.json` in the
-variant's `HostTargets` directory. The request supplies the build input,
-output directory, host contexts, and any resolved snapshot, libclang, and
-lifecycle source paths. UHT runs `ModHeaderTool generate <GenerationRequest.json>`.
-It then runs `ModBuildTool build-host` for every owner before returning from UHT.
+UHT runs `ModHeaderTool generate` with the target database and host libclang. Win64 x64 MSVC also supplies independent MBT producer contexts. Other targets compile the generated host units directly in their owning UBT module through UHT's `CompileOutput`. This route publishes a `UMF.UbtHostArtifacts` manifest. MBT produces its existing `UMF.GeneratedArtifacts` manifest and independent SDK libraries on Win64 x64 MSVC.
 The project generation root is
 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`.
 Each run replaces that variant's
@@ -80,7 +69,7 @@ Each run replaces that variant's
 generated file hash. Removed outputs are cleaned; identical files retain their
 timestamps. The complete manifest is committed after all file replacements.
 `generationId` remains a content identity.
-For modules owned by an exporting plugin, the adapter also publishes their
+For independent MBT modules owned by an exporting plugin, the adapter also publishes their
 verified generated files at the same relative paths under the plugin's
 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`.
 The project batch contains the shared contract, client ABI and complete manifest.
@@ -162,13 +151,23 @@ policy replacement revokes the corresponding callers.
 
 Add the saved asset to `blueprintExports`. Declare the Hook or Event in **蓝图Mod导出**, then connect the execution input on the corresponding **Hook Point** or **Publish Event** node. Unconnected declarations are skipped. A Hook's original-behavior graph takes and returns the same payload type, and the node exposes the result, status, cancellation, and commit state. Events support `Immediate` and `NextTick` with optional immediate unsubscription. Payloads may use supported scalars, reflected value structs, or UObjects with a generated World view.
 
-For C++, associate the macro with a member signature on a type with a World identity. An empty `MOD_EXPORT_HOOK()` wraps the original out-of-line definition using the Win64 prototype below. Explicit Hook and Event declarations can call the generated helpers directly or use `HostEndpoint` to generate the member definition. [Generated contracts and payload limits](../../Tools/ModHeaderTool/README.md#world-extension-artifacts)
+For C++, associate the macro with a member signature on a type with a World identity. An empty `MOD_EXPORT_HOOK()` wraps the original out-of-line definition when MBT builds the target. C++ Events can call the generated publisher or use `HostEndpoint` to generate a publishing member definition. [Generated contracts and payload limits](../../Tools/ModHeaderTool/README.md#world-extension-artifacts)
 
-### Win64 automatic Hook prototype
+### Automatic Hook builds
 
-From the repository root, run `python Scripts/build_win64_hooks.py --engine "C:\Program Files\Epic Games\UE_5.6"`. The default target is the Development Editor. Pass `--target UnrealModFrameworkDev` to build the Game. The driver asks UBT for outdated actions, substitutes the MST source copies in the affected compile commands, and executes the resulting actions through UBT. The original object paths and link actions are reused. The forced host link header requires one versioned symbol from each rewritten translation unit, so an original object cannot silently satisfy a Hook-enabled link.
+Run MBT on the host that owns the UBT compile actions, with the UE SDK for the selected target. Each invocation builds one architecture. This example builds the Linux Development Editor from the repository root.
 
-MHT resolves the declaration and passes its Clang identity and real analysis compile database to MST. MST wraps the original body inside a local callable and emits a complete source copy. The ordinary C++ symbol and UHT-generated Blueprint thunk both enter the same dispatch path. The Development Editor built with `-MhtBootstrap` compiles the game's original source using the same function body. The Editor automation test `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` compiles and runs a Blueprint that calls the same method tested from C++.
+```sh
+mbt=UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool
+"$mbt" build-ue-target --engine /opt/UE_5.6 --project UnrealModFramework/UnrealModFrameworkDev.uproject \
+  --target UnrealModFrameworkDevEditor --platform Linux --configuration Development --architecture x64 --mode normal
+```
+
+Windows architectures are `x64`, `arm64` and `arm64ec`. Apple devices use `arm64`. UBT uses `iossimulator` for the iOS and visionOS simulators and `tvossimulator` for the tvOS simulator. `UMF_MHT_LIBCLANG` selects the build host's libclang, and `UMF_MHT_CLANG_RESOURCE_DIR` selects its matching resource directory when set. A project can set a host-specific library in `hostLibclang`. The compile database supplies the target SDK, include paths and architecture.
+
+MHT and MST identify the annotated member in Clang's AST and write its source copy. MBT substitutes the input in the matching UBT action, including nested response files, and preserves its object and link outputs. The generated registration references a versioned symbol defined by the copy. COFF and ELF links reject an original object. On Apple targets the post-build step also checks the Mach-O imports with Xcode nm, including links that use dynamic lookup. C++ and the Blueprint thunk enter the same public function. When a bootstrap Editor is needed, the tools invoke UBT with `-MhtBootstrap`. That Development Editor calls the original function. The `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` test exercises both entry points.
+
+The build rules use independent MBT archives for Win64 x64 MSVC and compile the generated host with UBT for other toolchains. Console SDKs, remote Mac action execution, universal binary packaging and installing third-party native Mod packages are separate platform integrations.
 
 ## Independent host compilation and linking
 
