@@ -162,7 +162,13 @@ policy replacement revokes the corresponding callers.
 
 Add the saved asset to `blueprintExports`. Declare the Hook or Event in **蓝图Mod导出**, then connect the execution input on the corresponding **Hook Point** or **Publish Event** node. Unconnected declarations are skipped. A Hook's original-behavior graph takes and returns the same payload type, and the node exposes the result, status, cancellation, and commit state. Events support `Immediate` and `NextTick` with optional immediate unsubscription. Payloads may use supported scalars, reflected value structs, or UObjects with a generated World view.
 
-For C++, associate the macro with a member signature on a type with a World identity and call the generated `<owner>.modextensions.h` entry from the real gameplay code. In `ExportTest`, the character example wraps the health operation with `Invoke` and sends scalar, struct, and object notifications through `Publish`. [Generated contracts and payload limits](../../Tools/ModHeaderTool/README.md#world-extension-artifacts)
+For C++, associate the macro with a member signature on a type with a World identity. An empty `MOD_EXPORT_HOOK()` wraps the original out-of-line definition using the Win64 prototype below. Explicit Hook and Event declarations can call the generated helpers directly or use `HostEndpoint` to generate the member definition. [Generated contracts and payload limits](../../Tools/ModHeaderTool/README.md#world-extension-artifacts)
+
+### Win64 automatic Hook prototype
+
+From the repository root, run `python Scripts/build_win64_hooks.py --engine "C:\Program Files\Epic Games\UE_5.6"`. The default target is the Development Editor. Pass `--target UnrealModFrameworkDev` to build the Game. The driver asks UBT for outdated actions, substitutes the MST source copies in the affected compile commands, and executes the resulting actions through UBT. The original object paths and link actions are reused. The forced host link header requires one versioned symbol from each rewritten translation unit, so an original object cannot silently satisfy a Hook-enabled link.
+
+MHT resolves the declaration and passes its Clang identity and real analysis compile database to MST. MST wraps the original body inside a local callable and emits a complete source copy. The ordinary C++ symbol and UHT-generated Blueprint thunk both enter the same dispatch path. The Development Editor built with `-MhtBootstrap` compiles the game's original source using the same function body. The Editor automation test `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` compiles and runs a Blueprint that calls the same method tested from C++.
 
 ## Independent host compilation and linking
 

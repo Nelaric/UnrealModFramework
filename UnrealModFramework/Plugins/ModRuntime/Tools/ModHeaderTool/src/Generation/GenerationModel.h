@@ -24,6 +24,7 @@ struct GenerationModel
 	fs::path LifecycleSource;
 	std::vector<API> APIs;
 	std::map<std::string, Extension> Extensions;
+	std::map<std::string, std::string> HookSources;
 	std::map<std::string, ResolvedType> Types;
 	std::set<fs::path> Dependencies;
 	std::vector<std::string> Commands;

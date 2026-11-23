@@ -8,10 +8,27 @@
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Mod::HeaderTool
 {
 struct GenerationModel;
+
+struct ExtensionHostMember
+{
+	std::string Endpoint;
+	std::string ParameterType;
+	std::string ReturnType;
+	bool bNoexcept = false;
+	std::string Core;
+	std::string ReadState;
+	std::string ValidateInput;
+	std::string ValidateResult;
+	std::string CommitPayload;
+	std::vector<std::string> PublishOnCommit;
+
+	bool operator==(const ExtensionHostMember&) const = default;
+};
 
 struct Extension
 {
@@ -43,11 +60,14 @@ struct Extension
 	std::string Output;
 	std::string OutputRole;
 	std::string SourceSignature;
+	std::string DefinitionUsr;
 	std::string Header;
 	std::string Location;
 	ExportMacro Macro;
+	ExtensionHostMember HostMember;
 
 	std::string BlueprintPayloadType() const;
+	std::string CppHelperName() const;
 	nlohmann::json Describe() const;
 	std::string Signature() const;
 };

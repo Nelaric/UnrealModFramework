@@ -292,15 +292,22 @@ internal sealed class MbtHostBuild
 			factory.AddExternalDependency(context);
 		}
 		string variant = Path.GetDirectoryName(ContextSet)!;
+		string hookMap = Path.Combine(Path.GetDirectoryName(manifest)!, "Diagnostics", "HookSources.json");
+		using JsonDocument? hooks = File.Exists(hookMap) ? JsonDocument.Parse(File.ReadAllText(hookMap)) : null;
 		foreach ((string owner, string header) in LinkHeaders)
 		{
-			MhtProcess.Run(
-				factory.Session.Logger,
-				SourceTool,
-				new[] { "generate-host-link", owner, header },
-				projectRoot,
-				timeout
-			);
+			List<string> arguments = new() { "generate-host-link", owner, header };
+			if (hooks != null)
+			{
+				arguments.AddRange(
+					hooks
+						.RootElement.GetProperty("units")
+						.EnumerateArray()
+						.Where(unit => unit.GetProperty("owner").GetString() == owner)
+						.Select(unit => unit.GetProperty("witness").GetString()!)
+				);
+			}
+			MhtProcess.Run(factory.Session.Logger, SourceTool, arguments, projectRoot, timeout);
 			FileItem.ResetCachedInfo(header);
 			factory.AddExternalDependency(header);
 		}

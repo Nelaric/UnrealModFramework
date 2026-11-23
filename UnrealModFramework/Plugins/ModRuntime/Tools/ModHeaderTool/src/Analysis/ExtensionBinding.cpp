@@ -9,6 +9,7 @@
 #include "ModHeaderTool/src/Files/Path.h"
 
 #include <algorithm>
+#include <cctype>
 #include <ranges>
 #include <vector>
 #include <utility>
@@ -21,6 +22,25 @@ std::string Field(const ExportMacro& Macro, const char* Key)
 {
 	const auto It = std::ranges::find(Macro.Fields, Key, &MetadataField::Name);
 	return It == Macro.Fields.end() ? std::string{} : It->Value.Text;
+}
+
+std::string HookSlug(std::string_view Name)
+{
+	std::string Result;
+	for (std::size_t Index = 0; Index < Name.size(); ++Index)
+	{
+		const unsigned char Letter = Name[Index];
+		const bool bWordStart =
+		    Index > 0 && std::isupper(Letter) &&
+		    (std::islower(static_cast<unsigned char>(Name[Index - 1])) ||
+		     (Index + 1 < Name.size() && std::islower(static_cast<unsigned char>(Name[Index + 1]))));
+		if (bWordStart && Result.back() != '-')
+		{
+			Result += '-';
+		}
+		Result += Letter == '_' ? '-' : static_cast<char>(std::tolower(Letter));
+	}
+	return Result;
 }
 
 std::string StructLayout(ClangLibrary& Clang, CXType Type, int Depth, int& Count)
@@ -263,6 +283,49 @@ void BindEvent(GenerationModel& Model, ClangLibrary& Clang, const Source& Source
 	}
 	Entry.PublishPermission = Field(Macro, "PublishPermission");
 }
+
+void BindHostMember(ClangLibrary& Clang, CXCursor Member, Extension& Entry)
+{
+	const auto& Macro = Entry.Macro;
+	auto& Host = Entry.HostMember;
+	Host.Endpoint = Field(Macro, "HostEndpoint");
+	if (Host.Endpoint.empty())
+	{
+		return;
+	}
+	if (Entry.bHook && !Entry.PayloadKind.empty())
+	{
+		CursorSource::Fail(Macro, "'HostEndpoint' on a Hook requires scalar input and result types.");
+	}
+	const auto FunctionType = Clang.clang_getCanonicalType(Clang.clang_getCursorType(Member));
+	const int Exception = Clang.clang_getExceptionSpecificationType(FunctionType);
+	if (Clang.clang_isCursorDefinition(Member) ||
+	    Clang.String(Clang.clang_getTypeSpelling(FunctionType)).find("volatile") != std::string::npos ||
+	    (Exception != CXCursor_ExceptionSpecificationKind_None &&
+	     Exception != CXCursor_ExceptionSpecificationKind_BasicNoexcept))
+	{
+		CursorSource::Fail(Macro,
+		                   "'HostEndpoint' requires a declaration without a body, volatile, or computed noexcept.");
+	}
+	const auto TypeSpelling = [&](CXType Type)
+	{ return Clang.String(Clang.clang_getTypeSpelling(Clang.clang_getCanonicalType(Type))); };
+	Host.ParameterType = TypeSpelling(Clang.clang_getCursorType(Clang.clang_Cursor_getArgument(Member, 0)));
+	Host.ReturnType = TypeSpelling(Clang.clang_getCursorResultType(Member));
+	Host.bNoexcept = Exception == CXCursor_ExceptionSpecificationKind_BasicNoexcept;
+	Host.Core = Field(Macro, "HostCore");
+	Host.ReadState = Field(Macro, "HostReadState");
+	Host.ValidateInput = Field(Macro, "HostValidateInput");
+	Host.ValidateResult = Field(Macro, "HostValidateResult");
+	Host.CommitPayload = Field(Macro, "HostCommitPayload");
+	const auto Publishers = std::ranges::find(Macro.Fields, "HostPublishOnCommit", &MetadataField::Name);
+	if (Publishers != Macro.Fields.end())
+	{
+		for (const auto& Item : Publishers->Value.Items)
+		{
+			Host.PublishOnCommit.push_back(Item.Text);
+		}
+	}
+}
 } // namespace
 
 Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& Source, ExportMacro Macro,
@@ -302,11 +365,27 @@ Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Sourc
 	if (Entry.bHook)
 	{
 		BindHook(Model, Clang, Source, Member, Entry);
+		if (Entry.Macro.bAutomaticHook)
+		{
+			if (!Entry.PayloadKind.empty() || Clang.clang_isCursorDefinition(Member) ||
+			    Model.Input.Platform != "Win64" || Model.Input.Architecture != "x64")
+			{
+				CursorSource::Fail(Entry.Macro, "automatic Hooks require a Win64 x64 scalar member declaration.");
+			}
+			Entry.Id = "hook/" + Identity->second.Id + "/" + HookSlug(Entry.Name);
+			Entry.Permission = Entry.Id;
+			Entry.DefinitionUsr = Clang.String(Clang.clang_getCursorUSR(Member));
+			if (Entry.DefinitionUsr.empty())
+			{
+				CursorSource::Fail(Entry.Macro, "cannot identify the automatic Hook's C++ declaration.");
+			}
+		}
 	}
 	else
 	{
 		BindEvent(Model, Clang, Source, Member, Entry);
 	}
+	BindHostMember(Clang, Member, Entry);
 	return Entry;
 }
 } // namespace Mod::HeaderTool

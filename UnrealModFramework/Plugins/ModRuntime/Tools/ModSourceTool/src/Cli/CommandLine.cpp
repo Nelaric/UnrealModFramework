@@ -2,6 +2,7 @@
 #include "CommandLine.h"
 
 #include "Common/Files/Path.h"
+#include "ModSourceTool/src/Analysis/HookSourceWriter.h"
 #include "ModSourceTool/src/Cli/AnalysisCommand.h"
 #include "ModSourceTool/src/Cli/AnalysisOptions.h"
 #include "ModSourceTool/src/Cli/HostLinkHeader.h"
@@ -19,6 +20,7 @@ int CommandLine::PrintHelp()
   ModSourceTool analyze-errors <SourceAnalysisRequest.json>
   ModSourceTool update-catalog <SourceAnalysisRequest.json>
   ModSourceTool generate-host-link <owner-module> <output-header>
+  ModSourceTool rewrite-hooks <HookSourceRequest.json>
   ModSourceTool --help | --version
 
 Traces configured failure returns and escaping C++ throws through visible definitions.
@@ -31,6 +33,7 @@ catalog, member, libclang, resourceDirectory and an analysisArguments array.
 Both commands report JSON on stdout. update-catalog records new classifications
 and assigns their stable codes.
 generate-host-link writes the Win64 x64 MSVC header that retains an MHT host archive.
+rewrite-hooks reports the rewritten game translation units using their real compiler commands.
 Keep existing reason keys and codes when changing their guard spellings.
 )";
 	return std::cout ? 0 : 1;
@@ -38,11 +41,11 @@ Keep existing reason keys and codes when changing their guard spellings.
 
 int CommandLine::RunHostLinkCommand(const std::vector<std::string>& Arguments)
 {
-	if (Arguments.size() != 4 || Arguments[2].empty() || Arguments[3].empty())
+	if (Arguments.size() < 4 || Arguments[2].empty() || Arguments[3].empty())
 	{
 		throw std::runtime_error("Usage: ModSourceTool generate-host-link <owner-module> <output-header>");
 	}
-	HostLinkHeader::GenerateHostLink(Arguments[2], Arguments[3]);
+	HostLinkHeader::GenerateHostLink(Arguments[2], Arguments[3], std::span(Arguments).subspan(4));
 	return 0;
 }
 
@@ -60,6 +63,11 @@ int CommandLine::RunCommandLine(const std::vector<std::string>& Arguments)
 	if (Arguments[1] == "generate-host-link")
 	{
 		return RunHostLinkCommand(Arguments);
+	}
+	if (Arguments[1] == "rewrite-hooks" && Arguments.size() == 3)
+	{
+		HookSourceWriter::Rewrite(Mod::BuildTool::Path::PathFromUtf8(Arguments[2]));
+		return std::cout ? 0 : 1;
 	}
 	const bool bUpdateCatalog = Arguments[1] == "update-catalog";
 	if (Arguments[1] != "analyze-errors" && !bUpdateCatalog)

@@ -90,7 +90,13 @@ if (UUMFDevSDKLibrary::Acquire_FModObject_T_f4f57c0936062c84(*this, Provider))
 
 在 `blueprintExports` 中配置资产。在「蓝图Mod导出」声明 Hook/Event 后，在业务图连接对应的 **Hook Point** 或 **Publish Event** 节点的执行输入。未连线的声明跳过导出。Hook 的原版逻辑图接收一个载荷并返回同类型结果，节点输出结果、状态码、取消和已提交标志。Event 支持 `Immediate` 和 `NextTick`，可选立即退订。载荷可用受支持的标量、反射值结构体或具有生成 World 视图的 UObject。
 
-C++ Hook/Event 用导出宏关联所属类型的成员签名。声明所属类型必须有 World 类型身份。游戏在实际业务里调用 `<owner>.modextensions.h` 的生成入口。`ExportTest` 的角色样例使用 `Invoke` 包围生命值变更，并用 `Publish` 发送标量、结构体及对象事件。[生成契约与载荷限制](../../Tools/ModHeaderTool/README.zh-CN.md#world-扩展产物)
+C++ Hook/Event 用导出宏关联具备 World 类型身份的成员签名。无参 `MOD_EXPORT_HOOK()` 通过下面的 Win64 原型包装已有的 `.cpp` 定义。显式 Hook/Event 声明也支持直接调用生成的辅助函数，或指定 `HostEndpoint` 生成成员函数定义。[生成契约与载荷限制](../../Tools/ModHeaderTool/README.zh-CN.md#world-扩展产物)
+
+### Win64 自动 Hook 原型
+
+在仓库根目录运行 `python Scripts/build_win64_hooks.py --engine "C:\Program Files\Epic Games\UE_5.6"`。默认构建 Development Editor，传 `--target UnrealModFrameworkDev` 构建 Game。驱动从 UBT 取得过期动作，把命中的编译输入替换为 MST 生成的副本，再由 UBT 执行。对象文件路径和链接动作沿用 UBT 的原配置。强制包含的宿主链接头要求每个改写单元提供本次生成对应的符号，漏编副本会在链接时报错。
+
+MHT 解析声明，把 Clang 声明标识和真实分析编译数据库传给 MST。MST 把原函数体放进局部可调用对象，生成完整的源码副本。C++ 调用和 UHT 生成的蓝图调用桩通过同一个符号进入分派。`-MhtBootstrap` 构建 Development Editor 时直接编译游戏的原始源码。Editor 自动化测试 `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` 同时验证 C++ 调用与实际编译、执行的蓝图调用。
 
 ## 独立宿主编译与链接
 

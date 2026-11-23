@@ -89,6 +89,8 @@ enum class EFieldType
 	ClassNameList,
 	/// A parenthesized list of quoted function names.
 	FunctionNameList,
+	/// An unqualified C++ member identifier.
+	MemberName,
 };
 
 /// A declaration field and its choice source.
@@ -122,7 +124,7 @@ inline constexpr std::array<FFieldSpec, 6> APIFields = {{
     {"CompatibleNames", EFieldType::FunctionNameList, nullptr, false},
 }};
 /// Fields belonging to Event declarations.
-inline constexpr std::array<FFieldSpec, 8> EventFields = {{
+inline constexpr std::array<FFieldSpec, 10> EventFields = {{
     {"SourceScope", EFieldType::Choice, "EventSourceScopes", true},
     {"PublishRule", EFieldType::Choice, "EventPublishRules", true},
     {"UnsubscribeRule", EFieldType::Choice, "EventUnsubscribeRules", false},
@@ -131,15 +133,23 @@ inline constexpr std::array<FFieldSpec, 8> EventFields = {{
     {"Permission", EFieldType::NonEmptyText, nullptr, false},
     {"PublishPermission", EFieldType::NonEmptyText, nullptr, false},
     {"Authority", EFieldType::Choice, "ExtensionAuthorities", false, "Server"},
+    {"HostEndpoint", EFieldType::MemberName, nullptr, false},
+    {"HostCommitPayload", EFieldType::MemberName, nullptr, false},
 }};
 /// Fields belonging to Hook declarations.
-inline constexpr std::array<FFieldSpec, 6> HookFields = {{
+inline constexpr std::array<FFieldSpec, 12> HookFields = {{
     {"ContextType", EFieldType::StructType, nullptr, false},
     {"ExportId", EFieldType::NonEmptyText, nullptr, false},
     {"Permission", EFieldType::NonEmptyText, nullptr, false},
     {"Authority", EFieldType::Choice, "ExtensionAuthorities", false, "Server"},
     {"AllowedStages", EFieldType::ChoiceList, "HookStages", false, DefaultHookStage},
     {"AllowedOperations", EFieldType::ChoiceList, "HookOperations", false},
+    {"HostEndpoint", EFieldType::MemberName, nullptr, false},
+    {"HostCore", EFieldType::MemberName, nullptr, false},
+    {"HostReadState", EFieldType::MemberName, nullptr, false},
+    {"HostValidateInput", EFieldType::MemberName, nullptr, false},
+    {"HostValidateResult", EFieldType::MemberName, nullptr, false},
+    {"HostPublishOnCommit", EFieldType::FunctionNameList, nullptr, false},
 }};
 
 /// Returns the fields belonging to a declaration kind.

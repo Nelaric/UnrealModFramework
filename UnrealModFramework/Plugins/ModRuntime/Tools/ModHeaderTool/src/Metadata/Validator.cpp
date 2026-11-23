@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <initializer_list>
 #include <set>
 #include <span>
 #include <string>
@@ -28,6 +29,21 @@ Validator::Validator(ExportMacro& InMacro, const MetadataOptions* InOptions, con
 
 std::vector<std::string> Validator::Validate()
 {
+	if (Macro.Name == "MOD_EXPORT_HOOK" && Macro.Fields.empty())
+	{
+		Macro.bAutomaticHook = true;
+		const auto AddList = [this](const char* Name, std::initializer_list<const char*> Values)
+		{
+			MetadataValue List{MetadataValue::EKind::List, {}, {}, Macro.Offset};
+			for (const char* Value : Values)
+			{
+				List.Items.push_back({MetadataValue::EKind::Identifier, Value, {}, Macro.Offset});
+			}
+			Macro.Fields.push_back({Name, Macro.Offset, std::move(List)});
+		};
+		AddList("AllowedStages", {"Pre", "On", "Post"});
+		AddList("AllowedOperations", {"ModifyInputs", "Cancel", "Replace"});
+	}
 	std::set<std::string> Names;
 	for (const MetadataField& Field : Macro.Fields)
 	{
@@ -84,9 +100,29 @@ std::vector<std::string> Validator::Validate()
 	};
 	CompleteFields(Schema::CommonFields);
 	CompleteFields(Schema::FieldsFor(Macro.Name));
+	const bool bGenerateHostMember = Names.contains("HostEndpoint");
 	if (Macro.Name == "MOD_EXPORT_HOOK" && Diagnostics.empty())
 	{
 		ValidateHookPolicy();
+		for (const char* Name : {"HostCore", "HostReadState", "HostValidateInput", "HostValidateResult"})
+		{
+			if (bGenerateHostMember && !Names.contains(Name))
+			{
+				Error(Macro.Offset, std::string("'HostEndpoint' requires '") + Name + "'.");
+			}
+			else if (!bGenerateHostMember && Names.contains(Name))
+			{
+				Error(Macro.Offset, std::string("'") + Name + "' requires 'HostEndpoint'.");
+			}
+		}
+		if (!bGenerateHostMember && Names.contains("HostPublishOnCommit"))
+		{
+			Error(Macro.Offset, "'HostPublishOnCommit' requires 'HostEndpoint'.");
+		}
+	}
+	if (!bGenerateHostMember && Names.contains("HostCommitPayload"))
+	{
+		Error(Macro.Offset, "'HostCommitPayload' requires 'HostEndpoint'.");
 	}
 	return Diagnostics;
 }
@@ -231,8 +267,8 @@ void Validator::ValidateValue(const Schema::FFieldSpec& Spec, const MetadataValu
 			{
 				if (Item.Kind != MetadataValue::EKind::String || !MetadataName::IsCompatibleFunctionName(Item.Text))
 				{
-					Error(Item.Offset,
-					      "'CompatibleNames' expects a quoted function identifier, found '" + Item.Text + "'.");
+					Error(Item.Offset, std::string("'") + Spec.Name +
+					                       "' expects a quoted function identifier, found '" + Item.Text + "'.");
 				}
 			}
 			else if (Item.Kind != MetadataValue::EKind::String || !IsTypeName(Item.Text))
@@ -245,6 +281,14 @@ void Validator::ValidateValue(const Schema::FFieldSpec& Spec, const MetadataValu
 	if (Spec.Type == EFieldType::Choice)
 	{
 		CheckChoice(Spec, Value);
+		return;
+	}
+	if (Spec.Type == EFieldType::MemberName)
+	{
+		if (Value.Kind != MetadataValue::EKind::Identifier || !MetadataName::IsCompatibleFunctionName(Value.Text))
+		{
+			Error(Value.Offset, std::string("'") + Spec.Name + "' expects an unqualified C++ member identifier.");
+		}
 		return;
 	}
 	if (Spec.Type == EFieldType::StructType)

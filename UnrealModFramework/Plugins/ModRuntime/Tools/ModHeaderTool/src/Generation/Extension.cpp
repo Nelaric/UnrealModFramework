@@ -4,6 +4,7 @@
 #include "ModHeaderTool/src/Generation/GenerationModel.h"
 #include "ModHeaderTool/src/Hash/Hash.h"
 
+#include <algorithm>
 #include <cctype>
 #include <stdexcept>
 
@@ -12,6 +13,13 @@ namespace Mod::HeaderTool
 std::string Extension::BlueprintPayloadType() const
 {
 	return "ModExtensionPayload_" + Hash::HashBytes(Id).substr(0, 16);
+}
+
+std::string Extension::CppHelperName() const
+{
+	auto Symbol = Owner + "_" + Name;
+	std::replace(Symbol.begin(), Symbol.end(), ':', '_');
+	return Symbol;
 }
 
 nlohmann::json Extension::Describe() const
@@ -86,7 +94,8 @@ void AddExtension(GenerationModel& Model, Extension Entry)
 	{
 		const auto& Previous = Found->second;
 		if (Previous.Location != Entry.Location || Previous.SourceSignature != Entry.SourceSignature ||
-		    Previous.Signature() != Entry.Signature())
+		    Previous.Signature() != Entry.Signature() || Previous.HostMember != Entry.HostMember ||
+		    Previous.DefinitionUsr != Entry.DefinitionUsr)
 		{
 			throw std::runtime_error(Entry.Location + ": duplicate or inconsistent extension ID " + Entry.Id +
 			                         " (also at " + Previous.Location + ").");

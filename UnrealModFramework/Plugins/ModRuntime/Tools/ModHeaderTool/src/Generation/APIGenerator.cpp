@@ -4,6 +4,7 @@
 #include "ModHeaderTool/src/Generation/BlueprintExports.h"
 #include "ModHeaderTool/src/Analysis/DeclarationAnalyzer.h"
 #include "ModHeaderTool/src/Analysis/SourceErrorAnalyzer.h"
+#include "ModHeaderTool/src/Analysis/SourceToolInvocation.h"
 #include "ModHeaderTool/src/Files/Path.h"
 #include "ModHeaderTool/src/Files/TextFile.h"
 #include "ModHeaderTool/src/Generation/Artifacts/ArtifactEmitter.h"
@@ -95,9 +96,10 @@ void APIGenerator::Generate(const fs::path& OutputDirectory, const fs::path& Opt
 	const fs::path AnalysisDatabase = ResolveAnalysisDatabase();
 	auto Model = DeclarationAnalyzer::Analyze(std::move(Input), Options, ClangLibrary, AnalysisDatabase);
 	const auto SourceToolPath = ContextSet.value("sourceTool", "");
-	SourceErrorAnalyzer::AnalyzeSourceErrors(
-	    Model, AnalysisDatabase, ClangLibrary,
-	    SourceToolPath.empty() ? fs::path{} : ContextFile.parent_path() / Path::PathFromUtf8(SourceToolPath));
+	const auto SourceTool =
+	    SourceToolPath.empty() ? fs::path{} : ContextFile.parent_path() / Path::PathFromUtf8(SourceToolPath);
+	SourceErrorAnalyzer::AnalyzeSourceErrors(Model, AnalysisDatabase, ClangLibrary, SourceTool);
+	SourceToolInvocation::RewriteHooks(Model, AnalysisDatabase, ClangLibrary, SourceTool);
 	BlueprintExports::Merge(Model, BlueprintSnapshot);
 	if (!LifecycleSource.empty())
 	{

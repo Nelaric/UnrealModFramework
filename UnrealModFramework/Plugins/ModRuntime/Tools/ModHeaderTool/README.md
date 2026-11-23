@@ -66,11 +66,21 @@ The public header embeds the same version/hash for compiled consumers.
 
 ## World extension artifacts
 
-- `Host/<owner>/<owner>.modextensions.h` supplies typed `Invoke` and `Publish` helpers for C++ call sites. The generated host bridge registers C++ and Blueprint extension definitions. Gameplay code remains responsible for calling those entry points.
+- `Host/<owner>/<owner>.modextensions.h` supplies typed `Invoke` and `Publish` helpers for C++ call sites. The generated host bridge registers C++ and Blueprint extension definitions and implements C++ members that declare `HostEndpoint`.
 - The `extensions` section of `Contract/<game>.sdkcontract.json` records IDs, signatures, authorization, stages or delivery rules, and the payload projection. The packager uses it to validate extension manifest v2.
 - With lifecycle inputs and extension definitions, `SDK/Public/ModExtensionABI.h` and `SDK/Public/<game>.modextensionsabi.h` expose the independent DLL callback contract, IDs, signatures, and wire layouts. They work with the separate `ContextHandlesV1` tables for generated API calls.
 
 A Hook takes one payload and returns the same type. An Event takes one payload and returns `void`. Supported payloads include `float`, `double`, `int32`, `int64`, `bool`, `uint8`, supported reflected value structs, and UObjects with a generated World view. Struct projection copies declared public fields, and object projection is read-only for the callback's lifetime. Blueprint scalar APIs and connected Hook/Event declarations come from the Editor snapshot. [Host export procedure](../../Source/ModRuntimeUht/README.md)
+
+An empty `MOD_EXPORT_HOOK()` enables the Win64 x64 prototype for an out-of-line scalar member. The default ID uses the World type ID and the dashed member name, as in `hook/game.character/change-health`. The Hook defines `Pre` with `ModifyInputs` and `Cancel`, `On` with `Replace`, and observation in `Post`. The base grant is the Hook ID, and operation grants use that ID with the operation suffix. MHT and MST emit the substitution map under `Diagnostics/HookSources.json`. The Win64 build driver compiles the source copies named there. [Win64 build driver](../../Source/ModRuntimeUht/README.md#win64-automatic-hook-prototype)
+
+### Generated C++ member bodies
+
+Set `HostEndpoint` to the name of a member `Mod::Extension::FEndpoint` to emit the annotated member's definition in `<owner>.modhost.cpp`. The generated Event body forwards its argument to `Publish`. C++ declarations can also call the helpers from their own definitions.
+
+For a generated scalar Hook with type `T`, `HostCore` names a `T(T)` member for the gameplay operation. `HostReadState` names a `T()` getter for the committed state. `HostValidateInput` and `HostValidateResult` name `bool(T)` validators. The wrapper captures the state before invoking the Hook and marks the core operation committed when the state changes. On a Hook error it logs the error and returns the current state.
+
+`HostPublishOnCommit` accepts an ordered list of quoted Event member names on the same class. Each listed Event supplies `HostEndpoint` and `HostCommitPayload`. The payload member takes the previous state and returns a value for that Event. The wrapper evaluates each payload and publishes in the declared order when the core operation committed, including when a Post Hook subsequently reports an error. Builds with `MOD_API_BOOTSTRAP=1` use the game's fallback definitions for explicitly generated members.
 
 ## API compatibility names
 

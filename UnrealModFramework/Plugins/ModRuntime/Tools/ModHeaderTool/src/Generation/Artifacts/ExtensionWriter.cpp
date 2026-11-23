@@ -30,6 +30,27 @@ std::string NativeIdentifier(std::string_view Id)
 	return Symbol;
 }
 
+void WriteAutomaticDispatch(const Extension& Entry, std::ostringstream& Header)
+{
+	const bool bFloating = Entry.Scalar == "float" || Entry.Scalar == "double";
+	Header << "    static FValue Dispatch(" << Entry.Owner
+	       << "& Source, FValue Value, TFunctionRef<FValue(FValue)> Original)\n"
+	       << "    {\n        const auto Validate = "
+	       << (bFloating ? "[](FValue Input) { return FMath::IsFinite(Input); }" : "[](FValue) { return true; }")
+	       << ";\n        if (!Validate(Value))\n        {\n            return Original(Value);\n        }\n"
+	       << "        Mod::Extension::FEndpoint Endpoint;\n"
+	       << "        const auto Result = Invoke(Source, Endpoint, Value,\n"
+	       << "            [&Original](FValue Effective) { return Mod::Extension::TCoreResult<FValue>"
+	          "{Original(Effective), Mod::API::EError::None, true}; },\n"
+	       << "            Validate, Validate);\n"
+	       << "        if (Result.Error != Mod::API::EError::None)\n"
+	       << "        {\n            UE_LOG(LogTemp, Warning, "
+	       << GeneratedSource::Wide(Entry.Id + " failed (%d), committed=%d.")
+	       << ", static_cast<int32>(Result.Error), Result.bCommitted);\n"
+	       << "            return Result.bCommitted && Validate(Result.Value) ? Result.Value : FValue{};\n"
+	       << "        }\n        return Result.Value;\n    }\n";
+}
+
 void WriteWireFields(const std::vector<Mod::Tools::ValueField>& Fields, std::ostringstream& Out, unsigned Depth)
 {
 	const std::string Indent((Depth + 1) * 4, ' ');
@@ -90,6 +111,62 @@ void WriteNativeExtensions(const GenerationModel& Model, std::map<std::string, s
 	Header << "#pragma pack(pop)\n";
 	Files["SDK/Public/" + HeaderName] = Header.str();
 }
+
+void WriteHostMember(const GenerationModel& Model, const Extension& Entry, const std::string& Symbol,
+                     std::ostringstream& Body)
+{
+	const auto& Host = Entry.HostMember;
+	const std::string Helper = "::Mod::Generated::" + Entry.Module + "::" + Symbol;
+	Body << "\n"
+	     << Host.ReturnType << " " << Entry.Owner << "::" << Entry.Name << "(" << Host.ParameterType << " Input)"
+	     << (Host.bNoexcept ? " noexcept" : "") << "\n{\n";
+	if (!Entry.bHook)
+	{
+		Body << "    " << Helper << "::Publish(*this, this->" << Host.Endpoint << ", Input);\n}\n";
+		return;
+	}
+	Body << "    const auto Previous = this->" << Host.ReadState << "();\n"
+	     << "    if (!this->" << Host.ValidateInput << "(Input))\n"
+	     << "    {\n        return this->" << Host.ReadState << "();\n    }\n"
+	     << "    const auto Result = " << Helper << "::Invoke(*this, this->" << Host.Endpoint << ", Input,\n"
+	     << "        [this, Previous](" << Entry.Scalar << " Value)\n        {\n"
+	     << "            const auto Applied = this->" << Host.Core << "(Value);\n"
+	     << "            return ::Mod::Extension::TCoreResult<" << Entry.Scalar
+	     << ">{Applied, ::Mod::API::EError::None, this->" << Host.ReadState << "() != Previous};\n        },\n"
+	     << "        [this](" << Entry.Scalar << " Value) { return this->" << Host.ValidateInput << "(Value); },\n"
+	     << "        [this](" << Entry.Scalar << " Value) { return this->" << Host.ValidateResult << "(Value); });\n"
+	     << "    if (Result.Error != ::Mod::API::EError::None)\n"
+	     << "    {\n        UE_LOG(LogTemp, Warning, "
+	     << GeneratedSource::Wide(Entry.Name + " Hook failed (%d), committed=%d.")
+	     << ", static_cast<int32>(Result.Error), Result.bCommitted);\n    }\n";
+	if (!Host.PublishOnCommit.empty())
+	{
+		Body << "    if (Result.bCommitted)\n    {\n";
+		for (const auto& Name : Host.PublishOnCommit)
+		{
+			const auto Event = std::ranges::find_if(Model.Extensions,
+			                                        [&](const auto& Item)
+			                                        {
+				                                        const auto& Candidate = Item.second;
+				                                        return !Candidate.bHook && Candidate.Owner == Entry.Owner &&
+				                                               Candidate.Module == Entry.Module &&
+				                                               Candidate.Name == Name &&
+				                                               Candidate.BlueprintClass.empty();
+			                                        });
+			if (Event == Model.Extensions.end() || Event->second.HostMember.Endpoint.empty() ||
+			    Event->second.HostMember.CommitPayload.empty())
+			{
+				throw std::runtime_error(
+				    Entry.Location + ": 'HostPublishOnCommit' member '" + Name +
+				    "' must be an Event on the same class with 'HostEndpoint' and 'HostCommitPayload'.");
+			}
+			Body << "        this->" << Name << "(this->" << Event->second.HostMember.CommitPayload << "(Previous));\n";
+		}
+		Body << "    }\n";
+	}
+	Body << "    return Result.Error == ::Mod::API::EError::None ? Result.Value : this->" << Host.ReadState
+	     << "();\n}\n";
+}
 } // namespace
 
 void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::string>& Files)
@@ -98,7 +175,7 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 	for (const auto& Module : Model.Input.Modules)
 	{
 		std::set<std::string> Includes, Symbols;
-		std::ostringstream Header, Definitions;
+		std::ostringstream Header, Definitions, Members;
 		bool bFound = false;
 		for (const auto& [Id, Entry] : Model.Extensions)
 		{
@@ -179,8 +256,7 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 			else
 			{
 				Includes.insert(Entry.Header);
-				auto Symbol = Entry.Owner + "_" + Entry.Name;
-				std::replace(Symbol.begin(), Symbol.end(), ':', '_');
+				const auto Symbol = Entry.CppHelperName();
 				if (!Symbols.insert(Symbol).second)
 				{
 					throw std::runtime_error(Entry.Location + ": colliding generated extension entry " + Symbol);
@@ -247,7 +323,18 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 					       << ");\n"
 					          "    }\n";
 				}
+				if (!Entry.DefinitionUsr.empty())
+				{
+					Includes.insert("CoreGlobals.h");
+					Includes.insert("Logging/LogMacros.h");
+					Includes.insert("Math/UnrealMathUtility.h");
+					WriteAutomaticDispatch(Entry, Header);
+				}
 				Header << "};\n\n";
+				if (!Entry.HostMember.Endpoint.empty())
+				{
+					WriteHostMember(Model, Entry, Symbol, Members);
+				}
 			}
 			Definitions << "    }\n";
 		}
@@ -265,11 +352,17 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 		Files[Prefix + ".modextensions.h"] =
 		    Output + "\nnamespace Mod::Generated::" + Module.Name + "\n{\n" + Header.str() + "}\n";
 		// Keep the descriptor in the existing retained host translation unit.
-		Files.at(Prefix + ".modhost.cpp") +=
+		auto& HostSource = Files.at(Prefix + ".modhost.cpp");
+		HostSource +=
 		    "\n#include \"" + HeaderName +
 		    "\"\n\nnamespace\n{\nvoid DescribeExtensions(TArray<Mod::Extension::FDefinition>& Out)\n{\n" +
 		    Definitions.str() +
 		    "}\nconst Mod::Extension::FGeneratedRegistration ExtensionRegistration(&DescribeExtensions);\n}\n";
+		const auto MemberCode = Members.str();
+		if (!MemberCode.empty())
+		{
+			HostSource += "\n#include \"CoreGlobals.h\"\n#include \"Logging/LogMacros.h\"\n" + MemberCode;
+		}
 	}
 }
 } // namespace Mod::HeaderTool
