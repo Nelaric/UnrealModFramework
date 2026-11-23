@@ -15,6 +15,13 @@ class UModInstance;
 class USceneComponent;
 struct FModExtensionWorld;
 
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+namespace Mod::Tests
+{
+struct FHookTestWorld;
+}
+#endif
+
 namespace Mod::Extension
 {
 class FModNetworkHandshake;
@@ -261,6 +268,9 @@ protected:
 private:
 	friend class Mod::Extension::FModNetworkHandshake;
 	friend class Mod::Extension::FModExtensionSave;
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+	friend struct Mod::Tests::FHookTestWorld;
+#endif
 	void OnWorldTearDown(UWorld* World);
 	void OnWorldTickStart(UWorld* World, ELevelTick TickType, float DeltaSeconds);
 	void OnLevelRemoved(ULevel* Level, UWorld* World);

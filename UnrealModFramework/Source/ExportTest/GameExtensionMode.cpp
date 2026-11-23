@@ -236,10 +236,7 @@ bool PrepareGameExtensions(UWorld& World, const FString& ExpectedPlan, FString& 
 		// Sample host policy for the loader-approved local mod set.
 		auto& Grants = Policy.Grants.FindOrAdd(Package.ModId);
 		Grants = Package.GrantedCapabilities;
-		Grants.Append({TEXT("Health.Observe"), TEXT("Health.Change"), TEXT("WorldRead"), TEXT("Content.character.mesh"),
-		               TEXT("WorldPatch.training.target"), TEXT("hook/game.character/change-health.ModifyInputs"),
-		               TEXT("hook/game.character/change-health.Cancel"),
-		               TEXT("hook/game.character/change-health.ModifyResult")});
+		Grants.Append({TEXT("WorldRead"), TEXT("Content.character.mesh"), TEXT("WorldPatch.training.target")});
 	}
 	Policy.ValidatePreparation = MoveTemp(ValidatePreparation);
 	Policy.StageSavedState = MoveTemp(StageSave);

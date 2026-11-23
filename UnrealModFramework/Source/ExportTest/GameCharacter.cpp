@@ -25,6 +25,11 @@ void AGameCharacter::BeginPlay()
 	}
 }
 
+float AGameCharacter::ChangeHealth(float Delta)
+{
+	return ApplyHealth(Delta);
+}
+
 float AGameCharacter::ApplyHealth(float Delta)
 {
 	if (FMath::IsFinite(Delta) && Delta != 0.0f)

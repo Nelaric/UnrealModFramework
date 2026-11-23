@@ -55,6 +55,7 @@ GeneratedBatch ArtifactRenderer::RenderArtifacts(GenerationModel& Model)
 			Text = GeneratedSource::SourceBytes(Text);
 		}
 	}
+	Batch.Files.merge(Model.HookSources);
 	if (!Projection.Lifecycle.is_null())
 	{
 		Batch.Files["SDK/Public/ModExtensionABI.h"] =

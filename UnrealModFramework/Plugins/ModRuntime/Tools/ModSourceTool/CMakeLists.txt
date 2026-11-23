@@ -20,6 +20,8 @@ add_executable(ModSourceTool
     src/Analysis/Guard.h
     src/Analysis/GuardClassification.cpp
     src/Analysis/GuardClassification.h
+    src/Analysis/HookSourceWriter.cpp
+    src/Analysis/HookSourceWriter.h
     src/Analysis/Location.cpp
     src/Analysis/Location.h
     src/Analysis/SourceAnalyzer.cpp

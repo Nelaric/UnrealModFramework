@@ -8,6 +8,10 @@ public class ExportTest : ModuleRules
 	{
 		PrivateDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ExportMetadata" });
 		PrivateDependencyModuleNames.Add("ModLoader");
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new[] { "BlueprintGraph", "UnrealEd" });
+		}
 		PrivateIncludePaths.Add(ModuleDirectory);
 		ExportMetadata.ConfigureHost(this, Target);
 	}

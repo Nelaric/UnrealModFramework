@@ -55,7 +55,7 @@ OutputIndex GenerationManifest::DescribeOutputs(const Files& Files, const std::s
 	for (const auto& [Path, Bytes] : Files)
 	{
 		const bool Host = Path.starts_with("Host/");
-		const bool Implementation = Path.ends_with(".cpp");
+		const bool Implementation = Path.ends_with(".cpp") && !Path.starts_with("Diagnostics/HookSources/");
 		std::string Owner;
 		if (Host)
 		{

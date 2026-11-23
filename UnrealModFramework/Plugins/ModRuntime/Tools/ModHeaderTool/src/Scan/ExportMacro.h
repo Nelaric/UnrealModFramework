@@ -34,5 +34,7 @@ struct ExportMacro
 	std::size_t ArgumentsOffset = 0;
 	/// Parsed and validated fields, including schema defaults.
 	std::vector<MetadataField> Fields;
+	/// Requests a Hook around its original C++ definition.
+	bool bAutomaticHook = false;
 };
 } // namespace Mod::HeaderTool

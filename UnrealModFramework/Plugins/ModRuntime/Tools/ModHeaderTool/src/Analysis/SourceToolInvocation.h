@@ -17,5 +17,7 @@ public:
 	static fs::path ResolveSourceTool(const fs::path& Configured);
 	static nlohmann::json SourceRequest(const GenerationModel& Model, const fs::path& Database,
 	                                    const fs::path& ClangLibrary);
+	static void RewriteHooks(GenerationModel& Model, const fs::path& Database, const fs::path& ClangLibrary,
+	                         const fs::path& SourceTool);
 };
 } // namespace Mod::HeaderTool
