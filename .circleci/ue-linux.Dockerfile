@@ -8,5 +8,8 @@ RUN apt-get update \
     && echo "deb [signed-by=/usr/share/keyrings/llvm.asc] https://apt.llvm.org/$VERSION_CODENAME/ llvm-toolchain-$VERSION_CODENAME-18 main" > /etc/apt/sources.list.d/llvm.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends clang-18 libclang-18-dev \
+    && if [ ! -e /usr/lib/llvm-18/lib/libclang.so.1 ]; then \
+        ln -s libclang.so /usr/lib/llvm-18/lib/libclang.so.1; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 USER ue4

@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
-#include <initializer_list>
 #include <set>
 #include <span>
 #include <string>
@@ -29,21 +28,6 @@ Validator::Validator(ExportMacro& InMacro, const MetadataOptions* InOptions, con
 
 std::vector<std::string> Validator::Validate()
 {
-	if (Macro.Name == "MOD_EXPORT_HOOK" && Macro.Fields.empty())
-	{
-		Macro.bAutomaticHook = true;
-		const auto AddList = [this](const char* Name, std::initializer_list<const char*> Values)
-		{
-			MetadataValue List{MetadataValue::EKind::List, {}, {}, Macro.Offset};
-			for (const char* Value : Values)
-			{
-				List.Items.push_back({MetadataValue::EKind::Identifier, Value, {}, Macro.Offset});
-			}
-			Macro.Fields.push_back({Name, Macro.Offset, std::move(List)});
-		};
-		AddList("AllowedStages", {"Pre", "On", "Post"});
-		AddList("AllowedOperations", {"ModifyInputs", "Cancel", "Replace"});
-	}
 	std::set<std::string> Names;
 	for (const MetadataField& Field : Macro.Fields)
 	{
@@ -59,6 +43,11 @@ std::vector<std::string> Validator::Validate()
 			continue;
 		}
 		ValidateValue(*Spec, Field.Value);
+	}
+	if (Macro.Name == "MOD_EXPORT_HOOK")
+	{
+		ResolveHookPolicy(Names);
+		return Diagnostics;
 	}
 	const auto CompleteFields = [this, &Names](std::span<const Schema::FFieldSpec> Fields)
 	{
@@ -100,27 +89,7 @@ std::vector<std::string> Validator::Validate()
 	};
 	CompleteFields(Schema::CommonFields);
 	CompleteFields(Schema::FieldsFor(Macro.Name));
-	const bool bGenerateHostMember = Names.contains("HostEndpoint");
-	if (Macro.Name == "MOD_EXPORT_HOOK" && Diagnostics.empty())
-	{
-		ValidateHookPolicy();
-		for (const char* Name : {"HostCore", "HostReadState", "HostValidateInput", "HostValidateResult"})
-		{
-			if (bGenerateHostMember && !Names.contains(Name))
-			{
-				Error(Macro.Offset, std::string("'HostEndpoint' requires '") + Name + "'.");
-			}
-			else if (!bGenerateHostMember && Names.contains(Name))
-			{
-				Error(Macro.Offset, std::string("'") + Name + "' requires 'HostEndpoint'.");
-			}
-		}
-		if (!bGenerateHostMember && Names.contains("HostPublishOnCommit"))
-		{
-			Error(Macro.Offset, "'HostPublishOnCommit' requires 'HostEndpoint'.");
-		}
-	}
-	if (!bGenerateHostMember && Names.contains("HostCommitPayload"))
+	if (Names.contains("HostCommitPayload") && !Names.contains("HostEndpoint"))
 	{
 		Error(Macro.Offset, "'HostCommitPayload' requires 'HostEndpoint'.");
 	}
@@ -186,30 +155,34 @@ void Validator::Error(std::size_t Offset, const std::string& Reason)
 	                      ": error: " + Macro.Name + ": " + Reason);
 }
 
-void Validator::ValidateHookPolicy()
+void Validator::ResolveHookPolicy(const std::set<std::string>& Names)
 {
-	const auto& Stages = std::ranges::find(Macro.Fields, "AllowedStages", &MetadataField::Name)->Value.Items;
-	const auto& Operations = std::ranges::find(Macro.Fields, "AllowedOperations", &MetadataField::Name)->Value.Items;
-	for (const MetadataValue& Stage : Stages)
+	const auto Add = [this](const Schema::FFieldSpec& Spec, MetadataValue Value)
 	{
-		if (!Schema::IsHookStage(Stage.Text))
-		{
-			Error(Stage.Offset, "unknown Hook stage '" + Stage.Text + "'.");
-		}
-	}
-	for (const MetadataValue& Operation : Operations)
+		ValidateValue(Spec, Value);
+		Macro.Fields.push_back({Spec.Name, Macro.Offset, std::move(Value)});
+	};
+	const auto AddList = [&](const char* Name, const char* Choices, const auto& Values, const auto& Enabled)
 	{
-		const Schema::FHookOperationSpec* Spec = Schema::FindHookOperation(Operation.Text);
-		if (!Spec)
+		MetadataValue List{MetadataValue::EKind::List, {}, {}, Macro.Offset};
+		for (std::string_view Value : Values)
 		{
-			Error(Operation.Offset, "unknown Hook operation '" + Operation.Text + "'.");
-			continue;
+			if (Enabled(Value))
+			{
+				List.Items.push_back({MetadataValue::EKind::Identifier, std::string(Value), {}, Macro.Offset});
+			}
 		}
-		if (std::ranges::find(Stages, Spec->Stage, &MetadataValue::Text) == Stages.end())
-		{
-			Error(Operation.Offset, "Hook operation '" + Operation.Text + "' requires stage '" + Spec->Stage + "'.");
-		}
-	}
+		Add({Name, Schema::EFieldType::ChoiceList, Choices, false}, std::move(List));
+	};
+	constexpr std::string_view Operations[]{"ModifyInputs", "Cancel", "Replace"};
+	const auto StageEnabled = [&](std::string_view Stage) { return !Names.contains("No" + std::string(Stage)); };
+	AddList("AllowedStages", "HookStages", Schema::HookStages, StageEnabled);
+	AddList("AllowedOperations", "HookOperations", Operations,
+	        [&](std::string_view Operation) { return StageEnabled(Schema::FindHookOperation(Operation)->Stage); });
+	Add({"ExportVersion", Schema::EFieldType::Version, nullptr, false},
+	    {MetadataValue::EKind::String, Schema::DefaultExportVersion, {}, Macro.Offset});
+	Add({"Authority", Schema::EFieldType::Choice, "ExtensionAuthorities", false},
+	    {MetadataValue::EKind::Identifier, "Server", {}, Macro.Offset});
 }
 
 void Validator::CheckChoice(const Schema::FFieldSpec& Spec, const MetadataValue& Value)
@@ -235,6 +208,14 @@ void Validator::CheckChoice(const Schema::FFieldSpec& Spec, const MetadataValue&
 void Validator::ValidateValue(const Schema::FFieldSpec& Spec, const MetadataValue& Value)
 {
 	using Schema::EFieldType;
+	if (Spec.Type == EFieldType::Flag)
+	{
+		if (Value.Kind != MetadataValue::EKind::Flag)
+		{
+			Error(Value.Offset, std::string("'") + Spec.Name + "' is a bare flag and takes no value.");
+		}
+		return;
+	}
 	if (Spec.Type == EFieldType::ChoiceList || Spec.Type == EFieldType::ClassNameList ||
 	    Spec.Type == EFieldType::FunctionNameList)
 	{
@@ -242,10 +223,6 @@ void Validator::ValidateValue(const Schema::FFieldSpec& Spec, const MetadataValu
 		{
 			Error(Value.Offset, std::string("'") + Spec.Name + "' expects a parenthesized list.");
 			return;
-		}
-		if (Spec.ChoiceKey && std::string_view(Spec.ChoiceKey) == "HookStages" && Value.Items.empty())
-		{
-			Error(Value.Offset, "'AllowedStages' must contain at least one Hook stage.");
 		}
 		std::set<std::string> Items;
 		for (const MetadataValue& Item : Value.Items)

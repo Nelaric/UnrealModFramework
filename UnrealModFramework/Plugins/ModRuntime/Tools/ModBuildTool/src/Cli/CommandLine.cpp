@@ -21,9 +21,12 @@ namespace Mod::BuildTool
 {
 void CommandLine::PrintHelp()
 {
-	std::cout << "ModBuildTool " << Version::ToolVersion << R"( - build generated host archives independently of UBT
+	std::cout << "ModBuildTool " << Version::ToolVersion << R"( - build Unreal targets and generated host archives
 
 Usage:
+  ModBuildTool build-ue-target --engine <path> --project <project.uproject> --target <target>
+                               --platform <platform> --configuration <configuration>
+                               --architecture <architecture> --mode <normal|rebuild|bootstrap>
   ModBuildTool plan --context <context.json> --generated-manifest <manifest.json>
   ModBuildTool build-host --context <context.json> --generated-manifest <manifest.json>
   ModBuildTool build-planned-host --context <context.json> --generated-manifest <manifest.json>
@@ -41,7 +44,9 @@ Usage:
                              --architecture <x64|arm64> --kind <Executable|DynamicLibrary>
   ModBuildTool --help | --version
 
-Requires UMF.ModHostContext v2 and UMF.GeneratedArtifacts v1, v2, or v3.
+build-ue-target runs UBT for one architecture with the generated Hook sources.
+The independent archive commands require UMF.ModHostContext v2 and
+UMF.GeneratedArtifacts v1, v2, or v3.
 Generated v2 and v3 declare per-owner required symbols and public artifact roles.
 The generated batch must be Complete, hash-checked, and match the exact context.
 MHT scan reports are not generation manifests. A zero-export module still needs
@@ -70,6 +75,9 @@ struct CommandLine::Command
 const CommandLine::Command& CommandLine::FindCommand(const std::string& Name)
 {
 	static const Command Commands[] = {
+	    {"build-ue-target",
+	     {"--engine", "--project", "--target", "--platform", "--configuration", "--architecture", "--mode"},
+	     UeCommands::BuildTarget},
 	    {"plan", {"--context", "--generated-manifest"}, HostCommands::RunHostCommand},
 	    {"build-host", {"--context", "--generated-manifest"}, HostCommands::RunHostCommand},
 	    {"build-planned-host",

@@ -259,13 +259,12 @@ TModResult<FSubscription> UModExtensionSubsystem::Register(UModInstance& Owner, 
 		}
 		return FResult::Failure(Error);
 	};
-	const auto* Found = State->Channels.Find(Id);
+	const auto* Found = State->FindDefinition(Id);
 	if (!Found)
 	{
 		return Fail(EError::NotRegistered);
 	}
-	const auto& Channel = **Found;
-	const FDefinition& Definition = Channel.GetDefinition();
+	const FDefinition& Definition = *Found;
 	if (!Signature.IsEmpty() && Definition.Signature != Signature)
 	{
 		return Fail(EError::SignatureMismatch);
@@ -351,7 +350,8 @@ TModResult<FSubscription> UModExtensionSubsystem::Register(UModInstance& Owner, 
 			return FProjection::Success(MoveTemp(Projected));
 		};
 	}
-	const auto Added = (*Found)->Add(MoveTemp(Handler));
+	const auto Added = State->Channels.FindChecked(Definition.DispatchId.IsNone() ? Id : Definition.DispatchId)
+	                       ->Add(MoveTemp(Handler));
 	if (!Added.IsSuccess())
 	{
 		return Fail(Added.GetError());
@@ -376,9 +376,9 @@ void UModExtensionSubsystem::Unregister(UModInstance& Owner, const FSubscription
 	{
 		return;
 	}
-	if (const auto* Channel = State->Channels.Find(Token.Id))
+	if (const auto Channel = State->FindChannel(Token.Id))
 	{
-		(*Channel)->Remove(Owner, Token.Serial);
+		Channel->Remove(Owner, Token.Serial);
 		State->bDirty = true;
 		if (State->Depth == 0 && IsReady())
 		{
@@ -398,17 +398,16 @@ ESubscriptionStatus UModExtensionSubsystem::GetSubscriptionStatus(const UModInst
 	{
 		return ESubscriptionStatus::Inactive;
 	}
-	const auto* Channel = State->Channels.Find(Token.Id);
+	const auto Channel = State->FindChannel(Token.Id);
 	if (!Channel)
 	{
 		return ESubscriptionStatus::Inactive;
 	}
-	if ((*Channel)->Contains(Owner, Token.Serial, true))
+	if (Channel->Contains(Owner, Token.Serial, true))
 	{
 		return ESubscriptionStatus::Active;
 	}
-	return (*Channel)->Contains(Owner, Token.Serial, false) ? ESubscriptionStatus::Pending
-	                                                        : ESubscriptionStatus::Inactive;
+	return Channel->Contains(Owner, Token.Serial, false) ? ESubscriptionStatus::Pending : ESubscriptionStatus::Inactive;
 }
 
 TModResult<void> UModExtensionSubsystem::Provide(UModInstance& Owner, const FService& Service, UObject* Instance)
@@ -613,7 +612,7 @@ THookResult<T> UModExtensionSubsystem::InvokeScalar(UObject& Source, FName Id, F
 	auto Channel = Endpoint.Channel.Pin();
 	if (!Channel)
 	{
-		Channel = WorldState->Channels.FindRef(Id);
+		Channel = WorldState->FindChannel(Id);
 		Endpoint = {World, Channel, WorldState, Id};
 	}
 	if (!Channel || Channel->GetDefinition().Kind != EKind::Hook)

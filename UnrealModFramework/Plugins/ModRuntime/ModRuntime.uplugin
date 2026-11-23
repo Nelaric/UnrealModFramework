@@ -13,8 +13,7 @@
 		{
 			"Name": "HAL",
 			"Type": "Runtime",
-			"LoadingPhase": "Default",
-			"PlatformAllowList": [ "Win64", "Linux", "Mac" ]
+			"LoadingPhase": "Default"
 		},
 		{
 			"Name": "ExportMetadata",
@@ -29,8 +28,7 @@
 		{
 			"Name": "ModLoader",
 			"Type": "Runtime",
-			"LoadingPhase": "Default",
-			"PlatformAllowList": [ "Win64", "Linux", "Mac" ]
+			"LoadingPhase": "Default"
 		},
 		{
 			"Name": "BlueprintIntegration",

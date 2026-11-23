@@ -18,35 +18,27 @@ public class ExportMetadata : ModuleRules
 	/// <summary>Builds the native tools, tracks MHT inputs, and verifies the linked host archives.</summary>
 	public static void ConfigureTarget(TargetRules target)
 	{
-		bool useGeneratedHost = IsAutomaticHostPlatform(target.Platform);
-		bool buildUnixTools =
-			(target.HostPlatform == UnrealTargetPlatform.Linux || target.HostPlatform == UnrealTargetPlatform.Mac)
-			&& (target.Platform == UnrealTargetPlatform.Linux || target.Platform == UnrealTargetPlatform.Mac);
-		if (
-			(!useGeneratedHost && !buildUnixTools)
-			|| HasArgument("-MhtBootstrap")
-			|| HasArgument("-Mode=GenerateClangDatabase")
-		)
+		if (HasArgument("-MhtBootstrap") || HasArgument("-Mode=GenerateClangDatabase"))
 		{
 			return;
 		}
 		var project = target.ProjectFile ?? throw new BuildException("ModRuntime tools require a project target.");
 		string root = project.Directory.FullName;
 		string tools = Path.Combine(root, "Plugins", "ModRuntime", "Tools");
-		string buildScript = Path.Combine(tools, useGeneratedHost ? "Build.bat" : "Build.sh");
+		string buildScript = Path.Combine(tools, OperatingSystem.IsWindows() ? "Build.bat" : "Build.sh");
 		if (File.Exists(buildScript))
 		{
 			// CALL expands percent escapes a second time.
-			string command = useGeneratedHost
+			string command = OperatingSystem.IsWindows()
 				? $"call {QuoteCommandPath(buildScript.Replace("%", "%%"))} --target ModRuntimeUhtTools || exit /b 1"
 				: GetUnixToolsBuildCommand(root, buildScript);
 			target.PreBuildSteps.Add(command);
 		}
-		if (!useGeneratedHost)
-		{
-			return;
-		}
-		RequireAutomaticArchitecture(target.Architectures);
+		bool independent = UsesIndependentArchive(
+			target.Platform,
+			target.Architectures,
+			target.WindowsPlatform.Compiler
+		);
 		string config = Path.Combine(root, "Config", "ModHeaderTool.json");
 		string configured = Environment.GetEnvironmentVariable("UMF_MBT_EXECUTABLE");
 		if (configured == null && File.Exists(config))
@@ -54,7 +46,13 @@ public class ExportMetadata : ModuleRules
 			JsonObject.Read(new FileReference(config)).TryGetStringField("mbt", out configured);
 		}
 		string mbt = Path.GetFullPath(
-			configured ?? Path.Combine(tools, "build", "ModBuildTool", "ModBuildTool.exe"),
+			configured
+				?? Path.Combine(
+					tools,
+					"build",
+					"ModBuildTool",
+					OperatingSystem.IsWindows() ? "ModBuildTool.exe" : "ModBuildTool"
+				),
 			root
 		);
 		string contexts = Path.Combine(
@@ -65,12 +63,31 @@ public class ExportMetadata : ModuleRules
 				target.Configuration,
 				target.Architectures
 			),
-			"contexts.json"
+			independent ? "contexts.json" : "watch.json"
 		);
+		string Quote(string path) => OperatingSystem.IsWindows() ? QuoteCommandPath(path) : QuotePosixPath(path);
+		target.PreBuildSteps.Add($"{Quote(mbt)} refresh-ue-watches --contexts {Quote(contexts)}");
 		string receipt = TargetReceipt
 			.GetDefaultPath(project.Directory, target.Name, target.Platform, target.Configuration, target.Architectures)
 			.FullName;
-		target.PreBuildSteps.Add($"{QuoteCommandPath(mbt)} refresh-ue-watches --contexts {QuoteCommandPath(contexts)}");
+		if (!independent)
+		{
+			if (target.Platform.IsInGroup(UnrealPlatformGroup.Apple))
+			{
+				string generated = VariantDirectory(
+					Path.Combine(root, "Intermediate", "ModTools", "ModHeaderTool", "Generated"),
+					target.Name,
+					target.Platform,
+					target.Configuration,
+					target.Architectures
+				);
+				string verify = Path.Combine(tools, "verify_macho_hooks.py");
+				target.PostBuildSteps.Add(
+					$"python3 {Quote(verify)} --project-dir {Quote(root)} --target-receipt {Quote(receipt)} --generated {Quote(generated)}"
+				);
+			}
+			return;
+		}
 		target.PostBuildSteps.Add(
 			$"{QuoteCommandPath(mbt)} finalize-ue-target --contexts {QuoteCommandPath(contexts)} "
 				+ $"--ue-target-receipt {QuoteCommandPath(receipt)}"
@@ -95,21 +112,31 @@ public class ExportMetadata : ModuleRules
 		{
 			throw new BuildException("-MhtBootstrap is restricted to a non-publishable Development Editor build.");
 		}
-		bool useGeneratedHost = !bootstrap && IsAutomaticHostPlatform(target.Platform);
-		owner.PrivateDefinitions.Add("MOD_API_BOOTSTRAP=" + (useGeneratedHost ? "0" : "1"));
+		bool independent = UsesIndependentArchive(
+			target.Platform,
+			target.Architectures,
+			target.WindowsPlatform.Compiler
+		);
+		owner.PrivateDefinitions.Add("MOD_API_BOOTSTRAP=" + (bootstrap ? "1" : "0"));
 		owner.PCHUsage = PCHUsageMode.NoPCHs;
 		owner.bUseUnity = false;
 		if (bootstrap)
 		{
 			owner.ShortName = (owner.ShortName ?? owner.Name) + "MhtBootstrap";
-		}
-		if (!useGeneratedHost)
-		{
 			return;
 		}
-		RequireAutomaticArchitecture(target.Architectures);
+		if (target.Architectures.Architectures.Count != 1)
+		{
+			throw new BuildException(
+				"Build each automatic Hook architecture separately using -Architecture=<architecture>."
+			);
+		}
+		owner.PublicDefinitions.Add(
+			$"UMF_MHT_BUILD_VARIANT={target.Platform}_{target.Configuration}_{target.Architecture}"
+		);
+		owner.PublicDefinitions.Add("UMF_MHT_UBT_HOST=" + (independent ? "0" : "1"));
 		owner.PrivateDefinitions.Add("UMF_MHT_TARGET_CONFIGURATION=" + target.Configuration);
-		if (target.bMergeModules || target.bShouldCompileAsDLL)
+		if (independent && (target.bMergeModules || target.bShouldCompileAsDLL))
 		{
 			throw new BuildException("ModRuntime MBT requires standard modular DLLs or a monolithic executable.");
 		}
@@ -120,8 +147,32 @@ public class ExportMetadata : ModuleRules
 		bool shared = target.BuildEnvironment == TargetBuildEnvironment.Shared;
 		string appName = shared && target.Type != TargetType.Program ? "Unreal" + target.Type : target.Name;
 		string generated = VariantDirectory(Path.Combine(tools, "ModHeaderTool", "Generated"), target);
-		string ownerGenerated = VariantDirectory(Path.Combine(ownerTools, "ModHeaderTool", "Generated"), target);
+		string ownerGenerated = independent
+			? VariantDirectory(Path.Combine(ownerTools, "ModHeaderTool", "Generated"), target)
+			: generated;
 		string variant = VariantDirectory(Path.Combine(tools, "ModHeaderTool", "HostTargets"), target);
+		// The UHT outputs include host units by variant-relative path. UBT owns the target compiler and linker.
+		Directory.CreateDirectory(variant);
+		Directory.CreateDirectory(Path.Combine(ownerGenerated, "Host", owner.Name));
+		Directory.CreateDirectory(Path.Combine(generated, "SDK", "Public"));
+		owner.PrivateIncludePaths.Add(Path.Combine(ownerGenerated, "Host", owner.Name));
+		owner.PublicIncludePaths.Add(Path.Combine(generated, "SDK", "Public"));
+		owner.PrivateIncludePaths.Add(generated);
+		string config = Path.Combine(projectRoot, "Config", "ModHeaderTool.json");
+		if (File.Exists(config))
+		{
+			owner.ExternalDependencies.Add(config);
+			if (!HasArgument("-Mode=GenerateClangDatabase") && UsesAutomaticBuildInput(config, target))
+			{
+				string database = Path.Combine(variant, "Ubt", "compile_commands.json");
+				AppDomain.CurrentDomain.SetData(database, true);
+				owner.ExternalDependencies.Add(database);
+			}
+		}
+		if (!independent && target.Platform != UnrealTargetPlatform.Win64)
+		{
+			return;
+		}
 		string hostLink = Path.Combine(
 			VariantDirectory(Path.Combine(ownerTools, "ModSourceTool"), target),
 			owner.Name + ".modlink.h"
@@ -146,7 +197,6 @@ public class ExportMetadata : ModuleRules
 					monolithic ? target.ExeBinariesSubFolder : owner.BinariesSubFolder,
 					binaryName
 				);
-		Directory.CreateDirectory(variant);
 		string descriptor = Path.Combine(variant, owner.Name + ".target.json");
 		string document = JsonSerializer.Serialize(
 			new
@@ -191,29 +241,14 @@ public class ExportMetadata : ModuleRules
 			File.WriteAllText(descriptor, document);
 		}
 		owner.ExternalDependencies.Add(descriptor);
+		if (!independent)
+		{
+			return;
+		}
 		if (!HasArgument("-Mode=GenerateClangDatabase"))
 		{
 			owner.ForceIncludeFiles.Add(hostLink);
 		}
-		string config = Path.Combine(projectRoot, "Config", "ModHeaderTool.json");
-		if (File.Exists(config))
-		{
-			owner.ExternalDependencies.Add(config);
-			if (!HasArgument("-Mode=GenerateClangDatabase") && UsesAutomaticBuildInput(config, target))
-			{
-				string database = Path.Combine(variant, "Ubt", "compile_commands.json");
-				// A new action graph can refresh the database. A reused makefile must keep its response files.
-				AppDomain.CurrentDomain.SetData(database.ToUpperInvariant(), true);
-				owner.ExternalDependencies.Add(database);
-			}
-		}
-		// UBT resolves include directories before running UHT on a clean build.
-		string hostHeaders = Path.Combine(ownerGenerated, "Host", owner.Name);
-		string sdkHeaders = Path.Combine(generated, "SDK", "Public");
-		Directory.CreateDirectory(hostHeaders);
-		Directory.CreateDirectory(sdkHeaders);
-		owner.PrivateIncludePaths.Add(hostHeaders);
-		owner.PublicIncludePaths.Add(sdkHeaders);
 		owner.PrivateDependencyModuleNames.Add(owner.Name + "Host");
 	}
 
@@ -222,14 +257,13 @@ public class ExportMetadata : ModuleRules
 	{
 		libraryModule.Type = ModuleType.External;
 		if (
-			!IsAutomaticHostPlatform(target.Platform)
+			!UsesIndependentArchive(target.Platform, target.Architectures, target.WindowsPlatform.Compiler)
 			|| HasArgument("-MhtBootstrap")
 			|| HasArgument("-Mode=GenerateClangDatabase")
 		)
 		{
 			return;
 		}
-		RequireAutomaticArchitecture(target.Architectures);
 		string tools = OwnerToolsDirectory(
 			target.ProjectFile!.Directory.FullName,
 			libraryModule.GetModuleDirectory(owner)
@@ -270,8 +304,15 @@ public class ExportMetadata : ModuleRules
 		UnrealArchitectures architectures
 	) => Path.Combine(directory, target, platform.ToString(), configuration.ToString(), architectures.ToString());
 
-	private static bool IsAutomaticHostPlatform(UnrealTargetPlatform platform) =>
-		platform == UnrealTargetPlatform.Win64 && OperatingSystem.IsWindows();
+	private static bool UsesIndependentArchive(
+		UnrealTargetPlatform platform,
+		UnrealArchitectures architectures,
+		WindowsCompiler compiler
+	) =>
+		platform == UnrealTargetPlatform.Win64
+		&& OperatingSystem.IsWindows()
+		&& architectures.ToString() == "x64"
+		&& !compiler.IsClang();
 
 	private static bool UsesAutomaticBuildInput(string configPath, ReadOnlyTargetRules target)
 	{
@@ -303,14 +344,6 @@ public class ExportMetadata : ModuleRules
 			return true;
 		}
 		return !variant.TryGetStringField("buildInput", out _);
-	}
-
-	private static void RequireAutomaticArchitecture(UnrealArchitectures architectures)
-	{
-		if (architectures.ToString() != "x64")
-		{
-			throw new BuildException("ModRuntime's automatic UE 5.6 recipe adapter requires Win64 x64 MSVC.");
-		}
 	}
 
 	private static bool HasArgument(string argument) =>

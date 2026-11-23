@@ -22,6 +22,8 @@ struct MetadataValue
 		Literal,
 		/// A parenthesized sequence of scalar values.
 		List,
+		/// A field written without an assignment.
+		Flag,
 	};
 
 	/// Literal category before schema validation.

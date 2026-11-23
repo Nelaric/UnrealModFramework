@@ -17,8 +17,6 @@ inline constexpr int SnapshotVersion = 5;
 inline constexpr const char* SnapshotPath = "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json";
 /// Default declaration export version.
 inline constexpr const char* DefaultExportVersion = "1.0.0";
-/// Default stage for a read-only Hook declaration.
-inline constexpr const char* DefaultHookStage = "Post";
 /// Supported Hook stages in the metadata contract.
 inline constexpr std::array<std::string_view, 3> HookStages = {"Pre", "On", "Post"};
 /// Authority policies for synchronous World extensions.
@@ -35,7 +33,7 @@ struct FHookOperationSpec
 	const char* Stage;
 };
 
-/// Operations require an explicit grant in each Hook declaration.
+/// Hook operations and their required stages in the extension contract.
 inline constexpr std::array<FHookOperationSpec, 5> HookOperations = {{
     {"ModifyInputs", "Pre"},
     {"Cancel", "Pre"},
@@ -91,6 +89,8 @@ enum class EFieldType
 	FunctionNameList,
 	/// An unqualified C++ member identifier.
 	MemberName,
+	/// A bare field whose presence enables the option.
+	Flag,
 };
 
 /// A declaration field and its choice source.
@@ -108,12 +108,14 @@ struct FFieldSpec
 	const char* Default = nullptr;
 };
 
-/// Fields accepted by all three declarations.
+/// Fields shared by API and Event declarations.
 inline constexpr std::array<FFieldSpec, 3> CommonFields = {{
     {"ExportVersion", EFieldType::Version, nullptr, false, DefaultExportVersion},
     {"DisplayName", EFieldType::NonEmptyText, nullptr, false},
     {"Description", EFieldType::Text, nullptr, false},
 }};
+/// Former names accepted by API and Hook declarations.
+inline constexpr FFieldSpec CompatibleNames{"CompatibleNames", EFieldType::FunctionNameList, nullptr, false};
 /// Fields belonging to API declarations.
 inline constexpr std::array<FFieldSpec, 6> APIFields = {{
     {"Scope", EFieldType::Choice, "APIScopes", true},
@@ -121,7 +123,14 @@ inline constexpr std::array<FFieldSpec, 6> APIFields = {{
     {"FailureRule", EFieldType::Choice, "APIFailureRules", true},
     {"Permissions", EFieldType::ChoiceList, "APIPermissions", false},
     {"FullView", EFieldType::ClassNameList, nullptr, false},
-    {"CompatibleNames", EFieldType::FunctionNameList, nullptr, false},
+    CompatibleNames,
+}};
+/// Fields belonging to Hook declarations.
+inline constexpr std::array<FFieldSpec, 4> HookFields = {{
+    CompatibleNames,
+    {"NoPre", EFieldType::Flag, nullptr, false},
+    {"NoOn", EFieldType::Flag, nullptr, false},
+    {"NoPost", EFieldType::Flag, nullptr, false},
 }};
 /// Fields belonging to Event declarations.
 inline constexpr std::array<FFieldSpec, 10> EventFields = {{
@@ -136,22 +145,6 @@ inline constexpr std::array<FFieldSpec, 10> EventFields = {{
     {"HostEndpoint", EFieldType::MemberName, nullptr, false},
     {"HostCommitPayload", EFieldType::MemberName, nullptr, false},
 }};
-/// Fields belonging to Hook declarations.
-inline constexpr std::array<FFieldSpec, 12> HookFields = {{
-    {"ContextType", EFieldType::StructType, nullptr, false},
-    {"ExportId", EFieldType::NonEmptyText, nullptr, false},
-    {"Permission", EFieldType::NonEmptyText, nullptr, false},
-    {"Authority", EFieldType::Choice, "ExtensionAuthorities", false, "Server"},
-    {"AllowedStages", EFieldType::ChoiceList, "HookStages", false, DefaultHookStage},
-    {"AllowedOperations", EFieldType::ChoiceList, "HookOperations", false},
-    {"HostEndpoint", EFieldType::MemberName, nullptr, false},
-    {"HostCore", EFieldType::MemberName, nullptr, false},
-    {"HostReadState", EFieldType::MemberName, nullptr, false},
-    {"HostValidateInput", EFieldType::MemberName, nullptr, false},
-    {"HostValidateResult", EFieldType::MemberName, nullptr, false},
-    {"HostPublishOnCommit", EFieldType::FunctionNameList, nullptr, false},
-}};
-
 /// Returns the fields belonging to a declaration kind.
 inline constexpr std::span<const FFieldSpec> FieldsFor(std::string_view Macro)
 {
@@ -173,11 +166,14 @@ inline constexpr std::span<const FFieldSpec> FieldsFor(std::string_view Macro)
 /// Finds a field in the common and declaration-specific schemas.
 inline constexpr const FFieldSpec* FindField(std::string_view Macro, std::string_view Name)
 {
-	for (const FFieldSpec& Field : CommonFields)
+	if (Macro == "MOD_EXPORT_API" || Macro == "MOD_EXPORT_EVENT")
 	{
-		if (Name == Field.Name)
+		for (const FFieldSpec& Field : CommonFields)
 		{
-			return &Field;
+			if (Name == Field.Name)
+			{
+				return &Field;
+			}
 		}
 	}
 	for (const FFieldSpec& Field : FieldsFor(Macro))

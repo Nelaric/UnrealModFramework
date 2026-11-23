@@ -62,7 +62,9 @@ void GenerationOutput::PublishGeneratedFiles(const fs::path& Directory, const st
 		    Path::PathToUtf8(Entry.path().filename()).ends_with(".generated-artifacts.json"))
 		{
 			const auto Previous = nlohmann::json::parse(TextFile::ReadTextFile(Entry.path()), nullptr, false);
-			if (Previous.is_object() && Previous.value("format", "") == "UMF.GeneratedArtifacts" &&
+			if (Previous.is_object() &&
+			    (Previous.value("format", "") == "UMF.GeneratedArtifacts" ||
+			     Previous.value("format", "") == "UMF.UbtHostArtifacts") &&
 			    Previous.value("outputLayout", "") == "Flat")
 			{
 				Stale.push_back(OutputPaths::CheckedPath(Root, Entry.path().filename()));

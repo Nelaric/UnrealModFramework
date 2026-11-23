@@ -154,11 +154,11 @@ bool BindProjected(GenerationModel& Model, ClangLibrary& Clang, CXCursor Member,
 	    Clang.clang_CXXMethod_isStatic(Member) || Clang.clang_CXXMethod_isConst(Member) ||
 	    Clang.clang_Cursor_isVariadic(Member) || Clang.clang_CXXMethod_isDeleted(Member) ||
 	    Clang.clang_Type_getCXXRefQualifier(Clang.clang_getCursorType(Member)) != CXRefQualifier_None ||
-	    (Entry.bHook ? Result.kind != Input.kind || Name(Result) != PayloadName : Result.kind != CXType_Void))
+	    Result.kind != CXType_Void)
 	{
 		CursorSource::Fail(Macro, "expected a public one-payload World member with a matching Hook result.");
 	}
-	const auto Requested = Field(Macro, Entry.bHook ? "ContextType" : "PayloadType");
+	const auto Requested = Field(Macro, "PayloadType");
 	if (!Requested.empty() && Requested != PayloadName)
 	{
 		CursorSource::Fail(Macro, "the reflected payload type must match the declared member.");
@@ -209,20 +209,22 @@ void BindHook(GenerationModel& Model, ClangLibrary& Clang, const Source& Source,
 	API Signature;
 	Signature.Macro = Macro;
 	Signature.Module = Entry.Module;
-	if (!BindProjected(Model, Clang, Member, Entry))
+	if (Clang.clang_isCursorDefinition(Member))
 	{
-		DeclarationBinding::BindSignature(Model, Clang, Member, Signature);
+		CursorSource::Fail(Macro, "automatic Hooks require an out-of-line scalar member declaration.");
 	}
-	if (Entry.PayloadKind.empty() && (Signature.Parameters.size() != 1 || !IsExtensionScalar(Signature.Return.Public) ||
-	                                  Signature.Parameters[0].Type.Public != Signature.Return.Public ||
-	                                  Signature.bConst || !Field(Macro, "ContextType").empty()))
+	DeclarationBinding::BindSignature(Model, Clang, Member, Signature);
+	if (Signature.Parameters.size() != 1 || !IsExtensionScalar(Signature.Return.Public) ||
+	    Signature.Parameters[0].Type.Public != Signature.Return.Public || Signature.bConst)
 	{
 		CursorSource::Fail(Macro, "this Hook backend requires one scalar input and a result of the same type.");
 	}
-	if (Entry.PayloadKind.empty())
+	Entry.Scalar = Signature.Return.Public;
+	Entry.SourceSignature = std::move(Signature.SourceSignature);
+	Entry.DefinitionUsr = std::move(Signature.DeclarationUsr);
+	if (Entry.DefinitionUsr.empty())
 	{
-		Entry.Scalar = Signature.Return.Public;
-		Entry.SourceSignature = Signature.SourceSignature;
+		CursorSource::Fail(Macro, "cannot identify the automatic Hook's C++ declaration.");
 	}
 	for (const auto& Field : Macro.Fields)
 	{
@@ -284,7 +286,7 @@ void BindEvent(GenerationModel& Model, ClangLibrary& Clang, const Source& Source
 	Entry.PublishPermission = Field(Macro, "PublishPermission");
 }
 
-void BindHostMember(ClangLibrary& Clang, CXCursor Member, Extension& Entry)
+void BindEventHostMember(ClangLibrary& Clang, CXCursor Member, Extension& Entry)
 {
 	const auto& Macro = Entry.Macro;
 	auto& Host = Entry.HostMember;
@@ -292,10 +294,6 @@ void BindHostMember(ClangLibrary& Clang, CXCursor Member, Extension& Entry)
 	if (Host.Endpoint.empty())
 	{
 		return;
-	}
-	if (Entry.bHook && !Entry.PayloadKind.empty())
-	{
-		CursorSource::Fail(Macro, "'HostEndpoint' on a Hook requires scalar input and result types.");
 	}
 	const auto FunctionType = Clang.clang_getCanonicalType(Clang.clang_getCursorType(Member));
 	const int Exception = Clang.clang_getExceptionSpecificationType(FunctionType);
@@ -312,24 +310,12 @@ void BindHostMember(ClangLibrary& Clang, CXCursor Member, Extension& Entry)
 	Host.ParameterType = TypeSpelling(Clang.clang_getCursorType(Clang.clang_Cursor_getArgument(Member, 0)));
 	Host.ReturnType = TypeSpelling(Clang.clang_getCursorResultType(Member));
 	Host.bNoexcept = Exception == CXCursor_ExceptionSpecificationKind_BasicNoexcept;
-	Host.Core = Field(Macro, "HostCore");
-	Host.ReadState = Field(Macro, "HostReadState");
-	Host.ValidateInput = Field(Macro, "HostValidateInput");
-	Host.ValidateResult = Field(Macro, "HostValidateResult");
 	Host.CommitPayload = Field(Macro, "HostCommitPayload");
-	const auto Publishers = std::ranges::find(Macro.Fields, "HostPublishOnCommit", &MetadataField::Name);
-	if (Publishers != Macro.Fields.end())
-	{
-		for (const auto& Item : Publishers->Value.Items)
-		{
-			Host.PublishOnCommit.push_back(Item.Text);
-		}
-	}
 }
 } // namespace
 
-Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& Source, ExportMacro Macro,
-                        CXCursor Member)
+void BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& Source, ExportMacro Macro,
+                   CXCursor Member)
 {
 	const auto Parent = Clang.clang_getCursorSemanticParent(Member);
 	const auto Location = CursorSource::ReadLocation(Clang, Clang.clang_getCursorLocation(Parent), true);
@@ -345,8 +331,6 @@ Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Sourc
 	Entry.Location =
 	    Path::PathToUtf8(Macro.File) + ":" + std::to_string(Macro.Line) + ":" + std::to_string(Macro.Column);
 	Entry.bHook = Macro.Name == "MOD_EXPORT_HOOK";
-	Entry.Id = Field(Macro, "ExportId");
-	Entry.Permission = Field(Macro, "Permission");
 	Entry.Version = Field(Macro, "ExportVersion");
 	Entry.bAuthorityOnly = Field(Macro, "Authority") != "Any";
 	Entry.Name = Clang.String(Clang.clang_getCursorSpelling(Member));
@@ -365,27 +349,35 @@ Extension BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Sourc
 	if (Entry.bHook)
 	{
 		BindHook(Model, Clang, Source, Member, Entry);
-		if (Entry.Macro.bAutomaticHook)
+		if (!Entry.bPre && !Entry.bOn && !Entry.bPost)
 		{
-			if (!Entry.PayloadKind.empty() || Clang.clang_isCursorDefinition(Member) ||
-			    Model.Input.Platform != "Win64" || Model.Input.Architecture != "x64")
+			return;
+		}
+		const auto Prefix = "hook/" + Identity->second.Id + "/";
+		Entry.Id = Prefix + HookSlug(Entry.Name);
+		Entry.Permission = Entry.Id;
+		const auto Names = std::ranges::find(Entry.Macro.Fields, "CompatibleNames", &MetadataField::Name);
+		if (Names != Entry.Macro.Fields.end())
+		{
+			for (const auto& OldName : Names->Value.Items)
 			{
-				CursorSource::Fail(Entry.Macro, "automatic Hooks require a Win64 x64 scalar member declaration.");
-			}
-			Entry.Id = "hook/" + Identity->second.Id + "/" + HookSlug(Entry.Name);
-			Entry.Permission = Entry.Id;
-			Entry.DefinitionUsr = Clang.String(Clang.clang_getCursorUSR(Member));
-			if (Entry.DefinitionUsr.empty())
-			{
-				CursorSource::Fail(Entry.Macro, "cannot identify the automatic Hook's C++ declaration.");
+				Extension Alias = Entry;
+				Alias.Name = OldName.Text;
+				Alias.Id = Prefix + HookSlug(Alias.Name);
+				Alias.Permission = Alias.Id;
+				Alias.DispatchId = Entry.Id;
+				Alias.DefinitionUsr.clear();
+				AddExtension(Model, std::move(Alias));
 			}
 		}
 	}
 	else
 	{
+		Entry.Id = Field(Entry.Macro, "ExportId");
+		Entry.Permission = Field(Entry.Macro, "Permission");
 		BindEvent(Model, Clang, Source, Member, Entry);
+		BindEventHostMember(Clang, Member, Entry);
 	}
-	BindHostMember(Clang, Member, Entry);
-	return Entry;
+	AddExtension(Model, std::move(Entry));
 }
 } // namespace Mod::HeaderTool
