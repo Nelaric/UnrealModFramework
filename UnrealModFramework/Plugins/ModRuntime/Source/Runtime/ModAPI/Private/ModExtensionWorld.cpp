@@ -166,6 +166,76 @@ bool FModExtensionWorld::SelectPackages(UModAPIHostSubsystem& Host, FString& Err
 	return true;
 }
 
+const FDefinition* FModExtensionWorld::FindDefinition(FName Id) const
+{
+	if (const auto* Channel = Channels.Find(Id))
+	{
+		return &(*Channel)->GetDefinition();
+	}
+	return CompatibleHooks.Find(Id);
+}
+
+TSharedPtr<FChannel> FModExtensionWorld::FindChannel(FName Id) const
+{
+	if (const auto* Channel = Channels.Find(Id))
+	{
+		return *Channel;
+	}
+	const auto* Alias = CompatibleHooks.Find(Id);
+	return Alias ? Channels.FindRef(Alias->DispatchId) : nullptr;
+}
+
+bool FModExtensionWorld::InstallDefinitions(TArray<FDefinition> Definitions, FString& Error)
+{
+	Channels.Reset();
+	CompatibleHooks.Reset();
+	for (FDefinition& Definition : Definitions)
+	{
+		if (Definition.Id.IsNone() || FindDefinition(Definition.Id))
+		{
+			Error = TEXT("Invalid or duplicate extension ID: ") + Definition.Id.ToString();
+			return false;
+		}
+		if (Definition.Scalar == EScalar::Projected &&
+		    (!Definition.Payload.Prepare() ||
+		     (Definition.Payload.IsObject() &&
+		      (!APIRegistry ||
+		       !APIRegistry->HasServiceType(Definition.Payload.TypeId, *Definition.Payload.Signature)))))
+		{
+			Error = TEXT("The reflected extension payload does not match its generated contract: ") +
+			        Definition.Id.ToString();
+			return false;
+		}
+		const FName Id = Definition.Id;
+		if (Definition.Kind == EKind::Hook)
+		{
+			const FString Prefix = Id.ToString() + TEXT(".");
+			Definition.ModifyInputsPermission = FName(Prefix + TEXT("ModifyInputs"));
+			Definition.CancelPermission = FName(Prefix + TEXT("Cancel"));
+			Definition.ModifyResultPermission = FName(Prefix + TEXT("ModifyResult"));
+		}
+		if (Definition.DispatchId.IsNone())
+		{
+			Channels.Add(Id, MakeShared<FChannel>(MoveTemp(Definition)));
+		}
+		else
+		{
+			CompatibleHooks.Add(Id, MoveTemp(Definition));
+		}
+	}
+	for (const auto& [Id, Alias] : CompatibleHooks)
+	{
+		const auto* Target = Channels.Find(Alias.DispatchId);
+		if (!Target || Alias.Kind != EKind::Hook || (*Target)->GetDefinition().Kind != EKind::Hook ||
+		    (*Target)->GetDefinition().Scalar != Alias.Scalar)
+		{
+			Error = TEXT("Invalid target for compatible Hook ID: ") + Id.ToString();
+			return false;
+		}
+	}
+	return true;
+}
+
 bool FModExtensionWorld::Prepare(FString& Error)
 {
 	UWorld* Current = World.Get();
@@ -191,35 +261,11 @@ bool FModExtensionWorld::Prepare(FString& Error)
 		}
 		APIScope = Scope.GetValue();
 	}
-	Channels.Reset();
 	TArray<FDefinition> Definitions;
 	FGeneratedRegistration::DescribeAll(Definitions);
-	for (FDefinition& Definition : Definitions)
+	if (!InstallDefinitions(MoveTemp(Definitions), Error))
 	{
-		if (Definition.Id.IsNone() || Channels.Contains(Definition.Id))
-		{
-			Error = TEXT("Invalid or duplicate extension ID: ") + Definition.Id.ToString();
-			return false;
-		}
-		if (Definition.Scalar == EScalar::Projected &&
-		    (!Definition.Payload.Prepare() ||
-		     (Definition.Payload.IsObject() &&
-		      (!APIRegistry ||
-		       !APIRegistry->HasServiceType(Definition.Payload.TypeId, *Definition.Payload.Signature)))))
-		{
-			Error = TEXT("The reflected extension payload does not match its generated contract: ") +
-			        Definition.Id.ToString();
-			return false;
-		}
-		const FName Id = Definition.Id;
-		if (Definition.Kind == EKind::Hook)
-		{
-			const FString Prefix = Id.ToString() + TEXT(".");
-			Definition.ModifyInputsPermission = FName(Prefix + TEXT("ModifyInputs"));
-			Definition.CancelPermission = FName(Prefix + TEXT("Cancel"));
-			Definition.ModifyResultPermission = FName(Prefix + TEXT("ModifyResult"));
-		}
-		Channels.Add(Id, MakeShared<FChannel>(MoveTemp(Definition)));
+		return false;
 	}
 	for (const auto& Mod : Mods)
 	{
@@ -235,8 +281,8 @@ bool FModExtensionWorld::Prepare(FString& Error)
 		}
 		for (const auto& Requirement : Package->Extensions.Contracts)
 		{
-			const auto* Channel = Channels.Find(Requirement.Id);
-			if (!Channel || (*Channel)->GetDefinition().Signature != Requirement.Signature)
+			const auto* Definition = FindDefinition(Requirement.Id);
+			if (!Definition || Definition->Signature != Requirement.Signature)
 			{
 				Error = Package->ModId + TEXT(": incompatible extension ") + Requirement.Id.ToString();
 				return false;
@@ -626,6 +672,7 @@ void FModExtensionWorld::Drain()
 	bBindingServices = false;
 	QueuedEvents.Reset();
 	Channels.Reset();
+	CompatibleHooks.Reset();
 	BlueprintCalls.Reset();
 	for (int32 Index = Mods.Num() - 1; Index >= 0; --Index)
 	{

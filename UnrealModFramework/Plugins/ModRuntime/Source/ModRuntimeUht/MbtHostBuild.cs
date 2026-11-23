@@ -346,7 +346,13 @@ internal sealed class MbtHostBuild
 		factory.AddExternalDependency(stamp);
 	}
 
-	internal static void Expand(IEnumerable<string> arguments, string directory, List<string> result, int depth)
+	internal static void Expand(
+		IEnumerable<string> arguments,
+		string directory,
+		List<string> result,
+		int depth,
+		bool gnu = false
+	)
 	{
 		if (depth > 16)
 		{
@@ -369,10 +375,13 @@ internal sealed class MbtHostBuild
 					);
 				}
 				Expand(
-					CommandLineArguments.Split(contents.Replace('\r', ' ').Replace('\n', ' ')),
+					gnu
+						? UbtPreparation.SplitGnuResponse(contents)
+						: CommandLineArguments.Split(contents.Replace('\r', ' ').Replace('\n', ' ')),
 					directory,
 					result,
-					depth + 1
+					depth + 1,
+					gnu
 				);
 			}
 			else

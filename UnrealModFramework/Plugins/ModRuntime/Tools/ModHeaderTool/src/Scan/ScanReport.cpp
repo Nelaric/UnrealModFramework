@@ -54,6 +54,10 @@ void ScanReport::WriteScanReport(const ScanResult& Result)
 				}
 				Metadata[Field.Name] = std::move(Items);
 			}
+			else if (Field.Value.Kind == MetadataValue::EKind::Flag)
+			{
+				Metadata[Field.Name] = true;
+			}
 			else
 			{
 				Metadata[Field.Name] = Field.Value.Text;

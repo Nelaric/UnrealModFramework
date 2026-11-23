@@ -6,11 +6,11 @@
 #include "ModHeaderTool/src/Generation/Artifacts/GeneratedSource.h"
 #include "ModHeaderTool/src/Generation/GenerationModel.h"
 
-#include <algorithm>
 #include <cctype>
 #include <set>
 #include <stdexcept>
 #include <sstream>
+#include <vector>
 
 namespace Mod::HeaderTool
 {
@@ -112,60 +112,13 @@ void WriteNativeExtensions(const GenerationModel& Model, std::map<std::string, s
 	Files["SDK/Public/" + HeaderName] = Header.str();
 }
 
-void WriteHostMember(const GenerationModel& Model, const Extension& Entry, const std::string& Symbol,
-                     std::ostringstream& Body)
+void WriteEventMember(const Extension& Entry, const std::string& Symbol, std::ostringstream& Body)
 {
 	const auto& Host = Entry.HostMember;
-	const std::string Helper = "::Mod::Generated::" + Entry.Module + "::" + Symbol;
 	Body << "\n"
 	     << Host.ReturnType << " " << Entry.Owner << "::" << Entry.Name << "(" << Host.ParameterType << " Input)"
-	     << (Host.bNoexcept ? " noexcept" : "") << "\n{\n";
-	if (!Entry.bHook)
-	{
-		Body << "    " << Helper << "::Publish(*this, this->" << Host.Endpoint << ", Input);\n}\n";
-		return;
-	}
-	Body << "    const auto Previous = this->" << Host.ReadState << "();\n"
-	     << "    if (!this->" << Host.ValidateInput << "(Input))\n"
-	     << "    {\n        return this->" << Host.ReadState << "();\n    }\n"
-	     << "    const auto Result = " << Helper << "::Invoke(*this, this->" << Host.Endpoint << ", Input,\n"
-	     << "        [this, Previous](" << Entry.Scalar << " Value)\n        {\n"
-	     << "            const auto Applied = this->" << Host.Core << "(Value);\n"
-	     << "            return ::Mod::Extension::TCoreResult<" << Entry.Scalar
-	     << ">{Applied, ::Mod::API::EError::None, this->" << Host.ReadState << "() != Previous};\n        },\n"
-	     << "        [this](" << Entry.Scalar << " Value) { return this->" << Host.ValidateInput << "(Value); },\n"
-	     << "        [this](" << Entry.Scalar << " Value) { return this->" << Host.ValidateResult << "(Value); });\n"
-	     << "    if (Result.Error != ::Mod::API::EError::None)\n"
-	     << "    {\n        UE_LOG(LogTemp, Warning, "
-	     << GeneratedSource::Wide(Entry.Name + " Hook failed (%d), committed=%d.")
-	     << ", static_cast<int32>(Result.Error), Result.bCommitted);\n    }\n";
-	if (!Host.PublishOnCommit.empty())
-	{
-		Body << "    if (Result.bCommitted)\n    {\n";
-		for (const auto& Name : Host.PublishOnCommit)
-		{
-			const auto Event = std::ranges::find_if(Model.Extensions,
-			                                        [&](const auto& Item)
-			                                        {
-				                                        const auto& Candidate = Item.second;
-				                                        return !Candidate.bHook && Candidate.Owner == Entry.Owner &&
-				                                               Candidate.Module == Entry.Module &&
-				                                               Candidate.Name == Name &&
-				                                               Candidate.BlueprintClass.empty();
-			                                        });
-			if (Event == Model.Extensions.end() || Event->second.HostMember.Endpoint.empty() ||
-			    Event->second.HostMember.CommitPayload.empty())
-			{
-				throw std::runtime_error(
-				    Entry.Location + ": 'HostPublishOnCommit' member '" + Name +
-				    "' must be an Event on the same class with 'HostEndpoint' and 'HostCommitPayload'.");
-			}
-			Body << "        this->" << Name << "(this->" << Event->second.HostMember.CommitPayload << "(Previous));\n";
-		}
-		Body << "    }\n";
-	}
-	Body << "    return Result.Error == ::Mod::API::EError::None ? Result.Value : this->" << Host.ReadState
-	     << "();\n}\n";
+	     << (Host.bNoexcept ? " noexcept" : "") << "\n{\n    ::Mod::Generated::" << Entry.Module << "::" << Symbol
+	     << "::Publish(*this, this->" << Host.Endpoint << ", Input);\n}\n";
 }
 } // namespace
 
@@ -201,6 +154,11 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 			            << "    Entry.Operations = static_cast<Mod::Extension::EOperation>("
 			            << unsigned(Entry.Operations) << ");\n    Entry.Permission = " << Name(Entry.Permission)
 			            << ";\n    Entry.PublishPermission = " << Name(Entry.PublishPermission) << ";\n";
+			if (!Entry.DispatchId.empty())
+			{
+				Definitions << "    Entry.DispatchId = " << Name(Entry.DispatchId) << ";\n    }\n";
+				continue;
+			}
 			if (Entry.PayloadKind == "Struct")
 			{
 				Definitions << "    Entry.Payload.Struct = FSoftObjectPath("
@@ -284,24 +242,7 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 					            : "Cast<" + Entry.PayloadCpp + ">(Value.GetObject())")
 					    << "; }\n";
 				}
-				if (Entry.bHook && !Entry.PayloadKind.empty())
-				{
-					Header << "    static Mod::Extension::THookResult<FValue> Invoke(" << Entry.Owner
-					       << "& Source, Mod::Extension::FEndpoint& Endpoint, FValue Value, "
-					       << "TFunctionRef<Mod::Extension::TCoreResult<FValue>(FValue)> Core, "
-					       << "TFunctionRef<bool(FValue)> ValidateInput, TFunctionRef<bool(FValue)> ValidateResult)\n"
-					       << "    {\n        using Mod::Extension::FPayload;\n"
-					       << "        const auto Result = UModExtensionSubsystem::InvokeScalar<FPayload>(Source, "
-					          "Id(), Endpoint, Pack(Value),\n"
-					       << "            [&](const FPayload& Input) { const auto Out = Core(Unpack(Input)); "
-					          "return Mod::Extension::TCoreResult<FPayload>{Pack(Out.Value), Out.Error, "
-					          "Out.bCommitted}; },\n"
-					       << "            [&](const FPayload& Input) { return ValidateInput(Unpack(Input)); },\n"
-					       << "            [&](const FPayload& Output) { return ValidateResult(Unpack(Output)); });\n"
-					       << "        return {Unpack(Result.Value), Result.Error, Result.bCancelled, "
-					          "Result.bCommitted};\n    }\n";
-				}
-				else if (Entry.bHook)
+				if (Entry.bHook)
 				{
 					Header << "    static Mod::Extension::THookResult<FValue> Invoke(" << Entry.Owner
 					       << "& Source, Mod::Extension::FEndpoint& Endpoint, FValue Value, "
@@ -333,7 +274,7 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 				Header << "};\n\n";
 				if (!Entry.HostMember.Endpoint.empty())
 				{
-					WriteHostMember(Model, Entry, Symbol, Members);
+					WriteEventMember(Entry, Symbol, Members);
 				}
 			}
 			Definitions << "    }\n";
@@ -353,15 +294,36 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 		    Output + "\nnamespace Mod::Generated::" + Module.Name + "\n{\n" + Header.str() + "}\n";
 		// Keep the descriptor in the existing retained host translation unit.
 		auto& HostSource = Files.at(Prefix + ".modhost.cpp");
+		std::string WitnessDeclarations, WitnessCalls;
+		if (const auto Map = Model.HookSources.find("Diagnostics/HookSources.json"); Map != Model.HookSources.end())
+		{
+			const auto Plan = nlohmann::json::parse(Map->second);
+			for (const auto& Unit : Plan.at("units"))
+			{
+				if (Unit.at("owner") == Module.Name)
+				{
+					const auto Witness = Unit.at("witness").get<std::string>();
+					WitnessDeclarations += "extern \"C\" UMF_HOOK_LOCAL void " + Witness + "();\n";
+					WitnessCalls += "    " + Witness + "();\n";
+				}
+			}
+		}
+		if (!WitnessCalls.empty())
+		{
+			HostSource += "\n#if defined(__GNUC__) && !defined(_WIN32)\n"
+			              "#define UMF_HOOK_LOCAL __attribute__((visibility(\"hidden\")))\n#else\n#define "
+			              "UMF_HOOK_LOCAL\n#endif\n" +
+			              WitnessDeclarations + "#undef UMF_HOOK_LOCAL\n";
+		}
 		HostSource +=
 		    "\n#include \"" + HeaderName +
 		    "\"\n\nnamespace\n{\nvoid DescribeExtensions(TArray<Mod::Extension::FDefinition>& Out)\n{\n" +
-		    Definitions.str() +
+		    WitnessCalls + Definitions.str() +
 		    "}\nconst Mod::Extension::FGeneratedRegistration ExtensionRegistration(&DescribeExtensions);\n}\n";
 		const auto MemberCode = Members.str();
 		if (!MemberCode.empty())
 		{
-			HostSource += "\n#include \"CoreGlobals.h\"\n#include \"Logging/LogMacros.h\"\n" + MemberCode;
+			HostSource += MemberCode;
 		}
 	}
 }

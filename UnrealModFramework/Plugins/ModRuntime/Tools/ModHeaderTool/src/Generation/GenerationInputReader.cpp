@@ -48,10 +48,6 @@ GenerationInput GenerationInputReader::LoadGenerationInput(const fs::path& File)
 	Result.Platform = GenerationFields::Required(Document, "platform");
 	Result.Configuration = GenerationFields::Required(Document, "configuration");
 	Result.Architecture = GenerationFields::Required(Document, "architecture");
-	if (Result.Platform != "Win64" || Result.Architecture != "x64")
-	{
-		throw std::runtime_error("The MHT UObject API backend requires a Win64 x64 compilation database.");
-	}
 	for (const auto& Name : {Result.Target, Result.Platform, Result.Configuration, Result.Architecture})
 	{
 		GenerationFields::RequireName(Name);

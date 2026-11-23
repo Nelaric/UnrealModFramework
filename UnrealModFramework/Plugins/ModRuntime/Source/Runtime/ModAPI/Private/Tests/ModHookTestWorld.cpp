@@ -10,7 +10,7 @@
 
 namespace Mod::Tests
 {
-bool FHookTestWorld::Run(UWorld& World, Extension::FDefinition Definition,
+bool FHookTestWorld::Run(UWorld& World, TArray<Extension::FDefinition> Definitions, TSet<FName> Grants,
                          TFunctionRef<bool(UModExtensionSubsystem&, UModInstance&)> Test)
 {
 	auto* Subsystem = World.GetSubsystem<UModExtensionSubsystem>();
@@ -25,19 +25,22 @@ bool FHookTestWorld::Run(UWorld& World, Extension::FDefinition Definition,
 	UModInstance::SetExtensionWorld(*Owner, World, ModId);
 	auto Package = MakeShared<Loader::FMountedPackage>();
 	Package->ModId = ModId;
-	Package->Extensions.Contracts.Add({Definition.Id, Definition.Signature});
+	for (const auto& Definition : Definitions)
+	{
+		Package->Extensions.Contracts.Add({Definition.Id, Definition.Signature});
+	}
+	FString Error;
+	if (!State.InstallDefinitions(MoveTemp(Definitions), Error))
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+		return false;
+	}
 	auto& Mod = State.Mods.AddDefaulted_GetRef();
 	Mod.Package = Package;
 	Mod.Instances.Emplace(Owner);
 	State.Instances.Add(FObjectKey(Owner), 0);
 
-	const auto Id = Definition.Id;
-	const FString Prefix = Id.ToString() + TEXT(".");
-	Definition.ModifyInputsPermission = FName(Prefix + TEXT("ModifyInputs"));
-	Definition.CancelPermission = FName(Prefix + TEXT("Cancel"));
-	State.Policy.Grants.Add(ModId, {Definition.Permission, Definition.ModifyInputsPermission,
-	                                Definition.CancelPermission, FName(Prefix + TEXT("Replace"))});
-	State.Channels.Add(Id, MakeShared<Extension::FChannel>(MoveTemp(Definition)));
+	State.Policy.Grants.Add(ModId, MoveTemp(Grants));
 	State.Phase = FModExtensionWorld::EState::Ready;
 	ON_SCOPE_EXIT
 	{

@@ -66,10 +66,8 @@ generate resolves active API, Hook, and Event markers with libclang and a compil
 database. The build input pins modules, translation units, stable type identities,
 Target context and analysis arguments. It emits SDK views, concrete host bridges,
 compile verification, a contract and a complete manifest at fixed output paths.
-Implementation .cpp files are compiled independently by MBT, never by UBT.
-The UHT generation request supplies the build input, output directory, and
-host context set. It also carries the resolved metadata snapshot, libclang,
-and lifecycle source paths for the current target.
+The target build rules select MBT or UBT to compile the generated host code.
+The UHT generation request supplies the build input and resolved paths for the target.
 The backend supports public UObject instance methods on GameThread, scalar
 and UObject pointer inputs, and scalar/void or World-scoped UObject pointer returns.
 FullView selects parameter classes for public instance method generation.
@@ -83,7 +81,8 @@ When a project directory is supplied, it must contain exactly one .uproject.
 Scans Plugins, Source, and Directories from the optional <project>.modexpot JSON.
 Relative configured directories resolve from the project directory.
 scan writes its JSON report to stdout.
-Macro parameters are parsed and validated against the shared metadata schema.
+MOD_EXPORT_HOOK() exports Pre, On and Post. NoPre, NoOn and NoPost each omit that stage.
+CompatibleNames = ("FormerName") retains former Hook IDs with the same stage policy.
 Choices come from the UE ModExportOptions commandlet, not Blueprint assets.
 UHT stores its default snapshot at Intermediate/ModTools/ModHeaderTool/MetadataOptions.json.
 Invalid metadata or stale catalogs produce "file"(line,column) diagnostics and

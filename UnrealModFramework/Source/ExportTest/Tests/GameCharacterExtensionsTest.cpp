@@ -141,11 +141,18 @@ bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 		Blueprint->ProcessEvent(BlueprintCall, nullptr);
 	};
 	TArray<TPair<EStage, float>> Trace;
+	FDefinition Former = Definition;
+	Former.Id = Former.Permission = TEXT("hook/game.character/adjust-health");
+	Former.Signature = TEXT("previous-health-signature");
+	Former.DispatchId = HookId;
 	const bool bCompleted = FHookTestWorld::Run(
-	    *World, Definition,
+	    *World, {Former, Definition},
+	    {Former.Id, Definition.Permission, FName(Former.Id.ToString() + TEXT(".ModifyInputs")),
+	     FName(HookId.ToString() + TEXT(".Replace"))},
 	    [&](UModExtensionSubsystem& Extensions, UModInstance& Owner)
 	    {
-		    const auto Register = [&](EStage Stage, EOperation Operation, FName Key, THandlerCalls<float> Calls)
+		    const auto Register = [&](const FDefinition& Contract, EStage Stage, EOperation Operation, FName Key,
+		                              THandlerCalls<float> Calls)
 		    {
 			    FHandler Handler;
 			    Handler.Target = &Owner;
@@ -153,9 +160,7 @@ bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 			    Handler.Key = Key;
 			    Handler.Operations = Operation;
 			    Handler.SetCalls(MoveTemp(Calls));
-			    return TestTrue(
-			        *Key.ToString(),
-			        Extensions.Register(Owner, HookId, Definition.Signature, MoveTemp(Handler)).IsSuccess());
+			    return Extensions.Register(Owner, Contract.Id, Contract.Signature, MoveTemp(Handler));
 		    };
 		    THandlerCalls<float> Pre;
 		    Pre.Hook = [&](float Delta)
@@ -177,9 +182,22 @@ bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 			    Trace.Emplace(EStage::Post, Result);
 			    return FHookDecision{};
 		    };
-		    if (!Register(EStage::Pre, EOperation::ModifyInputs, TEXT("Pre modifies input"), MoveTemp(Pre)) ||
-		        !Register(EStage::On, EOperation::Replace, TEXT("On replaces body"), MoveTemp(On)) ||
-		        !Register(EStage::Post, EOperation::None, TEXT("Post observes result"), MoveTemp(Post)))
+		    FDefinition WrongSignature = Former;
+		    WrongSignature.Signature = Definition.Signature;
+		    TestTrue(TEXT("Former ID requires its original signature"),
+		             Register(WrongSignature, EStage::Post, EOperation::None, TEXT("WrongSignature"), {}).GetError() ==
+		                 API::EError::SignatureMismatch);
+		    TestTrue(TEXT("The current Replace grant does not authorize the former ID"),
+		             Register(Former, EStage::On, EOperation::Replace, TEXT("WrongGrant"), {}).GetError() ==
+		                 API::EError::PermissionDenied);
+		    const auto OldPre = Register(Former, EStage::Pre, EOperation::ModifyInputs, TEXT("Pre"), MoveTemp(Pre));
+		    if (!TestTrue(TEXT("Register Pre using the former ID and grant"), OldPre.IsSuccess()) ||
+		        !TestTrue(
+		            TEXT("Register On using the current ID"),
+		            Register(Definition, EStage::On, EOperation::Replace, TEXT("On"), MoveTemp(On)).IsSuccess()) ||
+		        !TestTrue(
+		            TEXT("Register Post using the current ID"),
+		            Register(Definition, EStage::Post, EOperation::None, TEXT("Post"), MoveTemp(Post)).IsSuccess()))
 		    {
 			    return false;
 		    }
@@ -208,6 +226,12 @@ bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 		              ReplacementValue);
 		    TestTrue(TEXT("Same-file AddHealth also executes the Hook"), Trace == SameFile);
 #endif
+		    const auto& Token = OldPre.GetValue();
+		    TestTrue(TEXT("Former ID subscription is active"),
+		             Extensions.GetSubscriptionStatus(Owner, Token) == ESubscriptionStatus::Active);
+		    Extensions.Unregister(Owner, Token);
+		    TestTrue(TEXT("Former ID subscription can be removed"),
+		             Extensions.GetSubscriptionStatus(Owner, Token) == ESubscriptionStatus::Inactive);
 		    return true;
 	    });
 	return TestTrue(TEXT("Hook dispatch fixture completed"), bCompleted);

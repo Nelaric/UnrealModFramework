@@ -86,6 +86,9 @@ struct FModExtensionWorld : TSharedFromThis<FModExtensionWorld>
 
 	explicit FModExtensionWorld(UWorld& InWorld, uint64 InGeneration);
 	bool Prepare(FString& Error);
+	bool InstallDefinitions(TArray<Mod::Extension::FDefinition> Definitions, FString& Error);
+	const Mod::Extension::FDefinition* FindDefinition(FName Id) const;
+	TSharedPtr<FChannel> FindChannel(FName Id) const;
 	bool SelectPackages(UModAPIHostSubsystem& Host, FString& Error);
 	void Fail(Mod::API::EError Error, FString Detail, bool bRestartRequired = false);
 	FString CalculateGameplayDigest() const;
@@ -128,6 +131,7 @@ struct FModExtensionWorld : TSharedFromThis<FModExtensionWorld>
 	uint64 LastAnchor = 0;
 	FWorldPolicy Policy;
 	TMap<FName, TSharedPtr<FChannel>> Channels;
+	TMap<FName, Mod::Extension::FDefinition> CompatibleHooks;
 	TArray<TUniqueFunction<void()>> QueuedEvents;
 	TMap<TPair<FName, TWeakObjectPtr<UClass>>, TSharedPtr<const Mod::API::FBlueprintCall>> BlueprintCalls;
 	TMap<FName, Mod::Extension::FContentSlot> Slots;

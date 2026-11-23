@@ -10,6 +10,7 @@
 #include "ModExportMetadataSchema.h"
 
 #include <cstddef>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -31,7 +32,7 @@ private:
 
 	void Error(std::size_t Offset, const std::string& Reason);
 
-	void ValidateHookPolicy();
+	void ResolveHookPolicy(const std::set<std::string>& Names);
 
 	void CheckChoice(const Schema::FFieldSpec& Spec, const MetadataValue& Value);
 

@@ -22,7 +22,8 @@ internal static class ModRuntimeExporter
 	[UhtExporter(
 		Name = "ModRuntime",
 		Description = "Generate Mod APIs and build independent host archives",
-		Options = UhtExporterOptions.Default,
+		Options = UhtExporterOptions.Default | UhtExporterOptions.CompileOutput,
+		CppFilters = new[] { "*.umfhost.cpp" },
 		ModuleName = "ModLoader"
 	)]
 	private static void Export(IUhtExportFactory factory)
@@ -87,13 +88,29 @@ internal static class ModRuntimeExporter
 		DirectoryInfo configurationDirectory = new(Path.GetDirectoryName(manifest.ExternalDependenciesFile)!);
 		string platform = configurationDirectory.Parent!.Parent!.Name;
 		string configuration = configurationDirectory.Name;
-		if (mode == "generate" && (platform != "Win64" || !OperatingSystem.IsWindows()))
+		string architecture = "";
+		bool ubtHost = false;
+		if (mode == "generate")
 		{
-			factory.Session.Logger.LogInformation(
-				"ModRuntime MHT: skipping automatic native generation for {Platform}.",
-				platform
-			);
-			return;
+			string[] VariantValues(string prefix) =>
+				manifest
+					.Modules.SelectMany(module => module.PublicDefines)
+					.Where(value => value.StartsWith(prefix, StringComparison.Ordinal))
+					.Select(value => value[prefix.Length..])
+					.Distinct(StringComparer.Ordinal)
+					.ToArray();
+			var identities = VariantValues("UMF_MHT_BUILD_VARIANT=");
+			var compilers = VariantValues("UMF_MHT_UBT_HOST=");
+			if (
+				identities.Length != 1
+				|| compilers.Length != 1
+				|| identities[0].Split('_') is not [var os, var configName, var arch]
+			)
+			{
+				throw new UhtException("ModRuntime MHT: the export modules must declare a single UBT target variant.");
+			}
+			(platform, configuration, architecture) = (os, configName, arch);
+			ubtHost = compilers[0] == "1";
 		}
 		if (mode == "generate" && factory.Session.FailIfGeneratedCodeChanges)
 		{
@@ -144,8 +161,6 @@ internal static class ModRuntimeExporter
 		}
 		if (mode == "generate")
 		{
-			// Its manifest has no architecture; ConfigureHost restricts this adapter to the actual x64 target.
-			const string architecture = "x64";
 			string variantKey = $"{platform}/{configuration}/{architecture}";
 			JsonElement target =
 				config.TryGetProperty("targets", out JsonElement targets)
@@ -173,7 +188,13 @@ internal static class ModRuntimeExporter
 				Environment.GetEnvironmentVariable("UMF_MHT_LIBCLANG")
 				?? OptionalText(variant, "libclang")
 				?? OptionalText(target, "libclang")
-				?? OptionalText(config, "libclang");
+				?? (
+					config.TryGetProperty("hostLibclang", out JsonElement hostLibraries)
+						? OptionalText(hostLibraries, MetadataSnapshot.HostPlatform)
+						: null
+				)
+				?? OptionalText(config, "libclang")
+				?? UbtPreparation.FindHostLibClang();
 			string? clang = configuredClang == null ? null : Resolve(projectRoot, configuredClang);
 			string? configuredInput = inputOverride ?? OptionalText(variant, "buildInput");
 			string buildInput =
@@ -205,17 +226,19 @@ internal static class ModRuntimeExporter
 					$"ModRuntime MHT: build input does not match {targetName}/{variantKey}: \"{buildInput}\""
 				);
 			}
-			MbtHostBuild hostBuild = MbtHostBuild.Prepare(
-				factory,
-				projectRoot,
-				pluginRoot,
-				Path.Combine(tools, "ModBuildTool", targetVariant),
-				output,
-				variantDirectory,
-				buildInput,
-				context,
-				config
-			);
+			MbtHostBuild? hostBuild = ubtHost
+				? null
+				: MbtHostBuild.Prepare(
+					factory,
+					projectRoot,
+					pluginRoot,
+					Path.Combine(tools, "ModBuildTool", targetVariant),
+					output,
+					variantDirectory,
+					buildInput,
+					context,
+					config
+				);
 			string lifecycleSource = Path.Combine(pluginRoot, "Source", "Runtime", "ModLoader", "Public");
 			string lifecycleHeader = Path.Combine(lifecycleSource, "ModInstance.h");
 			bool exportLifecycle = manifest.Modules.Any(module =>
@@ -227,23 +250,31 @@ internal static class ModRuntimeExporter
 					? ExportBlueprints(factory, project, configPath, config, variantDirectory, timeout)
 					: "";
 			string request = Path.Combine(variantDirectory, "GenerationRequest.json");
-			WriteFileIfChanged(
-				request,
-				JsonSerializer.SerializeToUtf8Bytes(
-					new
-					{
-						format = "UMF.ModHeaderGenerationRequest",
-						schemaVersion = 1,
-						buildInput,
-						outputDirectory = output,
-						hostContexts = hostBuild.ContextSet,
-						metadataOptions = File.Exists(options) ? options : "",
-						libclang = clang ?? "",
-						lifecycleSource = exportLifecycle ? lifecycleSource : "",
-						blueprintSnapshot,
-					}
-				)
-			);
+			Dictionary<string, object> fields = new()
+			{
+				["format"] = "UMF.ModHeaderGenerationRequest",
+				["schemaVersion"] = 1,
+				["buildInput"] = buildInput,
+				["outputDirectory"] = output,
+				["metadataOptions"] = File.Exists(options) ? options : "",
+				["libclang"] = clang ?? "",
+				["lifecycleSource"] = exportLifecycle ? lifecycleSource : "",
+				["blueprintSnapshot"] = blueprintSnapshot,
+			};
+			if (hostBuild != null)
+			{
+				fields["hostContexts"] = hostBuild.ContextSet;
+			}
+			else
+			{
+				fields["hostCompiler"] = "UBT";
+				string sourceTool =
+					Environment.GetEnvironmentVariable("UMF_MOD_SOURCE_TOOL_EXECUTABLE")
+					?? OptionalText(config, "sourceTool")
+					?? LocalExecutable(pluginRoot, "ModSourceTool");
+				fields["sourceTool"] = Resolve(projectRoot, sourceTool);
+			}
+			WriteFileIfChanged(request, JsonSerializer.SerializeToUtf8Bytes(fields));
 			AddDependency(factory, request);
 			AddDependency(factory, buildInput);
 			foreach (string key in new[] { "compilationDatabase", "typeIdentities" })
@@ -263,8 +294,31 @@ internal static class ModRuntimeExporter
 				output
 			);
 			MhtProcess.Run(factory.Session.Logger, executable, new[] { "generate", request }, projectRoot, timeout);
-			RegisterGeneratedDependencies(factory, output, context, hostBuild.PluginGeneratedDirectories);
-			hostBuild.Build(
+			RegisterGeneratedDependencies(factory, output, context, hostBuild?.PluginGeneratedDirectories);
+			if (ubtHost)
+			{
+				string watch = Path.Combine(variantDirectory, "watch.json");
+				WriteFileIfChanged(
+					watch,
+					JsonSerializer.SerializeToUtf8Bytes(
+						new
+						{
+							generatedManifest = Path.Combine(
+								output,
+								RequiredText(context, "gameId") + ".generated-artifacts.json"
+							),
+						}
+					)
+				);
+				factory.AddExternalDependency(watch);
+				string stamp = Path.Combine(variantDirectory, ".mht-watch.stamp");
+				if (!File.Exists(stamp))
+				{
+					WriteFileIfChanged(stamp, Encoding.UTF8.GetBytes("UMF watched inputs\n"));
+				}
+				factory.AddExternalDependency(stamp);
+			}
+			hostBuild?.Build(
 				factory,
 				Path.Combine(output, RequiredText(context, "gameId") + ".generated-artifacts.json"),
 				projectRoot,
@@ -321,7 +375,7 @@ internal static class ModRuntimeExporter
 		{
 			UbtPreparation.BuildEditor(factory.Session.Logger, engine, project, editorTarget, timeout);
 		}
-		string editor = Path.Combine(engine, "Binaries/Win64/UnrealEditor-Cmd.exe");
+		string editor = MetadataSnapshot.EditorExecutable(engine);
 		string snapshot = Path.Combine(variantDirectory, "BlueprintExports.json");
 		string temporary = Path.Combine(variantDirectory, $".blueprints-{Guid.NewGuid():N}.json");
 		string log = Path.ChangeExtension(temporary, ".log");
@@ -377,7 +431,7 @@ internal static class ModRuntimeExporter
 		IUhtExportFactory factory,
 		string output,
 		JsonElement context,
-		IReadOnlyDictionary<string, string> pluginGeneratedDirectories
+		IReadOnlyDictionary<string, string>? pluginGeneratedDirectories
 	)
 	{
 		string manifestPath = Resolve(output, RequiredText(context, "gameId") + ".generated-artifacts.json");
@@ -385,7 +439,8 @@ internal static class ModRuntimeExporter
 		JsonElement batch = manifest.RootElement;
 		if (
 			batch.GetProperty("schemaVersion").GetInt32() != 3
-			|| RequiredText(batch, "format") != "UMF.GeneratedArtifacts"
+			|| RequiredText(batch, "format")
+				!= (pluginGeneratedDirectories == null ? "UMF.UbtHostArtifacts" : "UMF.GeneratedArtifacts")
 			|| RequiredText(batch, "outputLayout") != "Flat"
 			|| RequiredText(batch, "status") != "Complete"
 			|| batch.GetProperty("unresolvedTypeCount").GetInt32() != 0
@@ -426,10 +481,38 @@ internal static class ModRuntimeExporter
 			FileItem.ResetCachedInfo(path);
 			if (
 				file.GetProperty("ownerModule").GetString() is string owner
+				&& pluginGeneratedDirectories != null
 				&& pluginGeneratedDirectories.TryGetValue(owner, out string? directory)
 			)
 			{
 				pluginFiles.Add((Path.Combine(directory, relative), contents));
+			}
+		}
+		if (pluginGeneratedDirectories == null)
+		{
+			// Each generated unit gets the actual owner module's ABI, includes, compiler, architecture and linker.
+			var modules = factory.Session.Manifest!.Modules.ToDictionary(module => module.Name);
+			string client = RequiredText(context, "gameId") + "ModClient";
+			foreach (JsonElement unit in batch.GetProperty("compilationUnits").EnumerateArray())
+			{
+				string owner = RequiredText(unit, "ownerModule");
+				if (owner == client)
+				{
+					continue;
+				}
+				string relative = RequiredText(unit, "source");
+				string file = Path.Combine(
+					modules[owner].OutputDirectory,
+					Path.GetFileNameWithoutExtension(relative) + ".umfhost.cpp"
+				);
+				factory.CommitOutput(
+					file,
+					new StringBuilder(
+						"#if defined(UMF_MHT_UBT_HOST) && UMF_MHT_UBT_HOST && !MOD_API_BOOTSTRAP\n#include \""
+							+ relative
+							+ "\"\n#endif\n"
+					)
+				);
 			}
 		}
 		// Keep the shared manifest rooted at the project for MBT and SDK consumers.

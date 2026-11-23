@@ -28,17 +28,28 @@ std::vector<MetadataField> Parser::Parse()
 		{
 			Fail(Name.Begin, "expected a field name.");
 		}
-		Expect('=');
 		MetadataField Field;
 		Field.Name = Name.Text;
 		Field.Offset = Name.Begin;
-		Field.Value = ParseValue();
+		if (Macro.Name == "MOD_EXPORT_HOOK" && !IsPunctuation(Lexer.Peek(), '='))
+		{
+			Field.Value = {MetadataValue::EKind::Flag, {}, {}, Name.Begin};
+		}
+		else
+		{
+			Expect('=');
+			Field.Value = ParseValue();
+		}
 		Result.push_back(std::move(Field));
 		if (IsPunctuation(Lexer.Peek(), ')'))
 		{
 			break;
 		}
 		Expect(',');
+		if (Macro.Name == "MOD_EXPORT_HOOK" && IsPunctuation(Lexer.Peek(), ')'))
+		{
+			Fail(Lexer.Peek().Begin, "expected a field name after ','.");
+		}
 	}
 	const Token Close = Lexer.Read();
 	if (Close.Begin != Macro.ArgumentsOffset + Macro.Arguments.size())

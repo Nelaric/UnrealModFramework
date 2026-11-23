@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -59,20 +60,14 @@ internal static class MetadataSnapshot
 				return;
 			}
 			const string bootstrap = "Build the project's Development Editor with -MhtBootstrap if needed.";
-			string editor = Path.Combine(
-				engine,
-				"Binaries",
-				OperatingSystem.IsWindows() ? "Win64/UnrealEditor-Cmd.exe"
-					: OperatingSystem.IsMacOS() ? "Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor"
-					: "Linux/UnrealEditor"
-			);
+			string editor = EditorExecutable(engine);
 			if (!File.Exists(editor))
 			{
 				throw new UhtException(
 					$"ModRuntime ModExportOptions: Editor executable not found: \"{editor}\". {bootstrap}"
 				);
 			}
-			if (OperatingSystem.IsWindows() && editorTarget != null && !HasDevelopmentEditor(projectRoot, editorTarget))
+			if (editorTarget != null && !HasDevelopmentEditor(projectRoot, editorTarget))
 			{
 				UbtPreparation.BuildEditor(logger, engine, project, editorTarget, timeout);
 			}
@@ -131,22 +126,57 @@ internal static class MetadataSnapshot
 		}
 	}
 
+	internal static string HostArchitecture =>
+		RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+
+	internal static string HostPlatform =>
+		OperatingSystem.IsWindows() ? "Win64"
+		: OperatingSystem.IsMacOS() ? "Mac"
+		: RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "LinuxArm64"
+		: "Linux";
+
+	internal static string EditorExecutable(string engine) =>
+		Path.Combine(
+			engine,
+			"Binaries",
+			HostPlatform,
+			OperatingSystem.IsWindows() ? "UnrealEditor-Cmd.exe"
+				: OperatingSystem.IsMacOS() ? "UnrealEditor.app/Contents/MacOS/UnrealEditor"
+				: "UnrealEditor"
+		);
+
 	internal static bool HasDevelopmentEditor(string projectRoot, string target)
 	{
 		const string projectPrefix = "$(ProjectDir)/";
-		string receipt = Path.Combine(projectRoot, "Binaries", "Win64", target + ".target");
+		string directory = Path.Combine(projectRoot, "Binaries", HostPlatform);
+		string receipt = Path.Combine(directory, target + ".target");
 		if (!File.Exists(receipt))
+		{
+			receipt = Path.Combine(directory, $"{target}-{HostPlatform}-Development{HostArchitecture}.target");
+			if (!File.Exists(receipt))
+			{
+				return false;
+			}
+		}
+		using JsonDocument document = JsonDocument.Parse(File.ReadAllText(receipt));
+		var metadata = document.RootElement;
+		if (
+			metadata.GetProperty("Platform").GetString() != HostPlatform
+			|| metadata.GetProperty("TargetName").GetString() != target
+			|| metadata.GetProperty("TargetType").GetString() != "Editor"
+			|| metadata.GetProperty("Configuration").GetString() != "Development"
+			|| Array.IndexOf((metadata.GetProperty("Architecture").GetString() ?? "").Split('+'), HostArchitecture) < 0
+		)
 		{
 			return false;
 		}
-		using JsonDocument document = JsonDocument.Parse(File.ReadAllText(receipt));
-		foreach (JsonElement product in document.RootElement.GetProperty("BuildProducts").EnumerateArray())
+		foreach (JsonElement product in metadata.GetProperty("BuildProducts").EnumerateArray())
 		{
 			string path = product.GetProperty("Path").GetString()!;
 			if (
 				path.StartsWith(projectPrefix, StringComparison.Ordinal)
 				&& (
-					path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+					product.GetProperty("Type").GetString() == "DynamicLibrary"
 					|| path.EndsWith(".modules", StringComparison.OrdinalIgnoreCase)
 				)
 				&& !File.Exists(Path.Combine(projectRoot, path[projectPrefix.Length..]))

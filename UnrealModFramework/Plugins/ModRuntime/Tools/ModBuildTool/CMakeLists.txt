@@ -52,6 +52,10 @@ add_executable(ModBuildTool
     src/Build/Request.h
     src/Build/Unreal/UeBuildAdapter.cpp
     src/Build/Unreal/UeBuildAdapter.h
+    src/Build/Unreal/UeHookActions.cpp
+    src/Build/Unreal/UeHookActions.h
+    src/Build/Unreal/UeHookBuild.cpp
+    src/Build/Unreal/UeHookBuild.h
     src/Build/Unreal/UeTargetReceipt.cpp
     src/Build/Unreal/UeTargetReceipt.h
     src/Cli/CommandArguments.cpp

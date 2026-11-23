@@ -4,7 +4,10 @@
 
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
+#include "Containers/Array.h"
+#include "Containers/Set.h"
 #include "Templates/Function.h"
+#include "UObject/NameTypes.h"
 
 class UModExtensionSubsystem;
 class UModInstance;
@@ -21,7 +24,7 @@ namespace Mod::Tests
 struct FHookTestWorld
 {
 	/// Runs the test using the normal World registration and dispatch path.
-	static MODAPI_API bool Run(UWorld& World, Extension::FDefinition Definition,
+	static MODAPI_API bool Run(UWorld& World, TArray<Extension::FDefinition> Definitions, TSet<FName> Grants,
 	                           TFunctionRef<bool(UModExtensionSubsystem&, UModInstance&)> Test);
 };
 } // namespace Mod::Tests

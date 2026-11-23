@@ -55,7 +55,12 @@ FString FModNetworkHandshake::GetContractDigest()
 	FString Data = FString::Join(Digests, TEXT("\n")) + TEXT("\n");
 	for (const auto& Definition : Definitions)
 	{
-		Data += Definition.Id.ToString().ToLower() + TEXT("|") + Definition.Signature + TEXT("\n");
+		Data += Definition.Id.ToString().ToLower() + TEXT("|") + Definition.Signature;
+		if (!Definition.DispatchId.IsNone())
+		{
+			Data += TEXT("|") + Definition.DispatchId.ToString().ToLower();
+		}
+		Data += TEXT("\n");
 	}
 	return Mod::Loader::HashPackagePlan(Data);
 }
