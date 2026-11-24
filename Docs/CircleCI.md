@@ -4,37 +4,37 @@ English | [简体中文](CircleCI.zh-CN.md)
 
 # CircleCI Linux Builds
 
-The push and trusted PR configurations each define two parallel Unreal Engine 5.6.1 Linux jobs. `build_game_linux` compiles `UnrealModFrameworkDev` and its enabled runtime modules. `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, then builds `ModSDKTool` (MDT) and MBT in the UE container and runs `ModSDKTool build-editor` to compile and verify the independent `ModDevelopmentSDKEditor` plugin. [Push configuration](../.circleci/config.yml) · [Trusted PR configuration](../.circleci/pr-build.yml)
+Both the push and trusted PR configurations define two parallel Unreal Engine 5.6.1 Linux jobs: `build_game_linux` compiles `UnrealModFrameworkDev` and its enabled runtime modules, while `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, builds `ModSDKTool` (MDT) and MBT inside the UE container, and runs `ModSDKTool build-editor` to compile and verify the independent `ModDevelopmentSDKEditor` plugin. See the [push configuration](../.circleci/config.yml) and [trusted PR configuration](../.circleci/pr-build.yml).
 
-Both pipelines build MDT and MBT from the commit under test. The shared build script uses the engine's bundled .NET host and Editor BuildId. MDT generates the plugin from embedded resources and publishes the verified package to `Dist/ModDevelopmentSDKEditor` in the job's staging directory. [Editor plugin build script](../.circleci/build-editor-plugin.sh)
+Both pipelines build MDT and MBT from the commit under test. The shared build script uses the engine's bundled .NET host and Editor BuildId. MDT generates the plugin from embedded resources and publishes the verified package to `Dist/ModDevelopmentSDKEditor` in the job's staging directory; see the [editor plugin build script](../.circleci/build-editor-plugin.sh).
 
 ## Active PR integration
 
-The repository enables `CIRCLECI_PR_BUILDS_ENABLED=true` and stores the current trigger endpoint in the encrypted Actions secret `CIRCLECI_PR_BUILD_WEBHOOK_URL`. The `UnrealModFramework PR builds` pipeline uses `.circleci/pr-build.yml`, with both configuration and initial checkout fixed to `main`. The setup steps below describe how to recreate this integration.
+This repository has `CIRCLECI_PR_BUILDS_ENABLED=true` enabled and stores the current trigger endpoint in the encrypted Actions secret `CIRCLECI_PR_BUILD_WEBHOOK_URL`. The `UnrealModFramework PR builds` pipeline uses `.circleci/pr-build.yml`, with both its configuration and initial checkout pinned to `main`. The setup steps below explain how to recreate this integration.
 
 ## Regular push builds
 
-Use the CircleCI `github/Nelaric/UnrealModFramework` GitHub OAuth project with this repository as its configuration and checkout source, `.circleci/config.yml` as the configuration path, and a trigger for source-repository pushes. Set `GHCR_USERNAME` and `GHCR_TOKEN` in the CircleCI project's environment variables. The token must be able to pull `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1`. Keep the values out of Git.
+Use the CircleCI `github/Nelaric/UnrealModFramework` GitHub OAuth project with this repository as both the configuration and checkout source, `.circleci/config.yml` as the configuration path, and a trigger for source-repository pushes. Set `GHCR_USERNAME` and `GHCR_TOKEN` in the CircleCI project's environment variables; the token must be able to pull `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1`. Never commit these values to Git.
 
-Keep **Build forked pull requests** and **Pass secrets to builds from forked pull requests** disabled. Fork builds use the separate trusted integration below. Both job types use a Linux machine executor with Docker and the `large` resource class.
+Keep **Build forked pull requests** and **Pass secrets to builds from forked pull requests** disabled, as fork builds use the separate trusted integration described below. Both job types run on a Linux machine executor with Docker using the `large` resource class.
 
 ## Enable trusted PR builds
 
-The [Actions workflow](../.github/workflows/fork-pr-linux.yml) is opt-in. Its jobs remain skipped until the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED` is set to `true`. Set up the following integration before enabling it:
+The [Actions workflow](../.github/workflows/fork-pr-linux.yml) is opt-in: its jobs are skipped until the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED` is set to `true`. Complete the following setup before enabling it:
 
 1. Commit the workflow, `Scripts/pr_build_policy.py`, `Scripts/fork_pr_build_bot.py`, and `.circleci/pr-build.yml` to `main` through the normal review process.
-2. In the same CircleCI project, add a GitHub App pipeline. An OAuth organization can also install the GitHub App integration. Select `Nelaric/UnrealModFramework` as both configuration and checkout repository, `.circleci/pr-build.yml` as its configuration path, and `main` for the custom webhook's configuration and checkout branch. Preserve the existing OAuth push pipeline.
-3. Add a **Custom webhook** trigger for that pipeline. Copy the complete generated HTTPS endpoint, including its secret, into the GitHub Actions secret `CIRCLECI_PR_BUILD_WEBHOOK_URL`. The bot accepts only an `internal.circleci.com` endpoint. Do not copy a webhook or pipeline identifier from another repository.
-4. Ensure the PR pipeline can access this project's `GHCR_USERNAME` and `GHCR_TOKEN`. Restrict the webhook to the trusted configuration and checkout from `main`.
-5. Set the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` and verify a reviewed PR. Require the naming, format, and API checks plus `ci/fork-pr-linux-build` in branch protection once the integration has been verified. The independent target statuses are `ci/linux-game-build` and `ci/linux-editor-build`.
+2. In the same CircleCI project, add a GitHub App pipeline (an OAuth organization can also install the GitHub App integration). Select `Nelaric/UnrealModFramework` as both the configuration and checkout repository, `.circleci/pr-build.yml` as the configuration path, and `main` as the configuration and checkout branch for the custom webhook. Keep the existing OAuth push pipeline intact.
+3. Add a **Custom webhook** trigger to that pipeline, then copy the complete generated HTTPS endpoint (including its secret) into the GitHub Actions secret `CIRCLECI_PR_BUILD_WEBHOOK_URL`. The bot accepts only `internal.circleci.com` endpoints; do not reuse a webhook or pipeline identifier from another repository.
+4. Ensure the PR pipeline has access to this project's `GHCR_USERNAME` and `GHCR_TOKEN`, and restrict the webhook to the trusted configuration and checkout from `main`.
+5. Set the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` and verify the pipeline on a reviewed PR. Once verified, require the naming, format, and API checks together with `ci/fork-pr-linux-build` in branch protection. The individual target statuses are `ci/linux-game-build` and `ci/linux-editor-build`.
 
-The bot sends only the PR number, exact head SHA, and a random correlation nonce to the webhook. The trusted policy validates an open PR targeting this repository's `main` before fetching `refs/pull/<number>/head`, and verifies that the fetched commit still matches the requested SHA. Fork changes to protected CI and build paths are rejected. The protected paths include workflow and automation directories, `.gitattributes`, `.gitmodules`, Unreal descriptors and build scripts, CMake files, and executable helper scripts. Renames are checked using both paths. Maintainers handle such changes in source-repository branches.
+The bot sends only the PR number, exact head SHA, and a random correlation nonce to the webhook. Before fetching `refs/pull/<number>/head`, the trusted policy confirms that the PR is open and targets this repository's `main` branch, then verifies that the fetched commit still matches the requested SHA. Fork PR changes to protected CI and build paths are rejected—these include workflow and automation directories, `.gitattributes`, `.gitmodules`, Unreal descriptors and build scripts, CMake files, and executable helper scripts, with renames checked against both old and new paths. Maintainers handle such changes in source-repository branches.
 
-Both Actions and CircleCI start from trusted `main` configuration. Actions never checks out the PR source with a write-enabled token. CircleCI checks out the validated commit only after the policy succeeds and pulls the private engine image afterward. GitHub receives separate Game and Editor statuses plus an aggregate result. Newer Actions runs supersede older status owners.
+Both Actions and CircleCI start from the trusted `main` configuration. Actions never checks out PR source code with a write-enabled token, while CircleCI checks out the validated commit only after the policy passes and pulls the private engine image afterward. GitHub receives separate Game and Editor statuses along with an aggregate result, and newer Actions runs supersede older status owners.
 
 ## Build isolation and verification
 
-After pulling the private engine image, UE containers run with `--network none`. Each job copies `UnrealModFramework/` to its own writable temporary directory. The staged project is `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`. The Linux jobs use MBT's `build-ue-target` command. The Editor job runs the C++ and Blueprint ChangeHealth test and packages the independent plugin inside that staging directory. The MST GCC/Clang fixture runs separately in [GitHub Actions](../.github/workflows/quality.yml).
+After pulling the private engine image, UE containers run with `--network none`. Each job copies `UnrealModFramework/` into its own writable temporary directory, where the staged project path is `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`. The Linux jobs invoke MBT's `build-ue-target` command, while the Editor job runs the C++ and Blueprint ChangeHealth test and packages the independent plugin inside that staging directory. The MST GCC/Clang fixture runs separately in [GitHub Actions](../.github/workflows/quality.yml).
 
 Validate both configurations before requesting review:
 
@@ -43,4 +43,4 @@ circleci config validate .circleci/config.yml
 circleci config validate .circleci/pr-build.yml
 ```
 
-The [development workflow](DevelopmentWorkflow.md) describes checks, log links, build scope, and troubleshooting. See the [CircleCI custom webhook documentation](https://circleci.com/docs/guides/orchestrate/custom-webhooks/) and [pipeline values reference](https://circleci.com/docs/guides/orchestrate/pipeline-variables/) for service-side setup and trigger values.
+See the [development workflow](DevelopmentWorkflow.md) for checks, log links, build scope, and troubleshooting. For service-side setup and trigger values, see the [CircleCI custom webhook documentation](https://circleci.com/docs/guides/orchestrate/custom-webhooks/) and [pipeline values reference](https://circleci.com/docs/guides/orchestrate/pipeline-variables/).

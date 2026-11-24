@@ -4,25 +4,25 @@
 
 # 组织文档托管
 
-组织文档统一使用 `https://docs.nelaric.com/<仓库名>/<栏目>/`。当前项目的 API 文档地址为 `https://docs.nelaric.com/UnrealModFramework/API/`；`API` 区分大小写。生成的页面和资源一起放在该目录中。
+组织文档统一托管在 `https://docs.nelaric.com/<仓库名>/<栏目>/`。当前项目的 API 站点地址为 `https://docs.nelaric.com/UnrealModFramework/API/`（其中 `API` 区分大小写），生成的页面与资源统一存放在该目录中。
 
 ## 已启用的项目发布
 
-本仓库的 Pages 发布源为 GitHub Actions，已启用 `API_PAGES_ENABLED=true` 并强制 HTTPS。推送到 `main` 后会发布 API 文档，也可以手动运行 API Pages 工作流。发布依赖先经过有次数限制的下载重试，再解压，以便自动恢复上游临时故障。
+本仓库以 GitHub Actions 作为 Pages 发布源，已启用 `API_PAGES_ENABLED=true` 并强制使用 HTTPS。推送到 `main` 会发布 API 文档，也可手动触发 API Pages 工作流。发布依赖在解压前会进行有次数限制的下载重试，以便在遇到上游临时故障时自动恢复。
 
 ## GitHub Pages 结构
 
-组织站点仓库 `Nelaric/nelaric.github.io` 绑定自定义域名 `docs.nelaric.com`。项目仓库继承这个域名，并保留仓库名路径。`Nelaric/UnrealModFramework` 的自定义域名应留空。
+组织站点仓库 `Nelaric/nelaric.github.io` 绑定了自定义域名 `docs.nelaric.com`。各项目仓库会自动继承该域名并保留各自的仓库名路径，因此 `Nelaric/UnrealModFramework` 的自定义域名应保持留空。
 
-项目的 API Pages 工作流用 Doxygen 构建 API 入口、公开头文件与编码规范，将完整产物复制到 Pages 发布包的 `API/` 目录，并在项目根目录添加跳转到 `API/` 的入口。因此，迁移后原有的 GitHub Pages 项目根地址仍可作为入口。原来位于根目录的具体 HTML 页面深层链接不由这个入口重定向。
+本项目的 API Pages 工作流使用 Doxygen 构建 API 入口页、当前公开头文件与编码规范，将完整产物复制到 Pages 发布包的 `API/` 目录中，并在项目根目录添加指向 `API/` 的跳转页。因此，迁移后原有的 GitHub Pages 项目根地址仍可作为访问入口，但原根目录下单个 HTML 页面的旧深层链接不会由该入口页重定向。
 
 ## 首次配置
 
-1. 使用公开的组织站点仓库 `Nelaric/nelaric.github.io`，仅在尚不存在时创建。首次配置时，将 `Setup/OrganizationPages/` 中的内容复制到其根目录，包括 `.nojekyll`。为已有站点增加本项目时，应保留现有组织索引和其他项目路由。这些文件是发布模板；`CNAME` 必须只包含域名，不能添加版权注释。
-2. 在组织站点启用 GitHub Pages，发布源选择默认分支的根目录。在添加 DNS 记录前，将自定义域名设为 `docs.nelaric.com`。提供的根页面包含 UnrealModFramework 和 Nelaric Unreal Gameplay 两个文档入口。
-3. 在 `nelaric.com` 的权威 DNS 服务商处添加下表中的记录。如果 DNS 托管在阿里云，使用云解析 DNS 的公网权威解析控制台。域名注册商与权威 DNS 服务商可能不同。
-4. 将本项目 Pages 发布源设为 GitHub Actions，自定义域名留空。然后设置仓库 Actions 变量 `API_PAGES_ENABLED=true`，并从 `main` 运行 API Pages 工作流。变量启用前，部署 Job 会跳过。
-5. DNS 校验和证书签发完成后，在组织站点启用 Enforce HTTPS。通过 HTTPS 检查组织根地址、项目根地址、API 首页、具体 API 页面，以及样式和脚本资源。
+1. 使用公开的组织站点仓库 `Nelaric/nelaric.github.io`（仅在尚不存在时创建）。首次配置时，将 `Setup/OrganizationPages/` 中的全部内容（包括 `.nojekyll`）复制到仓库根目录；若为已有站点新增本项目，请保留现有的组织索引与其他项目路由。这些文件属于部署模板，其中 `CNAME` 文件必须仅包含纯域名，不得添加版权注释（这是 GitHub 的要求）。
+2. 在组织站点启用 GitHub Pages，发布源选择默认分支的根目录，并在添加 DNS 记录前将自定义域名设为 `docs.nelaric.com`。模板提供的根页面同时索引了 UnrealModFramework 与 Nelaric Unreal Gameplay 两套文档。
+3. 在 `nelaric.com` 的权威 DNS 服务商处添加下表所示记录。若 DNS 托管在阿里云，请在云解析 DNS 的公网权威解析控制台中配置。请注意，域名注册商与权威 DNS 服务商可能不同。
+4. 将本项目的 Pages 发布源设为 GitHub Actions，并保持自定义域名留空。随后设置仓库 Actions 变量 `API_PAGES_ENABLED=true`，从 `main` 分支运行 API Pages 工作流。在该变量启用前，部署 Job 会被跳过。
+5. 待 DNS 校验与证书签发完成后，在组织站点启用 Enforce HTTPS，并通过 HTTPS 逐一验证组织根地址、项目根地址、API 首页、单个 API 页面及其样式与脚本资源。
 
 | DNS 字段 | 值 |
 | --- | --- |
@@ -33,7 +33,7 @@
 | 解析请求来源 | 默认 |
 | TTL | 600 秒，或服务商默认值 |
 
-DNS 记录值仅填写主机名，仓库名和 API 路径由 GitHub Pages 提供。后续项目站点应发布各自的栏目目录，并继承组织域名。
+DNS 记录值仅需填写主机名，仓库名与 API 路径由 GitHub Pages 自动提供。后续新增的项目站点也应发布各自的栏目目录，并继承该组织域名。
 
 ## 参考资料
 

@@ -4,78 +4,78 @@
 
 # MHT 客户端 ABI 生成
 
-MHT 在 UE 视图后端之外生成纯 C 的 `ContextHandlesV1` 边界。全部生成实现由 MBT 独立编译，UBT 消费声明并链接所属模块的宿主库。
+MHT 在生成 UE 视图后端的同时，生成纯 C 兼容的 `ContextHandlesV1` 边界。全部生成的实现均由 MBT 独立编译，UBT 仅消费宿主声明并链接各所属模块的静态库。
 
 ## 连接产物
 
-以下路径均相对固定的 MHT 输出根，每次生成覆盖前一次：
+以下路径均相对于固定的 MHT 输出根目录，每次生成都会覆盖前一次产物：
 
 | 产物 | 用途 |
 | --- | --- |
-| `SDK/Public/<game>.modabi.h` | 纯 C 声明、定宽类型、状态码、ABI 版本/哈希常量和类型化宿主函数表 |
-| `Host/<owner>/<owner>.modabi.cpp` | 宿主 C 入口、精确成员调用、检查和导出的函数表查询入口 |
-| `Client/<game>ModClient/<game>ModClient.modclient.cpp` | 独立客户端入口、兼容性校验、Connect、Disconnect 和 ReleaseObject |
+| `SDK/Public/<game>.modabi.h` | 纯 C 声明、定宽类型、状态码、ABI 版本/哈希常量及类型化宿主函数表 |
+| `Host/<owner>/<owner>.modabi.cpp` | 宿主 C 入口、精确成员调用、运行时校验及导出的函数表查询入口 |
+| `Client/<game>ModClient/<game>ModClient.modclient.cpp` | 独立客户端入口、带兼容性校验的 Connect、Disconnect 及 ReleaseObject |
 | `Contract/<game>.clientabi.json` | `UMF.ClientABI` v2 连接描述，包含所属模块、函数表、查询/连接符号、表槽、签名、哈希与生命周期规则 |
-| `Contract/<game>.sdkcontract.json` | 供 ModSDKTool（MDT）在已支持的适配图中使用的 `UMF.SdkContract` v2 |
-| `<game>.generated-artifacts.json` | v3 完整清单，明确列出 Host/Client 编译单元及必需符号绑定 |
+| `Contract/<game>.sdkcontract.json` | 供 ModSDKTool（MDT）在受支持的适配图中使用的已解析 `UMF.SdkContract` v2 |
+| `<game>.generated-artifacts.json` | v3 完整清单，显式列出 Host/Client 编译单元及必需符号绑定 |
 
-连接描述遵循 [client-abi.schema.json](Protocol/client-abi.schema.json)。客户端库所属模块为 `<game>ModClient`，拥有独立 MBT 生产者上下文、库路径、注册锚点和回执；不链接游戏私有代码或 UE。Win64 适配层从真实选中工具链的配方派生客户端参数，移除游戏包含目录和强制 UE 定义。
+连接描述遵循 [client-abi.schema.json](Protocol/client-abi.schema.json)。客户端库所属模块为 `<game>ModClient`，拥有独立的 MBT 生产者上下文、输出库路径、注册锚点与回执，不链接游戏私有代码或 UE。Win64 适配层从实际选中工具链的配方派生客户端参数，并移除游戏包含目录与强制 UE 定义。
 
-`.modviews.h` 和 `.modcalls.h` 的角色为宿主私有 `HostHeader`。公共 `SdkHeader` 包含 `.modabi.h`，并按契约发布错误目录及独立扩展 ABI 头。MDT 只复制具备公共角色的校验产物。
+`.modviews.h` 和 `.modcalls.h` 属于宿主私有的 `HostHeader` 产物；公共 `SdkHeader` 产物包含 `.modabi.h`，并按契约发布错误码目录及独立扩展 ABI 头。MDT 仅复制具备公共角色的已校验产物。
 
 ## 明确连接顺序
 
-1. 根据描述中的 `ownerModule` 定位实际所属二进制，解析 `querySymbol`，使用生成的 ABI 版本、`sizeof(table)` 和哈希查询函数表。
-2. 调用对应客户端的 `connectSymbol`。客户端先检查版本、结构大小、哈希和全部必需回调，再绑定函数指针。
-3. 游戏批准调用者、作用域及权限。`UModAPIHostSubsystem::OpenLocalPlayer` 绑定生成的 LocalPlayer 提供者，通过 `Mod::API::FNativeAccess::Open` 签发非零 context/scope token，并在 `Native` 字段返回。
-4. 将 token 交给消费者。Getter 接收 context/scope，返回 object token。成员方法接收 context/object 和生成签名定义的入参。宿主每次调用检查线程、调用者生命周期、类型、作用域与权限。
-5. 模组停止时撤销对应 Caller；关闭作用域或 Registry 同样使 token 失效。ReleaseObject 显式使该 token 的所有副本失效，不拥有或销毁实际 UObject。重复投影复用仍然有效的绑定。
-6. 卸载宿主或 SDK 模块前，先 Disconnect 并等待调用结束。Disconnect 清空函数指针，不等待已进入的调用，也不撤销共享该客户端模块的其他调用者。
+1. 根据描述中的 `ownerModule` 定位实际所属二进制，解析 `querySymbol`，并使用生成的 ABI 版本、`sizeof(table)` 和 ABI 哈希查询函数表。
+2. 使用该函数表调用对应客户端的 `connectSymbol`。Connect 会先校验版本、结构体大小、哈希和全部必需回调，再绑定函数指针。
+3. 游戏代码批准调用者、作用域与权限。仅限宿主调用的 `Mod::API::FNativeAccess::Open` 会签发非零的 context 和 scope token；`UModAPIHostSubsystem::OpenLocalPlayer` 会绑定生成的 LocalPlayer 提供者，并在 `Native` 字段中返回这些 token。
+4. 将这些 token 交付给消费者。Getter 接收 context/scope 并返回 object token；成员方法接收 context/object 及生成签名定义的入参。宿主在每次调用时都会重新校验线程、调用者生命周期、类型、作用域与权限。
+5. 模组停止时撤销对应 Caller；关闭作用域或 Registry 同样会使 token 失效。ReleaseObject 会显式使该 token 的所有副本失效，既不拥有也不销毁底层的 UObject。重复投影会复用仍然有效的绑定。
+6. 卸载宿主或 SDK 模块前，须先调用 Disconnect 并等待既有调用结束。Disconnect 仅清空函数指针，不会等待正在执行的调用，也不会撤销共享该客户端模块的其他调用者。
 
-连接表按模块共享，身份、作用域、权限和对象 token 按调用者隔离。token 在 Runtime 模块存活期间不重复使用，跨 context 使用会失败。API 分派使用具体类型的函数指针。
+连接表在模块范围内共享，身份、作用域、权限和对象 token 则按调用者隔离，不会推断全局当前玩家或世界。token 绝非原始地址，在 Runtime 模块存活期间也不会复用；跨 context 使用 token 会导致查找失败。客户端通过具体类型的回调函数指针分发调用。
 
-ABI 使用显式 `cdecl`、64 位进程内 token、定宽整数/标量和 `uint32_t` 状态码；bool 使用限定为 0/1 的 `uint8_t`。输出内存由调用者提供，失败时输出为零，成功时提交结果。0 表示成功，65536 表示未连接，65537 表示 ABI 不匹配，65538 表示意外原生异常。
+C 边界采用显式 `cdecl`、64 位进程内 token、定宽整数/标量参数和 `uint32_t` 状态码；bool 参数使用取值限定为 0 或 1 的 `uint8_t`。输出内存由调用者提供，失败时置零，成功时提交结果。状态码 0 表示成功，65536 表示未连接，65537 表示 ABI 不匹配，65538 表示意外原生异常。
 
-`nativeABIHash` 为连接描述加入 `nativeABIHash`、`contractHash`、`projectionHash` 前的规范 SHA-256，使用 nlohmann JSON 排序键与紧凑 `dump()`。摘要覆盖 API 形状、连接符号、状态码与生命周期规则；公共头包含同一版本和哈希常量。
+`nativeABIHash` 为连接描述在加入 `nativeABIHash`、`contractHash` 和 `projectionHash` 前的规范 SHA-256 摘要，采用 nlohmann JSON 排序键与紧凑 `dump()` 序列化。摘要覆盖 API 形状、连接符号、状态码与生命周期规则，公共头文件中内嵌了相同的版本和哈希常量。
 
 ## World 扩展产物
 
-- `Host/<owner>/<owner>.modextensions.h` 提供 C++ 接入点使用的类型化 `Invoke`／`Publish` 辅助函数。生成的宿主桥登记 C++ 与蓝图扩展定义，并实现声明了 `HostEndpoint` 的 C++ 成员函数。
-- `Contract/<game>.sdkcontract.json` 的 `extensions` 记录扩展 ID、签名、授权、阶段或发布规则及载荷投影。打包器以该契约为依据校验 v2 扩展清单。
-- 有生命周期源码和扩展定义时，`SDK/Public/ModExtensionABI.h` 与 `SDK/Public/<game>.modextensionsabi.h` 提供独立 DLL 的回调契约、ID、签名和线格式。它与生成 API 的 `ContextHandlesV1` 调用表配合使用。
+- `Host/<owner>/<owner>.modextensions.h` 为 C++ 接入点提供类型化的 `Invoke` 和 `Publish` 辅助函数。生成的宿主桥负责登记 C++ 与蓝图扩展定义，并实现声明了 `HostEndpoint` 的 C++ 成员函数。
+- `Contract/<game>.sdkcontract.json` 的 `extensions` 记录扩展 ID、签名、授权、阶段或派发规则及载荷投影；打包器以该契约为依据校验 v2 扩展清单。
+- 存在生命周期源码与扩展定义时，`SDK/Public/ModExtensionABI.h` 与 `SDK/Public/<game>.modextensionsabi.h` 提供独立 DLL 的回调契约、ID、签名与线格式，与用于生成 API 调用的 `ContextHandlesV1` 调用表配合使用。
 
-Hook 接收一个载荷并返回同类型结果。Event 的发布函数接收一个载荷并返回 `void`。支持 `float`、`double`、`int32`、`int64`、`bool`、`uint8`，以及受支持的反射值结构体或具备生成 World 视图的 UObject。结构体只复制声明的公开字段，对象投影在回调期间只读。蓝图的标量 API 及已连线的 Hook/Event 来自 Editor 快照。[宿主导出步骤](../../Source/ModRuntimeUht/README.zh-CN.md)
+Hook 接收一个载荷并返回同类型结果；Event 的发布函数接收一个载荷并返回 `void`。支持的载荷类型包括 `float`、`double`、`int32`、`int64`、`bool`、`uint8`，以及受支持的反射值结构体和具备已生成 World 视图的 UObject。结构体投影仅复制声明的公开字段，对象投影在回调期间保持只读。蓝图的标量 API 及已连线的 Hook/Event 声明均来自 Editor 快照，详见[宿主导出步骤](../../Source/ModRuntimeUht/README.zh-CN.md)。
 
-`MOD_EXPORT_HOOK()` 用于在 `.cpp` 中定义的标量成员。生成的 ID 由 World 类型 ID 和带连字符的成员名组成，例如 `hook/game.character/change-health`。`Pre` 支持 `ModifyInputs` 和 `Cancel`，`On` 支持 `Replace`，`Post` 观察结果。基础授权使用 Hook ID，写操作授权在该 ID 后加操作后缀。MHT 与 MST 生成 `Diagnostics/HookSources.json`，UBT 构建驱动按目标平台和架构编译对应源码副本。[自动 Hook 构建](../../Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)
+`MOD_EXPORT_HOOK()` 用于为 `.cpp` 中类外定义的标量成员启用自动分发。生成的 ID 由 World 类型 ID 和带连字符的成员名拼接而成，例如 `hook/game.character/change-health`。Hook 包含 `Pre`（支持 `ModifyInputs` 和 `Cancel`）、`On`（支持 `Replace`）与 `Post`（观察结果）三个阶段。基础授权使用 Hook ID，写操作授权则在该 ID 后附加操作后缀。MHT 与 MST 会生成 `Diagnostics/HookSources.json` 替换映射表，UBT 构建驱动据此按目标平台和架构编译对应源码副本，详见[自动 Hook 构建](../../Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)。
 
-`NoPre`、`NoOn`、`NoPost` 直接写标记名即可，顺序任意。`NoPre` 同时关闭 `ModifyInputs` 和 `Cancel`。`NoOn` 关闭 `Replace`，通过 `Pre` 的调用会执行游戏原函数。三个标记全写时，MHT 从 SDK 中移除当前和曾用 Hook ID，MST 保留该函数的原始实现。
+`NoPre`、`NoOn`、`NoPost` 直接写裸标记名即可，顺序任意。`NoPre` 会同时关闭 `ModifyInputs` 和 `Cancel`；`NoOn` 会关闭 `Replace`，使通过 `Pre` 的调用执行游戏原函数。三个标记同时指定时，MHT 会从 SDK 中移除当前及曾用 Hook ID，MST 也会保持该函数的原始实现不变。
 
-改名时可在同一个宏里列出曾用名，例如 `MOD_EXPORT_HOOK(NoOn, CompatibleNames = ("ChangeHealth", "UpdateHealth"))`。新旧名字使用同样的阶段设置和回调顺序。只改函数名并保持签名和阶段策略兼容时，每个旧名都保留原来的 ID、签名和授权名。调整阶段会改变每个名字的契约签名。不同名字如果生成了相同的 ID，MHT 会报错。
+重命名成员时，可在同一个宏中列出曾用名，例如 `MOD_EXPORT_HOOK(NoOn, CompatibleNames = ("ChangeHealth", "UpdateHealth"))`。新旧名称共用相同的阶段策略和有序回调链。仅重命名函数且保持签名与阶段策略兼容时，每个旧名都会保留原来的 ID、签名和授权名；调整阶段策略则会改变所有名称的契约签名。MHT 会拒绝重复 ID，包括映射到同一连字符拼写的不同名称。
 
 ### 生成 C++ Event 发布函数
 
-将 `HostEndpoint` 设为 `Mod::Extension::FEndpoint` 成员的名称，即可在 `<owner>.modhost.cpp` 中生成声明对应的函数定义。生成的 Event 函数体将参数转发给 `Publish`。游戏也可以自行定义成员函数并调用辅助函数。
+将 `HostEndpoint` 设为 `Mod::Extension::FEndpoint` 成员的名称，即可在 `<owner>.modhost.cpp` 中生成该声明对应的函数定义；生成的 Event 函数体会自动将参数转发给 `Publish`。游戏代码也可以自行定义成员函数并调用辅助函数。
 
 ## API 兼容名
 
-显式 `MOD_EXPORT_API` 由所属类型的 ID 和方法名生成 ID，例如 `api/game.character/increasehealth`。填写 `CompatibleNames = ("AddHealth")` 后，MHT 为同一实现再导出 `api/game.character/addhealth`。SDK 中的两个名字使用相同的参数、返回类型和调用策略。
+显式 `MOD_EXPORT_API` 由所属类型的 ID 和方法名生成 ID，例如 `api/game.character/increasehealth`。填写 `CompatibleNames = ("AddHealth")` 后，MHT 会为同一实现额外导出 `api/game.character/addhealth`，SDK 中的两个函数名共享相同的签名与调用策略。
 
-省略 `CompatibleNames` 时，MHT 使用 UE 从 Engine 配置及启用插件配置解析出的 `FunctionRedirects`。同一类内指向已导出宿主 `UFUNCTION` 的精确重定向会贡献一个旧名。函数名可能重复时，用反射类名和模块限定重定向。连续改名会导出链上的各个旧名。显式填写 `CompatibleNames = ()` 表示兼容名列表为空。
+省略 `CompatibleNames` 时，MHT 会使用 UE 从 Engine 配置及已启用插件配置中解析出的 `FunctionRedirects`。同一类内指向已导出宿主 `UFUNCTION` 的精确重定向会贡献对应的旧名；函数名可能重复时，请用反射类名和模块名限定重定向。连续改名链会导出链上的各个旧名。显式填写 `CompatibleNames = ()` 则表示兼容名列表为空。
 
-MHT 会在宏声明或 INI 条目处报告非法名称、名称冲突和适用范围内的错误重定向。UBT 构建会自动刷新默认配置快照。独立运行 MHT 时，修改重定向后用 `ModExportOptions` 刷新快照。宿主和 SDK 使用同一份生成契约。
+MHT 会在宏声明或 INI 条目处报告非法名称、名称冲突及适用范围内的无效重定向。UBT 构建会自动刷新默认配置快照；独立运行 MHT 时，修改重定向后请使用 `ModExportOptions` 刷新快照。宿主与 SDK 必须使用同一份生成契约构建。
 
 ## FullView 与对象输入
 
-`MOD_EXPORT_API` 的可选字段 `FullView` 接受带引号的 C++ 类名列表，例如 `FullView = ("USkeletalMesh")`。每个名字必须匹配该签名中的 UObject 指针入参。MHT 按类合并选择，从目标编译中收集类和公开基类的具体公开实例方法。显式导出方法使用自己的契约。自动生成成员要求可写绑定、所有选择声明的权限，以及宿主授予的 `FullView.<TypeId>` 权限。任何成员缺少投影时，生成失败并报告具体成员。成员涉及的其他类按其普通投影规则处理。
+`MOD_EXPORT_API` 的可选字段 `FullView` 接受带引号的限定 C++ 类名列表，例如 `FullView = ("USkeletalMesh")`，其中每个名称都必须匹配该签名中的 UObject 指针入参。生成阶段会按类合并请求，从目标编译中收集该类及其公开基类的具体公开实例方法，同时保留显式导出方法各自的既有契约。自动合成的成员要求可写绑定、所有选择声明的权限，以及宿主授予的 `FullView.<TypeId>` 权限。只要任一成员缺少投影，生成即会失败并报告具体的受影响成员；这些成员涉及的其他类按常规投影规则处理。
 
-UE SDK 的调用者传入真实 UObject 指针。ContextHandlesV1 对每个此类参数使用 `const char*` 和 `uint32_t`，分别传入借用的 UTF-8 对象路径和长度，最大 4,096 字节。空对象使用空指针和零长度。宿主解析已加载的对象，验证类和 World，并在同步调用期间借用该对象。对象结果以宿主签发的视图 token 返回。公开引擎类的头文件从构建输入的 `Engine` 路径根解析。
+UE SDK 调用者直接传入类型化的 UObject 指针。`ContextHandlesV1` 则为每个此类参数使用 `const char*`（借用的 UTF-8 对象路径字节）与 `uint32_t` 长度（最大 4,096 字节），空对象以 `nullptr` 和零长度表示。宿主解析已加载的对象、校验其类型和 World，并在同步调用期间借用该对象。对象结果以宿主签发的视图 token 返回。公开引擎类的头文件从构建输入的 `Engine` 路径根下解析。
 
 ## MBT 与 MDT 接续
 
-每个宿主模块有桥、ABI 入口、校验、UE 视图实现四个编译单元；独立客户端另有一个单元。清单 `compilationUnits` 逐项列出。`requiredSymbols` 同时记录宿主和客户端入口，关联相同 ExportId、签名与投影哈希；ExportId 唯一性按库所属模块检查。查询、连接、断开和释放函数同样是必需符号，宿主注册锚点确保 ABI 对象参与最终链接。
+每个宿主模块生成四个编译单元——桥接、ABI 入口、校验与 UE 视图实现，独立客户端另有一个单元；清单的 `compilationUnits` 逐项列出所有源文件。`requiredSymbols` 同时记录宿主和客户端入口，关联相同的 ExportId、签名哈希与投影哈希，并按库所属模块检查 ExportId 唯一性。查询、连接、断开与释放函数同样是必需符号，宿主注册锚点可确保 ABI 对象参与最终链接。
 
-UHT 适配器执行 `generate <GenerationRequest.json>`。请求格式为 `UMF.ModHeaderGenerationRequest` v1，必填字段为 `buildInput`、`outputDirectory` 和 `hostContexts`。上下文集覆盖各宿主模块和独立客户端。请求还可以携带当前 Target 的 `metadataOptions`、`libclang` 和 `lifecycleSource` 路径。相对路径从请求所在目录解析。生成完成后，UHT 调用 MBT 构建清单中的库。
+UHT 适配层使用 `UMF.ModHeaderGenerationRequest` v1 文档执行 `generate <GenerationRequest.json>`，必填字段为 `buildInput`、`outputDirectory` 和 `hostContexts`（上下文集覆盖各宿主模块与独立客户端）。请求还可携带当前 Target 的 `metadataOptions`、`libclang` 和 `lifecycleSource` 路径，相对路径均从请求所在目录解析。生成完成后，UHT 会调用 MBT 构建清单中声明的库。
 
-MDT 消费 `.sdkcontract.json`、Host/Client 上下文及同一份 v3 清单。它保留原有对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。SDK 契约无法表示完整 API 集时标记为 `Unsupported`。
+MDT 消费 `.sdkcontract.json`、Host/Client 上下文及同一份 v3 生成清单。它保留原有的对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。当 SDK 契约无法表示完整 API 集时，标记为 `Unsupported`。
 
-Win64 x64 MSVC 的 UBT 接入自动准备输入，MBT 在目标链接后核对实际产物。生成的 SDK 支持由 `UModInstance` 取得已授权的宿主蓝图 World 提供者，LocalPlayer 等作用域由游戏接入层交付。独立扩展通过运行时在 World 准备期间接入。[UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md) · [独立扩展打包](../ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)
+在 Win64 x64 MSVC 平台上，UBT 适配层自动准备输入，MBT 则在目标链接后核对实际产物。生成的 SDK 支持通过活跃的 `UModInstance` 获取已授权的宿主蓝图 World 提供者，LocalPlayer 等其他作用域由游戏接入层交付。独立原生回调通过运行时在 World 准备期间接入。详见 [UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md) 与[独立扩展打包](../ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)。
