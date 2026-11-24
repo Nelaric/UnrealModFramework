@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "GenerationOutput.h"
 
+#include "Common/Files/File.h"
 #include "ModHeaderTool/src/Files/Path.h"
 #include "ModHeaderTool/src/Files/TextFile.h"
 #include "ModHeaderTool/src/Generation/Artifacts/OutputFiles.h"
@@ -24,7 +25,7 @@ namespace fs = std::filesystem;
 void GenerationOutput::PublishGeneratedFiles(const fs::path& Directory, const std::map<std::string, std::string>& Files,
                                              const std::string& ManifestName)
 {
-	const fs::path Root = fs::weakly_canonical(fs::absolute(Directory));
+	const fs::path Root = OutputPaths::CanonicalFileSystemPath(fs::absolute(Directory));
 	fs::create_directories(Root);
 	OutputLock Lock(Root);
 	std::vector<fs::path> Stale, Directories;
@@ -99,8 +100,8 @@ void GenerationOutput::PublishGeneratedFiles(const fs::path& Directory, const st
 		auto Pending = nlohmann::json::parse(Files.at(ManifestName));
 		Pending["status"] = "Generating";
 		OutputFiles::Write(Staging / "Pending.json", Pending.dump(2) + '\n');
-		OutputFiles::Replace(Staging / "Pending.json",
-		                     OutputPaths::CheckedPath(Root, Path::PathFromUtf8(ManifestName)));
+		Mod::BuildTool::File::ReplaceFileAtomically(Staging / "Pending.json",
+		                                            OutputPaths::CheckedPath(Root, Path::PathFromUtf8(ManifestName)));
 		for (const auto& [Name, Bytes] : Files)
 		{
 			if (Name == ManifestName)
@@ -111,7 +112,7 @@ void GenerationOutput::PublishGeneratedFiles(const fs::path& Directory, const st
 			if (!fs::is_regular_file(Destination) || TextFile::ReadTextFile(Destination) != Bytes)
 			{
 				fs::create_directories(Destination.parent_path());
-				OutputFiles::Replace(Staged.at(Name), Destination);
+				Mod::BuildTool::File::ReplaceFileAtomically(Staged.at(Name), Destination);
 			}
 		}
 		for (const fs::path& File : Stale)
@@ -128,7 +129,8 @@ void GenerationOutput::PublishGeneratedFiles(const fs::path& Directory, const st
 				fs::remove(Path);
 			}
 		}
-		OutputFiles::Replace(Staged.at(ManifestName), OutputPaths::CheckedPath(Root, Path::PathFromUtf8(ManifestName)));
+		Mod::BuildTool::File::ReplaceFileAtomically(Staged.at(ManifestName),
+		                                            OutputPaths::CheckedPath(Root, Path::PathFromUtf8(ManifestName)));
 	}
 	catch (...)
 	{

@@ -11,6 +11,7 @@ namespace fs = std::filesystem;
 class OutputPaths
 {
 public:
+	static fs::path CanonicalFileSystemPath(const fs::path& File);
 	static fs::path CheckedPath(const fs::path& Root, const fs::path& Relative);
 
 	static bool SamePart(const fs::path& Left, const fs::path& Right);

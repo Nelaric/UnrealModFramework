@@ -25,11 +25,12 @@ std::string Hash::HashBytes(std::string_view Bytes)
 
 std::string Hash::HashFile(const fs::path& Path)
 {
-	if (!fs::is_regular_file(Path))
+	const fs::path NativePath = Path::FileSystemPath(Path);
+	if (!fs::is_regular_file(NativePath))
 	{
 		throw std::runtime_error("Cannot hash a missing or non-regular file: " + Path::PathToUtf8(Path));
 	}
-	std::ifstream Stream(Path, std::ios::binary);
+	std::ifstream Stream(NativePath, std::ios::binary);
 	if (!Stream)
 	{
 		throw std::runtime_error("Cannot open hash input: " + Path::PathToUtf8(Path));

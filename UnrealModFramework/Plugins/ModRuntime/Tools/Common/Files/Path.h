@@ -17,6 +17,8 @@ public:
 	static std::string PathToUtf8(const fs::path& Path);
 	/// Converts UTF-8 to a native path.
 	static fs::path PathFromUtf8(std::string_view Text);
+	/// Prepares a path for filesystem operations, including extended Windows paths.
+	static fs::path FileSystemPath(const fs::path& Path);
 	/// Resolves a path relative to an explicit input directory.
 	static fs::path ResolvePath(const fs::path& Base, std::string_view Text);
 	/// Requires a generated file to remain inside its declared root.

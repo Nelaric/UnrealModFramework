@@ -24,8 +24,9 @@ ProcessOutput::ProcessOutput(const fs::path& File)
 {
 	if (!File.empty())
 	{
+		const fs::path NativePath = Path::FileSystemPath(File);
 		SECURITY_ATTRIBUTES Security{sizeof(Security), nullptr, TRUE};
-		Output.Value = CreateFileW(File.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &Security, CREATE_NEW,
+		Output.Value = CreateFileW(NativePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &Security, CREATE_NEW,
 		                           FILE_ATTRIBUTE_NORMAL, nullptr);
 		if (Output.Value == INVALID_HANDLE_VALUE)
 		{

@@ -53,10 +53,11 @@ std::vector<std::string> BuildRecipe::ExpandArguments(const Json& Recipe,
 
 void BuildRecipe::ExecuteRecipe(const Request& Request, std::string_view Name, const fs::path& Response,
                                 const std::map<std::string, std::string>& Values, const std::vector<fs::path>& Objects,
-                                const std::string& LinkWitness)
+                                const std::string& LinkWitness, const std::vector<std::string>& LeadingArguments)
 {
 	const Json& Recipe = Request.Context.at(std::string(Name));
 	auto Arguments = ExpandArguments(Recipe, Values, Objects);
+	Arguments.insert(Arguments.begin(), LeadingArguments.begin(), LeadingArguments.end());
 	if (!LinkWitness.empty())
 	{
 		Arguments.push_back("/DUMF_MOD_HOST_LINK_WITNESS=" + LinkWitness);

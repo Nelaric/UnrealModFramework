@@ -28,12 +28,12 @@ BuildLock::BuildLock(const fs::path& Output) : BuildLock(Output, ".mbt-lock")
 
 BuildLock::BuildLock(const fs::path& Output, std::string_view Suffix)
 {
-	fs::create_directories(Output.parent_path());
+	fs::create_directories(Path::FileSystemPath(Output.parent_path()));
 	fs::path LockPath = Output;
 	LockPath += Suffix;
 #ifdef _WIN32
-	const HANDLE File = CreateFileW(LockPath.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
-	                                FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+	const HANDLE File = CreateFileW(Path::FileSystemPath(LockPath).c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+	                                OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
 	if (File == INVALID_HANDLE_VALUE)
 	{
 		throw std::runtime_error("Cannot lock output (possibly in use): " + Path::PathToUtf8(Output));
