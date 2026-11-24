@@ -70,7 +70,7 @@ GitHub 同步分支生成的提交适用一项受限例外：恰好包含两个�
 
 ## 文本文件例外
 
-人工编写的 Markdown、`LICENSE`、C++ 源码与头文件，以及 UE C# 构建脚本使用带 BOM 的 UTF-8 和 CRLF。为保证工具兼容性，`.gitattributes`、`.editorconfig`、`.clang-format`、`.csharpierrc`、`.gitignore`、`.json`、`.ini`、`.uproject`、`.uplugin`、`.yml`、`.yaml`、`Doxyfile` 以及可执行 `.py` 脚本使用不带 BOM 的 UTF-8 和 LF。检查脚本会强制执行这些分类规则。
+人工编写的 Markdown、 `LICENSE`、C++ 源码与头文件，以及 UE C# 构建脚本使用带 BOM 的 UTF-8 和 CRLF。为保证工具兼容性， `.gitattributes`、 `.editorconfig`、 `.clang-format`、 `.csharpierrc`、 `.gitignore`、 `.json`、 `.ini`、 `.uproject`、 `.uplugin`、 `.yml`、 `.yaml`、 `Doxyfile` 以及可执行 `.py` 脚本使用不带 BOM 的 UTF-8 和 LF。检查脚本会强制执行这些分类规则。
 
 ## 审查
 
