@@ -105,7 +105,14 @@ CompileCommand CompilationDatabase::LoadCompileCommand(const Clang& Clang, const
 		}
 		Result.NativeArguments.push_back(std::move(Arg));
 	}
-	Result.Arguments.insert(Result.Arguments.end(), Result.NativeArguments.begin(), Result.NativeArguments.end());
+	for (const auto& Arg : Result.NativeArguments)
+	{
+		// UE 5.8 emits this MSVC switch, which clang-cl cannot use to build an AST.
+		if (!bMsvcStyle || !Arg.starts_with("/dximplicitlyinstantiatevirtualfunction"))
+		{
+			Result.Arguments.push_back(Arg);
+		}
+	}
 	const std::string Prefix = bMsvcStyle ? "/clang:" : "";
 	Result.Arguments.insert(Result.Arguments.end(),
 	                        {Prefix + "-working-directory", Prefix + Mod::BuildTool::Path::PathToUtf8(Directory),
