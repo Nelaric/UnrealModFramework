@@ -9,6 +9,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using EpicGames.Core;
+using EpicGames.UHT.Tables;
 using EpicGames.UHT.Utils;
 using Microsoft.Extensions.Logging;
 using UnrealBuildBase;
@@ -37,7 +38,7 @@ internal static class UbtPreparation
 	{
 		if (clang == null || !File.Exists(clang))
 		{
-			throw new UhtException("ModRuntime MHT: configure libclang or UMF_MHT_LIBCLANG for automatic generation.");
+			throw new UhtException("ModRuntime MHT: run Setup or configure UMF_MHT_LIBCLANG for automatic generation.");
 		}
 		string llvmRoot = Path.GetFullPath("..", Path.GetDirectoryName(clang)!);
 		string resources =
@@ -358,8 +359,23 @@ internal static class UbtPreparation
 		return tokens;
 	}
 
-	internal static string? FindHostLibClang()
+	internal static string? FindHostLibClang(string pluginRoot, IUhtExportFactory factory)
 	{
+		string system =
+			OperatingSystem.IsWindows() ? "Windows"
+			: OperatingSystem.IsMacOS() ? "Darwin"
+			: "Linux";
+		string build = Path.Combine(pluginRoot, "Tools", "build");
+		string receipt = Path.Combine(build, $"libclang-{system}-{MetadataSnapshot.HostArchitecture}.path");
+		if (File.Exists(receipt))
+		{
+			factory.AddExternalDependency(receipt);
+			string library = Path.GetFullPath(File.ReadAllText(receipt).Trim(), build);
+			if (File.Exists(library))
+			{
+				return library;
+			}
+		}
 		if (OperatingSystem.IsWindows())
 		{
 			string library = Path.Combine(

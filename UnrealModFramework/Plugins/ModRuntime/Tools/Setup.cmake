@@ -62,7 +62,7 @@ endif()
 
 if(HELP)
     message([=[
-Build and publish all four standalone ModRuntime tools in Release mode.
+Prepare the host libclang and build all four standalone ModRuntime tools in Release mode.
 
 Windows:      Setup.bat [toolchain-directory] [--jobs count] [--generator name]
 Linux/macOS:  sh Setup.sh [toolchain-directory] [--jobs count] [--generator name]
@@ -75,6 +75,9 @@ endif()
 if((DEFINED TARGET AND NOT "${TARGET}" STREQUAL "all") OR DEFINED BUILD_DIR)
     message(FATAL_ERROR "Setup builds all tools in a temporary directory. See --help for options.")
 endif()
+
+execute_process(COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_LIST_DIR}/SetupLibClang.cmake"
+    COMMAND_ERROR_IS_FATAL ANY)
 
 if(CMAKE_HOST_WIN32)
     set(_temp_root "$ENV{TEMP}")

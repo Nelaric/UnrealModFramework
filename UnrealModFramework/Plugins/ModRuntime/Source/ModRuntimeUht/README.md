@@ -100,7 +100,6 @@ the native tool and LLVM paths to match your installation:
   "timeoutSeconds": 600,
   "options": "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json",
   "metadataEditorTarget": "UnrealModFrameworkDevEditor",
-  "libclang": "<LLVM>/bin/libclang.dll",
   "blueprintExports": [{
     "asset": "/Game/Blueprints/BP_ModBlueprintAPIExportTest.BP_ModBlueprintAPIExportTest",
     "typeId": "game.blueprint_test",
@@ -121,8 +120,10 @@ the native tool and LLVM paths to match your installation:
 
 Paths in this adapter configuration are resolved relative to the project directory,
 while paths inside a build input retain MHT's own resolution rules. `timeoutSeconds`
-accepts values from 1 to 86400 (default: 600). Automatic preparation requires a
-configured `libclang` with matching resource headers in the same LLVM installation.
+accepts values from 1 to 86400 (default: 600). Automatic preparation uses the host
+`libclang` and matching resource headers provisioned by Setup. An explicit library
+path in the environment or project configuration takes precedence. Without a Setup
+installation, the adapter searches the host LLVM installation.
 `options` is optional.
 
 MBT discovery checks `UMF_MBT_EXECUTABLE`, the root `mbt` setting, and the local

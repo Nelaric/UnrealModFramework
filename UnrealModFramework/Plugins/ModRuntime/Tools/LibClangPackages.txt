@@ -1,0 +1,11 @@
+# Copyright (c) 2026 Nelaric Contributors
+# LLVM 21.1.8. Each row contains the host, archive SHA-256 and immutable package URL.
+# Native libraries: https://pypi.org/project/libclang-ng/21.1.8.2/#files
+# Generated Clang resource headers: apt.llvm.org, llvm-toolchain-noble-21.
+Windows-x64 bf3d024214b3ee75a30278798599e5abcebff3c98c44e772d76704fc00b8921f https://files.pythonhosted.org/packages/fc/a4/13bc2d954f0848c9e52a2402586a1ee5ca7c9d59e6e545f8d0e7330a3ebe/libclang_ng-21.1.8.2-py3-none-win_amd64.whl
+Windows-arm64 8567e1e64e256d3dd9c9085089b0acd0000a7938223bedb46daf2eca08f3b13c https://files.pythonhosted.org/packages/9d/80/802efce2eefbe660bb60369cf1f29d9169136e811e4795719968a0b56c1f/libclang_ng-21.1.8.2-py3-none-win_arm64.whl
+Linux-x64 82351814464d32fb5645a9dd5789a6343400daba60e23ec76e85963b5303fd38 https://files.pythonhosted.org/packages/fe/32/41db207435f54da0af690e16a1762b8ae57c380538717f664e5273bc53fd/libclang_ng-21.1.8.2-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+Linux-arm64 163aa1fe74eae27a67e5ea183bd27d5ae47425e17e02934e55a3a9a421b055c0 https://files.pythonhosted.org/packages/66/aa/c97083f31fd3952572fad5e75afa9224b4ceac55c97a1552c07fd76e15aa/libclang_ng-21.1.8.2-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
+Darwin-x64 d61e6d149b4b1c52785a2c01cd02f538f35de8e4aa3f29b838704d7c6d5bae54 https://files.pythonhosted.org/packages/94/da/929c07c0a1f46ca4460414d260f84e88b3d2d15ba1083a8e409332f04c83/libclang_ng-21.1.8.2-py3-none-macosx_10_9_x86_64.whl
+Darwin-arm64 f938af8c28e8ee7fd3ba5da7ed5b79452f29bfb51391e75abd983a0ea5b72e67 https://files.pythonhosted.org/packages/ab/c8/0e4c19b65ce305f2c1cd73c493ec0f0d8e77044dc60eac73c8bc9682f885/libclang_ng-21.1.8.2-py3-none-macosx_11_0_arm64.whl
+headers 8cac87266a164b961d85ebcc583806454957ba05429c74e87c4de5e9de2730aa https://apt.llvm.org/noble/pool/main/l/llvm-toolchain-21/libclang-common-21-dev_21.1.8~%2B%2B20251221032922%2B2078da43e25a-1~exp1~20251221153059.70_amd64.deb

@@ -36,7 +36,6 @@ C# 适配层负责启动独立的 MHT 与 MBT 进程，传递真实编译配方�
   "timeoutSeconds": 600,
   "options": "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json",
   "metadataEditorTarget": "UnrealModFrameworkDevEditor",
-  "libclang": "<LLVM>/bin/libclang.dll",
   "blueprintExports": [{
     "asset": "/Game/Blueprints/BP_ModBlueprintAPIExportTest.BP_ModBlueprintAPIExportTest",
     "typeId": "game.blueprint_test",
@@ -55,7 +54,7 @@ C# 适配层负责启动独立的 MHT 与 MBT 进程，传递真实编译配方�
 }
 ```
 
-适配层配置中的路径均相对于项目目录解析，而 build input 内部的路径仍遵循 MHT 自身的解析规则。`timeoutSeconds` 支持 1–86400，默认为 600。自动准备需要指定 `libclang`，并在同一 LLVM 安装目录中提供配套的 Clang 资源头文件。`options` 可省略。`mode` 支持 `scan` 和 `generate`，默认为 `scan`。
+适配层配置中的路径均相对于项目目录解析，而 build input 内部的路径仍遵循 MHT 自身的解析规则。`timeoutSeconds` 支持 1–86400，默认为 600。自动准备使用 Setup 下载的主机 `libclang` 与配套资源头。环境变量或工程配置中显式指定的库路径优先，未运行 Setup 时适配层还会查找主机上安装的 LLVM。`options` 可省略。`mode` 支持 `scan` 和 `generate`，默认为 `scan`。
 
 MBT 按以下顺序查找：环境变量 `UMF_MBT_EXECUTABLE`、根配置项 `mbt`，以及 ModRuntime 插件的 `Tools/build/ModBuildTool/ModBuildTool[.exe]`。
 ModSourceTool（MST）按以下顺序查找：环境变量 `UMF_MOD_SOURCE_TOOL_EXECUTABLE`、根配置项 `sourceTool`，以及 ModRuntime 插件的 `Tools/build/ModSourceTool/ModSourceTool[.exe]`。

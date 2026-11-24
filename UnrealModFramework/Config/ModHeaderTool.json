@@ -1,9 +1,6 @@
 {
   "schemaVersion": 1,
   "mode": "generate",
-  "hostLibclang": {
-    "Win64": "../.tools/llvm-21.1.8/bin/libclang.dll"
-  },
   "metadataEditorTarget": "UnrealModFrameworkDevEditor",
   "blueprintExports": [
     {
