@@ -47,7 +47,7 @@ def prepare_fake_ubt(root):
     ubt = engine / "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll"
     ubt.parent.mkdir(parents=True)
     ubt.write_text(
-        '''import json
+        r'''import json
 import os
 import shlex
 import shutil
@@ -55,9 +55,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+def file_path(value):
+    path = os.path.normpath(value)
+    if os.name == "nt" and not path.startswith("\\\\?\\"):
+        path = "\\\\?\\" + path
+    return Path(path)
+
+
 options = dict(arg[1:].split("=", 1) for arg in sys.argv[1:] if arg.startswith("-") and "=" in arg)
 if options.get("Mode") == "Execute":
-    actions = json.loads(Path(options["Actions"]).read_bytes())["Actions"]
+    actions = json.loads(file_path(options["Actions"]).read_bytes())["Actions"]
     for action in actions:
         if action["Type"] == "Compile":
             assert not action["bCanExecuteRemotely"] and not action["bCanExecuteInUBA"]
@@ -68,12 +75,101 @@ if options.get("Mode") == "Execute":
         elif action["Type"] == "Link":
             assert actions[0]["ProducedItems"][0] in action["PrerequisiteItems"]
 else:
-    project = Path(options["Project"]).parent
-    shutil.copyfile(project / "CompileActions.json", options["WriteOutdatedActions"])
+    project = file_path(options["Project"]).parent
+    shutil.copyfile(project / "CompileActions.json", file_path(options["WriteOutdatedActions"]))
 ''',
         encoding="utf-8",
     )
     return engine
+
+
+def verify_long_project_path(root, mbt, engine):
+    prefix = "\\\\?\\" if os.name == "nt" else ""
+    with tempfile.TemporaryDirectory(dir=prefix + str(root)) as directory:
+        component = "long-project-directory-" * 5
+        project_root = Path(directory) / component / component / component
+        project = project_root / "Game.uproject"
+        project_arg = str(project).removeprefix(prefix)
+        assert len(project_arg) > 260
+        config = project_root / "Config"
+        config.mkdir(parents=True)
+        write_json(project, {"FileVersion": 3})
+        write_json(config / "ModHeaderTool.json", {"generation": {"gameId": "Game"}})
+        write_json(project_root / "CompileActions.json", {"Actions": []})
+
+        variant = Path("Game/Win64/Development/x64")
+        mod_tools = project_root / "Intermediate/ModTools"
+        generated = mod_tools / "ModHeaderTool/Generated" / variant
+        generated.mkdir(parents=True)
+        write_json(
+            generated / "Game.generated-artifacts.json",
+            {
+                "format": "UMF.GeneratedArtifacts",
+                "status": "Complete",
+                "target": "Game",
+                "platform": "Win64",
+                "configuration": "Development",
+                "architecture": "x64",
+                "generatedFiles": [],
+            },
+        )
+        run(
+            [
+                mbt, "build-ue-target", "--engine", engine, "--project", project_arg,
+                "--target", "Game", "--platform", "Win64", "--configuration", "Development",
+                "--architecture", "x64", "--mode", "normal",
+            ],
+            env={**os.environ, "PYTHONHOME": sys.base_prefix},
+        )
+        work = mod_tools / "HookBuild" / variant
+        assert json.loads((work / "objects.json").read_text(encoding="utf-8")) == {}
+        assert not list(work.glob(".mbt-stage-*"))
+
+
+def verify_msvc_source_analysis(root, args):
+    root.mkdir()
+    source = root / "probe.cpp"
+    source.write_text("bool FailingCall() { return false; }\n", encoding="utf-8")
+    database = write_json(
+        root / "compile_commands.json",
+        [{
+            "directory": str(root),
+            "file": str(source),
+            "arguments": [
+                "cl.exe", "/TP", "/std:c++20", "/dximplicitlyinstantiatevirtualfunction-",
+                "/DUE_TARGET_NAME=Game", '/DUE_MODULE_NAME="Probe"', "/DWITH_EDITOR=0", "/c", str(source),
+            ],
+        }],
+    )
+    member = "api/ci/probe/failing-call"
+    catalog = write_json(
+        root / "catalog.json",
+        {
+            "format": "UMF.SourceErrorCatalog",
+            "schemaVersion": 2,
+            "members": {member: {
+                "function": "FailingCall", "module": "Probe", "source": str(source),
+                "failureReturn": False, "reasons": {},
+            }},
+            "nextDetailByType": {},
+        },
+    )
+    request = write_json(
+        root / "SourceAnalysisRequest.json",
+        {
+            "format": "UMF.SourceAnalysisRequest",
+            "schemaVersion": 1,
+            "compilationDatabase": database,
+            "target": "Game",
+            "catalog": catalog,
+            "member": member,
+            "libclang": str(args.libclang),
+            "resourceDirectory": str(args.resource_dir),
+            "analysisArguments": ["--target=x86_64-pc-windows-msvc"],
+        },
+    )
+    report = json.loads(run([args.mst, "update-catalog", request], capture_output=True).stdout)
+    assert [failure["exitKind"] for failure in report["failures"]] == ["return"], report
 
 
 def verify_hook_marker(header, source, flags, args, project, options, request):
@@ -530,6 +626,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="umf hook targets ") as directory:
         args.engine = prepare_fake_ubt(Path(directory))
+        verify_long_project_path(Path(directory), args.mbt, args.engine)
+        verify_msvc_source_analysis(Path(directory) / "msvc-source-analysis", args)
         for target in (
             ("Win64", "x64", "x86_64-pc-windows-msvc"),
             ("Win64", "arm64", "aarch64-pc-windows-msvc"),
