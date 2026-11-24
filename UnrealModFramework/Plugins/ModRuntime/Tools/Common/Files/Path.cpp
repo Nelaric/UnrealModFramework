@@ -30,13 +30,34 @@ fs::path Path::PathFromUtf8(std::string_view Text)
 	return fs::path(Utf8);
 }
 
+fs::path Path::FileSystemPath(const fs::path& Path)
+{
+#ifdef _WIN32
+	if (!Path.empty())
+	{
+		const fs::path Absolute = fs::absolute(Path).lexically_normal().make_preferred();
+		const std::wstring& Native = Absolute.native();
+		if (Native.starts_with(LR"(\\?\)") || Native.starts_with(LR"(\\.\)"))
+		{
+			return Absolute;
+		}
+		if (Native.starts_with(LR"(\\)"))
+		{
+			return fs::path(LR"(\\?\UNC\)" + Native.substr(2));
+		}
+		return fs::path(LR"(\\?\)" + Native);
+	}
+#endif
+	return Path;
+}
+
 fs::path Path::ResolvePath(const fs::path& Base, std::string_view Text)
 {
 	if (Text.empty())
 	{
 		throw std::runtime_error("A required path is empty.");
 	}
-	return fs::weakly_canonical(fs::absolute(Base / PathFromUtf8(Text)));
+	return fs::weakly_canonical(FileSystemPath(fs::absolute(Base / PathFromUtf8(Text))));
 }
 
 fs::path Path::ResolveGeneratedPath(const fs::path& Root, std::string_view Text)
@@ -54,8 +75,8 @@ fs::path Path::ResolveGeneratedPath(const fs::path& Root, std::string_view Text)
 		}
 	}
 	const fs::path Resolved = ResolvePath(Root, Text);
-	const fs::path Inside = Resolved.lexically_relative(Root);
-	if (Inside.empty() || *Inside.begin() == ".." || Resolved == Root)
+	const fs::path Inside = FileSystemPath(Resolved).lexically_relative(FileSystemPath(Root));
+	if (Inside.empty() || Inside == "." || *Inside.begin() == "..")
 	{
 		throw std::runtime_error("Generated path escapes its root: " + std::string(Text));
 	}

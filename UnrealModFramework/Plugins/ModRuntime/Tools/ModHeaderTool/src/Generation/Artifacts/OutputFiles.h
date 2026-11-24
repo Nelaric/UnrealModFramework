@@ -13,6 +13,5 @@ class OutputFiles
 {
 public:
 	static void Write(const fs::path& File, const std::string& Bytes);
-	static void Replace(const fs::path& Source, const fs::path& Destination);
 };
 } // namespace Mod::HeaderTool

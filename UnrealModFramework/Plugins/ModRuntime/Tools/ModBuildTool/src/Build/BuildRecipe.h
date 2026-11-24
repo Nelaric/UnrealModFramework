@@ -20,8 +20,8 @@ class BuildRecipe
 {
 public:
 	static void ExecuteRecipe(const Request& Request, std::string_view Name, const fs::path& Response,
-	                          const std::map<std::string, std::string>& Values,
-	                          const std::vector<fs::path>& Objects = {}, const std::string& LinkWitness = {});
+	                          const std::map<std::string, std::string>& Values, const std::vector<fs::path>& Objects,
+	                          const std::string& LinkWitness, const std::vector<std::string>& LeadingArguments);
 
 private:
 	static std::vector<std::string> ExpandArguments(const Json& Recipe,

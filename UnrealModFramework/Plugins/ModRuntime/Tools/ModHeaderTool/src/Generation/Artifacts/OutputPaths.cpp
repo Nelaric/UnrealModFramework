@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "OutputPaths.h"
 
+#include "Common/Files/Path.h"
 #include "ModHeaderTool/src/Files/DiagnosticLocation.h"
 
 #include <filesystem>
@@ -13,6 +14,14 @@
 namespace Mod::HeaderTool
 {
 namespace fs = std::filesystem;
+
+fs::path OutputPaths::CanonicalFileSystemPath(const fs::path& File)
+{
+	using Mod::BuildTool::Path;
+	const fs::path Canonical = fs::weakly_canonical(Path::FileSystemPath(File));
+	// MSVC strips the extended prefix from canonical paths.
+	return Path::FileSystemPath(Canonical);
+}
 
 bool OutputPaths::SamePart(const fs::path& Left, const fs::path& Right)
 {
@@ -38,7 +47,7 @@ fs::path OutputPaths::CheckedPath(const fs::path& Root, const fs::path& Relative
 			throw std::runtime_error("Generated output paths cannot contain '..'.");
 		}
 	}
-	const fs::path Result = fs::weakly_canonical(Root / Relative);
+	const fs::path Result = CanonicalFileSystemPath(Root / Relative);
 	auto Part = Result.begin();
 	for (const fs::path& RootPart : Root)
 	{

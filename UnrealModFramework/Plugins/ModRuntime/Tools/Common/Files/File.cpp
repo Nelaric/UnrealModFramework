@@ -26,11 +26,12 @@ namespace fs = std::filesystem;
 
 std::string File::ReadFile(const fs::path& Path)
 {
-	if (!fs::is_regular_file(Path))
+	const fs::path NativePath = Path::FileSystemPath(Path);
+	if (!fs::is_regular_file(NativePath))
 	{
 		throw std::runtime_error("Not a regular file: " + Path::PathToUtf8(Path));
 	}
-	std::ifstream Stream(Path, std::ios::binary);
+	std::ifstream Stream(NativePath, std::ios::binary);
 	if (!Stream)
 	{
 		throw std::runtime_error("Cannot open file: " + Path::PathToUtf8(Path));
@@ -46,10 +47,14 @@ std::string File::ReadFile(const fs::path& Path)
 void File::ReplaceFileAtomically(const fs::path& Source, const fs::path& Destination)
 {
 #ifdef _WIN32
-	if (!MoveFileExW(Source.c_str(), Destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+	const fs::path NativeSource = Path::FileSystemPath(Source);
+	const fs::path NativeDestination = Path::FileSystemPath(Destination);
+	if (!MoveFileExW(NativeSource.c_str(), NativeDestination.c_str(),
+	                 MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
 	{
+		const auto Error = GetLastError();
 		throw std::runtime_error("Cannot publish file: " + Path::PathToUtf8(Destination) + " (Windows error " +
-		                         std::to_string(GetLastError()) + ").");
+		                         std::to_string(Error) + ").");
 	}
 #else
 	fs::rename(Source, Destination);
@@ -58,12 +63,13 @@ void File::ReplaceFileAtomically(const fs::path& Source, const fs::path& Destina
 
 void File::WriteFileAtomically(const fs::path& Path, std::string_view Contents)
 {
-	fs::create_directories(Path.parent_path());
+	fs::create_directories(Path::FileSystemPath(Path.parent_path()));
 	fs::path Temporary = Path;
 	Temporary += ".tmp-" + TemporaryName::UniqueSuffix();
+	const fs::path NativeTemporary = Path::FileSystemPath(Temporary);
 	try
 	{
-		std::ofstream Stream(Temporary, std::ios::binary | std::ios::trunc);
+		std::ofstream Stream(NativeTemporary, std::ios::binary | std::ios::trunc);
 		Stream.write(Contents.data(), static_cast<std::streamsize>(Contents.size()));
 		Stream.close();
 		if (!Stream)
@@ -75,7 +81,7 @@ void File::WriteFileAtomically(const fs::path& Path, std::string_view Contents)
 	catch (...)
 	{
 		std::error_code Ignored;
-		fs::remove(Temporary, Ignored);
+		fs::remove(NativeTemporary, Ignored);
 		throw;
 	}
 }

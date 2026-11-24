@@ -2,6 +2,7 @@
 #include "UeHookBuild.h"
 
 #include "Common/Files/BuildLock.h"
+#include "Common/Files/Executable.h"
 #include "Common/Files/File.h"
 #include "Common/Files/Path.h"
 #include "Common/Files/TemporaryName.h"
@@ -201,7 +202,10 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 		throw std::runtime_error("Supply an Unreal Engine with UnrealBuildTool and a project .uproject file.");
 	}
 	const auto Dotnet = FindDotnet(Engine);
-	const auto Environment = ProcessEnvironment::CaptureEnvironment();
+	auto Environment = ProcessEnvironment::CaptureEnvironment();
+#ifdef _WIN32
+	Environment["UMF_RUNNING_MBT_EXECUTABLE"] = Path::PathToUtf8(Executable::ExecutablePath());
+#endif
 	const auto RunUbt = [&](const std::vector<std::string>& Arguments, std::string_view Step)
 	{
 		const int Exit = Process::RunProcess(Dotnet, Arguments, Engine / "Source", Environment);
