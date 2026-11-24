@@ -11,13 +11,13 @@ English | [简体中文](README.zh-CN.md)
 
 UnrealModFramework provides a game-side mod runtime and an independently built mod authoring editor for Unreal Engine 5.6. The development host integrates generated C++ and Blueprint contracts, `.mod` packaging and loading, and World-scoped extensions.
 
-| Location | What to find |
+| Location | Contents |
 | --- | --- |
 | [UnrealModFrameworkDev.uproject](UnrealModFramework/UnrealModFrameworkDev.uproject) | Development host and `ExportTest` integration example |
 | [ModRuntime](UnrealModFramework/Plugins/ModRuntime/) | Game runtime, editor-side export tools, UHT adapter, and standalone tools |
-| [TestMod](ExampleMods/TestMod/TestMod.uproject) | Independent author project for the character preview, native module, and Blueprint lifecycle callbacks |
+| [TestMod](ExampleMods/TestMod/TestMod.uproject) | Independent authoring project featuring a character preview, native module, and Blueprint lifecycle callbacks |
 | [Technical design](Docs/UnrealModFramework_设计文档.md) | Architecture and target-specific release criteria (Chinese) |
-| [Performance benchmarks](Test/Performance/ue-call-benchmark.md) | Standalone UE call measurements and the [reproduction procedure](Docs/DevelopmentWorkflow.md#run-the-call-benchmark) |
+| [Performance benchmarks](Test/Performance/ue-call-benchmark.md) | Standalone UE call measurements; see the [reproduction procedure](Docs/DevelopmentWorkflow.md#run-the-call-benchmark) |
 
 `Binaries`, `Intermediate`, `Saved`, and `Dist` contain generated output.
 
@@ -39,13 +39,13 @@ UnrealModFramework provides a game-side mod runtime and an independently built m
    | Linux | GNU `g++` | `sh Setup.sh` |
    | macOS | GNU `g++`, selected through `CXX` | `sh Setup.sh` |
 
-Setup can use CMake 3.20 or later from `PATH`. On a fresh checkout without a suitable CMake, Setup downloads the pinned Kitware archive and verifies its SHA-256 hash. The initial download requires network access. [CMake package manifest](Setup/CMakePackages.txt)
+Setup can use CMake 3.20 or later from `PATH`. On a fresh checkout without a suitable CMake, Setup downloads the pinned Kitware archive and verifies its SHA-256 hash; the initial download requires network access. See the [CMake package manifest](Setup/CMakePackages.txt) for details.
 
-Setup builds Release versions of the standalone tools `ModHeaderTool`, `ModBuildTool`, `ModSourceTool`, and `ModSDKTool`. Find each executable under `UnrealModFramework/Plugins/ModRuntime/Tools/build/<tool>/` and run it with `--help` to check that it starts. With Ninja or Unix Makefiles, pass `--jobs 8` to limit the build to eight parallel jobs.
+Setup builds only the Release versions of the four standalone tools: `ModHeaderTool`, `ModBuildTool`, `ModSourceTool`, and `ModSDKTool`. Each executable is placed under `UnrealModFramework/Plugins/ModRuntime/Tools/build/<tool>/`, where you can run it with `--help` to verify that it launches. When using Ninja or Unix Makefiles, pass `--jobs 8` to limit the build to eight parallel jobs.
 
 ### Build the development host
 
-Use ModBuildTool with an Unreal Engine 5.6 installation, the target SDK and the build host's libclang. This example builds the Development Editor for Win64 x64.
+Run ModBuildTool with an Unreal Engine 5.6 installation, the target platform SDK, and the build host's libclang. The example below builds the Win64 x64 Development Editor.
 
 ```powershell
 $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
@@ -53,7 +53,7 @@ $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuil
   --target UnrealModFrameworkDevEditor --platform Win64 --configuration Development --architecture x64 --mode normal
 ```
 
-The build tools prepare a bootstrap Editor automatically when needed. [Platform selection and host compilation](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#automatic-hook-builds)
+The build tools automatically prepare a bootstrap Editor when needed. For details, see [Platform selection and host compilation](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#automatic-hook-builds).
 
 ### Export a C++ Hook
 
@@ -64,31 +64,31 @@ MOD_EXPORT_HOOK()
 float ChangeHealth(float Delta);
 ```
 
-To omit a stage, add its flag to the same marker. `MOD_EXPORT_HOOK(NoOn)` lets mods use `Pre` and `Post`. A call that passes `Pre` runs the game function. Use `MOD_EXPORT_HOOK(NoPre, NoOn)` to expose only `Post`. With all three flags (`NoPre, NoOn, NoPost`), the build compiles the original function and publishes no Hook ID.
+To omit a stage, add its flag to the same macro. `MOD_EXPORT_HOOK(NoOn)` exposes `Pre` and `Post`, and any call that passes `Pre` runs the original game function. Use `MOD_EXPORT_HOOK(NoPre, NoOn)` to expose only `Post`. When all three flags (`NoPre, NoOn, NoPost`) are specified, the build compiles the original function without publishing a Hook ID.
 
-If you later rename `ChangeHealth` to `AdjustHealth`, write `MOD_EXPORT_HOOK(CompatibleNames = ("ChangeHealth"))` on `AdjustHealth`. Mods registered under the old ID keep their signature and grants and share the same dispatch with mods using the new ID. List each published former name when renaming again.
+If you later rename `ChangeHealth` to `AdjustHealth`, annotate `AdjustHealth` with `MOD_EXPORT_HOOK(CompatibleNames = ("ChangeHealth"))`. Mods registered under the old ID retain their signature and grants, and share the same dispatch path with mods using the new ID. When renaming again, include every previously published name in the list.
 
-The generator derives the Hook ID from the type and function name. C++ and Blueprint calls enter the same dispatcher. A mod with the appropriate grants can change arguments or cancel a call in `Pre`, replace the original function in `On`, and observe the result in `Post`.
+The generator derives the Hook ID from the type and function name. C++ and Blueprint calls enter the same dispatcher. A mod with the appropriate grants can modify arguments or cancel a call in `Pre`, replace the original function in `On`, and observe the result in `Post`.
 
 ### API and Event export fields
 
-The schema defines the case-sensitive field names and allowed values. [ModExportMetadataSchema.h](UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ExportMetadata/Public/ModExportMetadataSchema.h)
+Case-sensitive field names and allowed values are defined in [ModExportMetadataSchema.h](UnrealModFramework/Plugins/ModRuntime/Source/Runtime/ExportMetadata/Public/ModExportMetadataSchema.h).
 
 | Macro | Required fields | Optional fields |
 | --- | --- | --- |
-| API and Event | — | `ExportVersion` defaults to `"1.0.0"`, plus `DisplayName` and `Description` |
-| `MOD_EXPORT_API` | `Scope`, `Thread`, `FailureRule` | `Permissions` defaults to an empty list, plus `FullView` and `CompatibleNames` |
+| API and Event | — | `ExportVersion` (defaults to `"1.0.0"`), `DisplayName`, `Description` |
+| `MOD_EXPORT_API` | `Scope`, `Thread`, `FailureRule` | `Permissions` (defaults to an empty list), `FullView`, `CompatibleNames` |
 | `MOD_EXPORT_EVENT` | `SourceScope`, `PublishRule` | `PayloadType`, `ExportId`, `Permission`, `PublishPermission`, `UnsubscribeRule`, `Authority` |
 
-MHT checks active declarations against the selected build target. World Hooks and Events run on the game thread. [Host authoring and supported signatures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
+MHT validates active declarations against the selected build target, and World-scoped Hooks and Events run on the game thread. For details, see [Host authoring and supported signatures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md).
 
 ## Build and load a mod
 
-1. Build the host exports, then use MDT to publish the matching game SDK and generated `ModDevelopmentSDKEditor` plugin. For the sample, install `UMFDevSDK` and `ModDevelopmentSDKEditor` under `ExampleMods/TestMod/Plugins`. [SDK request and output](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.md)
-2. In the author's Level Editor toolbar, open **Mod → 打包 Mod…** to package an enabled content plugin or the current C++ project with the target game's base release and matching cook settings. The C++ project path requires a matching Win64 x64 modular host receipt and Pak backend. [Packaging guide](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.md)
-3. Place the package in `Mods` beside the actual game executable, or in the host project's `Binaries/Win64/Mods` for Windows PIE with an Editor-compatible package. Configure the release identity, backend, and any native code permissions in the host's `[ModLoader]` section. [Loader configuration](Docs/CodingStandards/Modules.md#mod-loader)
+1. Build the host exports, then use MDT to publish the matching game SDK and generated `ModDevelopmentSDKEditor` plugin. For the sample, install `UMFDevSDK` and `ModDevelopmentSDKEditor` under `ExampleMods/TestMod/Plugins`. For details, see [SDK request and output](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.md).
+2. In the author's Level Editor toolbar, open **Mod → 打包 Mod…** to package an enabled content plugin or the current C++ project using the target game's base release and matching cook settings. Packaging the current C++ project requires a matching Win64 x64 modular host receipt and the Pak backend. For details, see the [packaging guide](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.md).
+3. Place the `.mod` package in the `Mods` directory beside the actual game executable, or in the host project's `Binaries/Win64/Mods` directory when testing an Editor-compatible package in Windows PIE. Configure the release identity, backend, and any native code permissions in the host's `[ModLoader]` section. For details, see [Loader configuration](Docs/CodingStandards/Modules.md#mod-loader).
 
-The host opts into World extensions before gameplay. The runtime supports Hook/Event subscriptions, content selection, World Patch anchors, and versioned cross-mod services. The development host's `ModExtensions` game mode demonstrates World preparation, multiplayer plan matching, and single-player save migration. Shipping and additional toolchain combinations require target-specific validation. [Runtime implementation and milestones](Docs/UnrealModFramework_游戏端详细设计.md)
+The host opts into World extensions before gameplay begins. The runtime supports Hook/Event subscriptions, content selection, World Patch anchors, and versioned cross-mod services. The development host's `ModExtensions` game mode demonstrates World preparation, multiplayer plan matching, and single-player save migration. Shipping builds and additional toolchain combinations require target-specific validation. For details, see [Runtime implementation and milestones](Docs/UnrealModFramework_游戏端详细设计.md).
 
 ## Standalone tool guides
 
@@ -101,11 +101,11 @@ The host opts into World extensions before gameplay. The runtime supports Hook/E
 
 ## Contributing
 
-Use the [contribution guide](CONTRIBUTING.md), [Issue forms](https://github.com/Nelaric/UnrealModFramework/issues/new/choose), and [PR template](.github/pull_request_template.md) to prepare a focused change. The [development workflow](Docs/DevelopmentWorkflow.md) explains local checks, trusted PR builds, and documentation publishing.
+See the [contribution guide](CONTRIBUTING.md), [Issue forms](https://github.com/Nelaric/UnrealModFramework/issues/new/choose), and [PR template](.github/pull_request_template.md) to prepare a focused change. The [development workflow](Docs/DevelopmentWorkflow.md) explains local checks, trusted PR builds, and documentation publishing.
 
 ## API documentation
 
-The [API documentation entry](Docs/API/README.md) and coding standards are built with Doxygen and published at [UnrealModFramework API](https://docs.nelaric.com/UnrealModFramework/API/). Approved updates publish automatically from `main`. See the [organization hosting guide](Docs/Hosting/README.md) for publishing configuration.
+The [API documentation entry](Docs/API/README.md) and coding standards are built with Doxygen and published at [UnrealModFramework API](https://docs.nelaric.com/UnrealModFramework/API/). Approved updates are published automatically from `main`. See the [organization hosting guide](Docs/Hosting/README.md) for publishing configuration.
 
 ## Star History
 

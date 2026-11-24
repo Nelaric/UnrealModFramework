@@ -4,43 +4,43 @@
 
 # CircleCI Linux 构建
 
-Push 和可信 PR 配置各定义了两个并行的 Unreal Engine 5.6.1 Linux Job。`build_game_linux` 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。`build_editor_linux` 编译 `UnrealModFrameworkDevEditor`，再在 UE 容器中构建 `ModSDKTool`（MDT）和 MBT，通过 `ModSDKTool build-editor` 编译并校验独立的 `ModDevelopmentSDKEditor` 插件。 [Push 配置](../.circleci/config.yml) · [可信 PR 配置](../.circleci/pr-build.yml)
+Push 配置与可信 PR 配置各定义了两个并行的 Unreal Engine 5.6.1 Linux Job：`build_game_linux` 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块；`build_editor_linux` 在编译 `UnrealModFrameworkDevEditor` 后，于 UE 容器中构建 `ModSDKTool`（MDT）和 MBT，并运行 `ModSDKTool build-editor` 编译和校验独立的 `ModDevelopmentSDKEditor` 插件。配置定义详见 [Push 配置](../.circleci/config.yml)和[可信 PR 配置](../.circleci/pr-build.yml)。
 
-两个流水线都从待测提交构建 MDT 和 MBT。共享构建脚本使用引擎自带的 .NET 宿主和 Editor BuildId。MDT 从内嵌资源生成插件，将校验后的产物发布到 Job 暂存目录下的 `Dist/ModDevelopmentSDKEditor`。 [编辑器插件构建脚本](../.circleci/build-editor-plugin.sh)
+两条流水线均从待测提交构建 MDT 和 MBT。共享构建脚本使用引擎自带的 .NET 宿主和 Editor BuildId，由 MDT 基于内嵌资源生成插件，并将校验通过的产物发布到 Job 暂存目录下的 `Dist/ModDevelopmentSDKEditor`；详见[编辑器插件构建脚本](../.circleci/build-editor-plugin.sh)。
 
 ## 已启用的 PR 接入
 
-仓库已设置 `CIRCLECI_PR_BUILDS_ENABLED=true`，当前触发端点保存在加密的 Actions Secret `CIRCLECI_PR_BUILD_WEBHOOK_URL` 中。`UnrealModFramework PR builds` 流水线使用 `.circleci/pr-build.yml`，配置和初始检出均固定为 `main`。下方步骤用于重建该接入。
+当前仓库已启用 `CIRCLECI_PR_BUILDS_ENABLED=true`，并将触发端点保存在加密的 Actions Secret `CIRCLECI_PR_BUILD_WEBHOOK_URL` 中。`UnrealModFramework PR builds` 流水线使用 `.circleci/pr-build.yml`，其配置来源与初始检出分支均固定为 `main`。如需重建该接入，请按以下步骤操作。
 
 ## 常规 push 构建
 
-使用 CircleCI 的 `github/Nelaric/UnrealModFramework` GitHub OAuth 项目，配置与检出源均选择本仓库，配置路径为 `.circleci/config.yml`，触发器覆盖源仓库 push。在 CircleCI 项目环境变量中设置 `GHCR_USERNAME` 和 `GHCR_TOKEN`。令牌必须能够拉取 `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1`；不要把变量值写入 Git。
+使用 CircleCI 的 `github/Nelaric/UnrealModFramework` GitHub OAuth 项目，将本仓库设为配置与检出源，配置路径设为 `.circleci/config.yml`，并配置针对源仓库 push 的触发器。在 CircleCI 项目环境变量中设置 `GHCR_USERNAME` 和 `GHCR_TOKEN`，确保该令牌具备拉取 `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1` 的权限，切勿将变量值写入 Git。
 
-保持 **Build forked pull requests** 和 **Pass secrets to builds from forked pull requests** 关闭。Fork 编译使用下方独立的可信接入流程。两类作业都使用带 Docker 的 Linux machine executor 和 `large` 资源规格。
+请保持 **Build forked pull requests** 和 **Pass secrets to builds from forked pull requests** 处于关闭状态——Fork 编译采用下方独立的可信接入流程。两类 Job 均运行在带 Docker 的 Linux machine executor 上，使用 `large` 资源规格。
 
 ## 启用可信 PR 编译
 
-[Actions 工作流](../.github/workflows/fork-pr-linux.yml)按需启用：仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED` 设为 `true` 前，各 Job 会跳过。启用前完成以下接入：
+[Actions 工作流](../.github/workflows/fork-pr-linux.yml)默认按需启用：在将仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED` 设为 `true` 之前，其各 Job 均会被跳过。启用前请先完成以下接入步骤：
 
-1. 通过正常审查流程，将工作流、`Scripts/pr_build_policy.py`、`Scripts/fork_pr_build_bot.py` 和 `.circleci/pr-build.yml` 合入 `main`。
-2. 在同一 CircleCI 项目中添加 GitHub App 流水线。OAuth 组织也可以安装 GitHub App 集成。配置与检出仓库均选择 `Nelaric/UnrealModFramework`，配置路径选择 `.circleci/pr-build.yml`，自定义 Webhook 的配置与检出分支均为 `main`。保留现有 OAuth push 流水线。
-3. 为该流水线添加 **Custom webhook** 触发器。将生成的完整 HTTPS 地址及其密钥保存到 GitHub Actions Secret `CIRCLECI_PR_BUILD_WEBHOOK_URL`。机器人仅接受 `internal.circleci.com` 端点，不应复用其他仓库的 Webhook 或流水线编号。
-4. 确保 PR 流水线可以读取本项目的 `GHCR_USERNAME` 和 `GHCR_TOKEN`，并限制其配置与初始检出都来自可信 `main`。
-5. 设置仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED=true`，使用已审查的 PR 验证流程。接入验证后，在分支保护中要求命名、格式、API 检查及 `ci/fork-pr-linux-build` 通过。独立目标状态为 `ci/linux-game-build` 和 `ci/linux-editor-build`。
+1. 通过正常审查流程，将工作流文件、`Scripts/pr_build_policy.py`、`Scripts/fork_pr_build_bot.py` 和 `.circleci/pr-build.yml` 合入 `main`。
+2. 在同一 CircleCI 项目中添加一条 GitHub App 流水线（OAuth 组织同样可以安装 GitHub App 集成）。配置仓库与检出仓库均选择 `Nelaric/UnrealModFramework`，配置路径填写 `.circleci/pr-build.yml`，并将自定义 Webhook 的配置分支与检出分支均设为 `main`。同时保留现有的 OAuth push 流水线。
+3. 为该流水线添加 **Custom webhook** 触发器，并将生成的完整 HTTPS 端点（含密钥）保存到 GitHub Actions Secret `CIRCLECI_PR_BUILD_WEBHOOK_URL` 中。机器人仅接受 `internal.circleci.com` 端点，切勿复用其他仓库的 Webhook 或流水线标识。
+4. 确保 PR 流水线可以访问本项目的 `GHCR_USERNAME` 和 `GHCR_TOKEN`，并限制 Webhook 仅从可信 `main` 分支加载配置与执行初始检出。
+5. 设置仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED=true`，并通过已审查的 PR 验证流程。验证通过后，在分支保护规则中要求命名、格式、API 检查及 `ci/fork-pr-linux-build` 全部通过。两个独立目标的状态名称分别为 `ci/linux-game-build` 和 `ci/linux-editor-build`。
 
-机器人仅向 Webhook 发送 PR 编号、准确的 head SHA 和随机关联标识。可信策略先验证 PR 仍开放且目标为本仓库 `main`，再获取 `refs/pull/<number>/head`，并确认实际提交仍与请求 SHA 一致。Fork 对受保护 CI 与构建路径的改动会被拒绝。受保护路径包括工作流与自动化目录、`.gitattributes`、`.gitmodules`、Unreal 描述文件与构建脚本、CMake 文件和可执行辅助脚本；重命名同时检查新旧路径。此类修改由维护者在源仓库分支处理。
+机器人仅向 Webhook 发送 PR 编号、准确的 head SHA 与随机关联标识。在获取 `refs/pull/<number>/head` 之前，可信策略会先确认该 PR 处于开放状态且目标分支为本仓库的 `main`，并在获取后验证实际提交仍与请求的 SHA 一致。Fork PR 对受保护 CI 及构建路径的修改会被拒绝；受保护路径包括工作流与自动化目录、`.gitattributes`、`.gitmodules`、Unreal 描述文件与构建脚本、CMake 文件以及可执行辅助脚本，重命名操作会同时检查新旧路径。此类改动须由维护者在源仓库分支中处理。
 
-Actions 与 CircleCI 都从可信 `main` 配置开始。Actions 不会使用具有写权限的令牌检出 PR 源码；CircleCI 在策略通过后才检出验证过的提交，并随后拉取私有引擎镜像。GitHub 会收到独立 Game、Editor 状态及汇总结果。较新的 Actions 运行会接管旧运行的状态所有权。
+Actions 与 CircleCI 均从可信的 `main` 配置启动。Actions 绝不会使用带写权限的令牌检出 PR 源码；CircleCI 则在策略校验通过后才检出已验证的提交，并随后拉取私有引擎镜像。GitHub 会收到独立的 Game 与 Editor 状态以及汇总结果，较新的 Actions 运行会自动接管旧运行的状态所有权。
 
 ## 构建隔离与验证
 
-拉取私有引擎镜像后，UE 容器使用 `--network none` 运行。每个 Job 把 `UnrealModFramework/` 复制到独立可写的临时目录。暂存工程路径为 `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`。Linux 构建调用 MBT 的 `build-ue-target`。Editor Job 运行 ChangeHealth 的 C++ 和蓝图用例，并在该目录中打包独立插件。MST GCC/Clang 用例在独立的 [GitHub Actions Job](../.github/workflows/quality.yml)中运行。
+拉取私有引擎镜像后，UE 容器会以 `--network none` 模式运行。每个 Job 都会将 `UnrealModFramework/` 复制到独立的可写临时目录中，暂存工程路径为 `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`。Linux 构建调用 MBT 的 `build-ue-target` 命令；Editor Job 会运行 ChangeHealth 的 C++ 和蓝图用例，并在该暂存目录中打包独立插件。MST 的 GCC/Clang 用例则在独立的 [GitHub Actions Job](../.github/workflows/quality.yml) 中运行。
 
-请求审查前验证两个配置：
+发起审查前请先校验两份配置：
 
 ```sh
 circleci config validate .circleci/config.yml
 circleci config validate .circleci/pr-build.yml
 ```
 
-检查、日志入口、编译范围与故障排查见[开发流程](DevelopmentWorkflow.zh-CN.md)。服务端接入和触发值见 [CircleCI 自定义 Webhook 文档](https://circleci.com/docs/guides/orchestrate/custom-webhooks/)及[流水线值参考](https://circleci.com/docs/guides/orchestrate/pipeline-variables/)。
+检查项、日志入口、构建范围与故障排查详见[开发流程](DevelopmentWorkflow.zh-CN.md)。服务端接入与触发参数说明参见 [CircleCI 自定义 Webhook 文档](https://circleci.com/docs/guides/orchestrate/custom-webhooks/)和[流水线值参考](https://circleci.com/docs/guides/orchestrate/pipeline-variables/)。

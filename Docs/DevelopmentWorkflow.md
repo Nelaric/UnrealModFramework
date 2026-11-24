@@ -8,35 +8,35 @@ This page explains contribution checks, Linux builds, and documentation publishi
 
 ## From a change to `main`
 
-1. Make a focused change on a branch or fork. Run the relevant [local checks](CodingStandards/BuildAndReview.md#local-checks).
-2. Open a pull request to `main` using the [PR template](../.github/pull_request_template.md). Link the related issue when applicable.
-3. Resolve failures and complete maintainer review before merging. Maintainers should configure branch protection to require the applicable checks.
-4. Once [API Pages is enabled](Hosting/README.md), a merge to `main` publishes the generated API documentation.
+1. Make a focused change on a branch or fork, and run the relevant [local checks](CodingStandards/BuildAndReview.md#local-checks).
+2. Open a pull request to `main` using the [PR template](../.github/pull_request_template.md), and link any related issue when applicable.
+3. Resolve any check failures and complete maintainer review before merging. Maintainers should configure branch protection to require the applicable checks.
+4. Once [API Pages is enabled](Hosting/README.md), merging to `main` publishes the generated API documentation.
 
 ## Checks on a pull request
 
-The [Quality workflow](../.github/workflows/quality.yml) checks PR and commit naming, formatting and text conventions, and API documentation. A separate Linux job builds MST and checks cross-file exception analysis using GCC and Clang compile databases. Tool pins are in the workflow and `.config/dotnet-tools.json`.
+The [Quality workflow](../.github/workflows/quality.yml) checks PR and commit naming, formatting and text conventions, and API documentation. A separate Linux job builds MST and verifies cross-file exception analysis using GCC and Clang compile databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`.
 
-The [trusted PR build workflow](../.github/workflows/fork-pr-linux.yml) is enabled with the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` after completing the [CircleCI setup](CircleCI.md). Before that variable is enabled, its jobs are skipped. The existing CircleCI push pipeline remains separate.
+The [trusted PR build workflow](../.github/workflows/fork-pr-linux.yml) is enabled by setting the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` after completing the [CircleCI setup](CircleCI.md). Until that variable is enabled, its jobs are skipped. The existing CircleCI push pipeline remains separate.
 
-The PR workflow validates the submitted commit, starts CircleCI, and displays parallel Game and Editor jobs followed by a result summary. Each job reports its own status as `ci/linux-game-build` or `ci/linux-editor-build`; `ci/fork-pr-linux-build` summarizes both. The summary links to CircleCI logs, and the Actions jobs mirror checkout and compile output without copying authentication output. Contributors do not need a CircleCI account.
+The PR workflow validates the submitted commit, triggers CircleCI, and displays parallel Game and Editor jobs followed by a result summary. Each job reports its own status (`ci/linux-game-build` or `ci/linux-editor-build`), while `ci/fork-pr-linux-build` summarizes both. The summary links to the CircleCI logs, and the Actions jobs mirror checkout and compile output without exposing authentication output. Contributors do not need a CircleCI account.
 
-For fork PRs, changes to CI workflows, automation scripts, Unreal descriptors and build scripts, CMake files, or executable helper scripts require a maintainer to handle them in a source-repository branch. The policy checks both old and new paths for renamed files. Source-repository PRs can change those files and still use the trusted workflow. Native mod ABI changes also require maintainer review.
+For fork PRs, changes to CI workflows, automation scripts, Unreal descriptors and build scripts, CMake files, or executable helper scripts must be handled by a maintainer in a source-repository branch. The policy checks both old and new paths for renamed files. Source-repository PRs can modify these files and still run the trusted workflow. Native mod ABI changes also require maintainer review.
 
 ## Linux build scope
 
-Both the push configuration and trusted PR configuration build `UnrealModFramework/UnrealModFrameworkDev.uproject` with Unreal Engine 5.6.1 on Linux in Development configuration:
+Both the push and trusted PR configurations build `UnrealModFramework/UnrealModFrameworkDev.uproject` with Unreal Engine 5.6.1 on Linux in the Development configuration:
 
-| CircleCI job | Work |
+| CircleCI job | Tasks |
 | --- | --- |
-| `build_game_linux` | Compile `UnrealModFrameworkDev` and its enabled runtime modules. |
-| `build_editor_linux` | Compile `UnrealModFrameworkDevEditor` and its supported editor modules, then build and verify the independent `ModDevelopmentSDKEditor` plugin with `ModSDKTool build-editor`. |
+| `build_game_linux` | Compiles `UnrealModFrameworkDev` and its enabled runtime modules. |
+| `build_editor_linux` | Compiles `UnrealModFrameworkDevEditor` and its supported editor modules, then builds and verifies the independent `ModDevelopmentSDKEditor` plugin with `ModSDKTool build-editor`. |
 
-The jobs use separate writable staging directories and run the UE containers without network access after pulling the private engine image. MBT's `build-ue-target` command builds the Linux targets and compiles the generated host in its UBT module. The Editor job runs the ChangeHealth C++ and Blueprint test. See the [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md) for tool and input preparation.
+Each job uses an isolated writable staging directory and runs the UE container without network access after pulling the private engine image. MBT's `build-ue-target` command builds the Linux targets and compiles the generated host inside its UBT module. The Editor job runs the ChangeHealth C++ and Blueprint test. See the [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md) for tool and input preparation.
 
 There is no Server target. These jobs validate compilation and plugin packaging; they do not publish downloadable packages or run Unreal automation tests. Coverage of other platforms and newer supported engine releases remains a build coverage gap.
 
-Each independent framework capability requires behavior-focused automated tests under the [review standard](CodingStandards/BuildAndReview.md#automation-tests), without a numeric coverage threshold. For an existing Unreal automation run, `Scripts/check_automation_report.py` can validate the exported report, log, and editor exit code:
+Each independent framework capability requires behavior-focused automated tests as specified in the [review standard](CodingStandards/BuildAndReview.md#automation-tests), without a numeric coverage threshold. For an existing Unreal automation run, `Scripts/check_automation_report.py` validates the exported report, log, and editor exit code:
 
 ```text
 python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
@@ -44,16 +44,16 @@ python Scripts/check_automation_report.py <report/index.json> <automation.log> <
 
 ## Run the call benchmark
 
-From the repository root, run the [benchmark driver](../Test/Performance/run_benchmark.py) with a UE 5.6 installation and an explicit report path to preserve the checked-in measurement.
+From the repository root, run the [benchmark driver](../Test/Performance/run_benchmark.py) with a UE 5.6 installation and an explicit report path so the checked-in measurement is preserved.
 
 ```powershell
 python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/ue-call-benchmark.local.md'
 ```
 
-The standalone benchmark runs 200 cases with 1,000 samples per available path. Win64 x64 measures host C++, host Blueprint, and the C++ and Blueprint paths in a mounted `BenchmarkMod`. Use an engine source build that can produce a modular Development Game, or pass the matching modular runtime through `--modular-runtime`. Other supported platforms run the host-only paths. The report marks unavailable paths as `未测试`. Its summary is the mean of the available case means for each column and reflects the tested machine and fixtures. [Checked-in results](../Test/Performance/ue-call-benchmark.md)
+The standalone benchmark runs 200 cases with 1,000 samples per available path. Win64 x64 measures host C++, host Blueprint, and the C++ and Blueprint paths inside a mounted `BenchmarkMod`. Use an engine source build capable of producing a modular Development Game, or pass the matching modular runtime via `--modular-runtime`. Other supported platforms run only the host paths. Unavailable paths are marked as `未测试` in the report. The summary reports the mean of available case means for each column and reflects the tested machine and fixtures; see the [checked-in results](../Test/Performance/ue-call-benchmark.md).
 
 ## If a check fails
 
-Open the failed Actions job to read its summary and follow its CircleCI log link. The [CircleCI project](https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework) also shows the regular push builds. If the PR build is skipped, maintainers should check its enable variable, webhook setup, and secret as described in [CircleCI setup](CircleCI.md). Include the failed run link and attempted diagnosis when asking for review assistance.
+Open the failed Actions job to read its summary and follow the link to its CircleCI logs. Regular push builds are also listed in the [CircleCI project](https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework). If a PR build is skipped, maintainers should verify the enable variable, webhook setup, and secret as described in [CircleCI setup](CircleCI.md). When asking for review assistance, include the failed run link and the diagnosis you have already tried.
 
-The workflow definitions are [Quality](../.github/workflows/quality.yml), [trusted PR builds](../.github/workflows/fork-pr-linux.yml), [API Pages](../.github/workflows/pages.yml), [CircleCI push builds](../.circleci/config.yml), and [CircleCI PR builds](../.circleci/pr-build.yml).
+Workflow definitions live in [Quality](../.github/workflows/quality.yml), [trusted PR builds](../.github/workflows/fork-pr-linux.yml), [API Pages](../.github/workflows/pages.yml), [CircleCI push builds](../.circleci/config.yml), and [CircleCI PR builds](../.circleci/pr-build.yml).
