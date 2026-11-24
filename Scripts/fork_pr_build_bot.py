@@ -85,20 +85,26 @@ def check_status_owner(sha: str, *, claim: bool = False) -> None:
     if current_url is None:
         return
     # The aggregate context is also the ownership marker, including the run attempt.
-    statuses = request_json(
-        f"https://api.github.com/repos/{_REPOSITORY}/commits/{sha}/status",
-        token=os.environ["GITHUB_TOKEN"],
-    ).get("statuses", [])
-    latest = next((item for item in statuses if item.get("context") == _STATUS_CONTEXT), {})
-    owner_url = latest.get("target_url")
-    if claim:
-        pattern = rf"https://github\.com/{re.escape(_REPOSITORY)}/actions/runs/(\d+)/attempts/(\d+)"
+    pattern = rf"https://github\.com/{re.escape(_REPOSITORY)}/actions/runs/(\d+)/attempts/(\d+)"
+    current = (int(os.environ["GITHUB_RUN_ID"]), int(os.environ.get("GITHUB_RUN_ATTEMPT", "1")))
+
+    # A successful status POST can take time to appear in the combined status read.
+    delays = (0,) if claim else (0, 1, 2, 4)
+    for delay in delays:
+        if delay:
+            time.sleep(delay)
+        statuses = request_json(
+            f"https://api.github.com/repos/{_REPOSITORY}/commits/{sha}/status",
+            token=os.environ["GITHUB_TOKEN"],
+        ).get("statuses", [])
+        latest = next((item for item in statuses if item.get("context") == _STATUS_CONTEXT), {})
+        owner_url = latest.get("target_url")
         owner = re.fullmatch(pattern, owner_url or "")
-        current = re.fullmatch(pattern, current_url)
-        if owner and tuple(map(int, owner.groups())) > tuple(map(int, current.groups())):
+        if owner and tuple(map(int, owner.groups())) > current:
             raise SupersededRun("A newer build run already owns this commit")
-    elif owner_url != current_url:
-        raise SupersededRun("Skipping status update from an obsolete build run")
+        if claim or owner_url == current_url:
+            return
+    raise RuntimeError("GitHub did not confirm this run's CircleCI build status ownership after retries")
 
 
 def post_status(
@@ -430,8 +436,10 @@ def watch_target(number: int, sha: str, nonce: str, job_name: str) -> tuple[str,
 
 def watch_main() -> None:
     number = int(os.environ["PR_NUMBER"])
-    sha = os.environ["PR_SHA"]
-    nonce = os.environ["BUILD_NONCE"]
+    sha = os.environ.get("PR_SHA")
+    nonce = os.environ.get("BUILD_NONCE")
+    if not sha or not nonce:
+        raise RuntimeError("Missing CircleCI build inputs: expected a PR SHA and build nonce from the start job")
     job_name = os.environ["TARGET_JOB"]
     if job_name not in _JOB_CONTEXTS:
         raise ValueError("Unknown CircleCI target job")
@@ -497,7 +505,8 @@ def finish_main() -> None:
         state = "success" if all_succeeded else "failure"
         post_status(sha, state, f"UE 5.6.1 Linux builds: {state}")
     else:
-        lines.append("| Pipeline start | Failed before a commit was handed to the build jobs |")
+        lines.append("| Pipeline start | Missing PR SHA or CircleCI build identifier. See the start job log. |")
+        all_succeeded = False
     lines.append(f"\nActions build matrix: **{build_result or 'not started'}**")
     write_summary(lines)
     if not all_succeeded:
@@ -540,6 +549,9 @@ if __name__ == "__main__":
         else:
             raise ValueError("Usage: fork_pr_build_bot.py [start|watch|finish]")
     except SupersededRun as error:
+        if sys.argv[1:] == ["start"]:
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                output.write("superseded=true\n")
         print(str(error), flush=True)
         write_summary(["## Linux build superseded", str(error)])
     except Exception as error:
