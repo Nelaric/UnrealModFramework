@@ -202,7 +202,8 @@ bool Private::ReadExtensions(const FJsonObject& Manifest, FLoadResult& Result)
 		    !(bOffers && (Field.Key == TEXT("provides") || Field.Key == TEXT("incompatible") ||
 		                  (Field.Key == TEXT("requiredGrants") || Field.Key == TEXT("nativeExtension")))))
 		{
-			return Fail(Result, ELoadError::InvalidArchive, TEXT("Unknown package extension field: ") + Field.Key);
+			return Fail(Result, ELoadError::InvalidArchive,
+			            TEXT("Unknown package extension field: ") + FString(FStringView(Field.Key)));
 		}
 	}
 	auto& Out = Package.Extensions;

@@ -4,7 +4,7 @@
 
 # ModRuntime UHT 适配层
 
-`ModRuntime.ubtplugin.csproj` 是一个轻量的 .NET 8 UHT Exporter。UE 5.6 会在已启用的 ModRuntime 插件内发现该工程，构建程序集并加载 `[UnrealHeaderTool]` 类与 `[UhtExporter]` 入口。该工程直接引用当前引擎的程序集，无需项目引用或修改引擎。Exporter 名称为 `ModRuntime`，反射运行时模块 `ModLoader` 在 Game 和 Editor 清单中均会启用它。
+`ModRuntime.ubtplugin.csproj` 从当前引擎继承 UHT Exporter 的目标框架（UE 5.6 对应 .NET 8，UE 5.8 对应 .NET 10）。UBT 会在已启用的 ModRuntime 插件内发现该工程，构建程序集并加载 `[UnrealHeaderTool]` 类与 `[UhtExporter]` 入口。该工程直接引用当前引擎的程序集，无需项目引用或修改引擎。Exporter 名称为 `ModRuntime`，反射运行时模块 `ModLoader` 在 Game 和 Editor 清单中均会启用它。
 
 C# 适配层负责启动独立的 MHT 与 MBT 进程，传递真实编译配方、登记依赖并传播失败信息。C++ 分析、参数校验、投影与源码生成由 MHT 负责；独立编译与归档校验由 MBT 负责；蓝图导出仍归属 ExportCodeGenerator 编辑器模块；最终的游戏与模块链接由 UBT 执行。发现机制参见 Epic 的 [UE 5.6 UHT 扩展文档](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-header-tool-for-unreal-engine?application_version=5.6)。
 

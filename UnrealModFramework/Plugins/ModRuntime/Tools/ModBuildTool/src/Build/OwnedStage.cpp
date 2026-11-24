@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "OwnedStage.h"
 
+#include "Common/Files/Path.h"
+
 #include <filesystem>
 #include <system_error>
 
@@ -11,11 +13,12 @@ namespace fs = std::filesystem;
 OwnedStage::~OwnedStage()
 {
 	std::error_code Ignored;
-	const fs::path Resolved = fs::weakly_canonical(Path, Ignored);
+	const fs::path NativePath = Path::FileSystemPath(Path);
+	const fs::path Resolved = fs::weakly_canonical(NativePath, Ignored);
 	if (!Ignored && Path.is_absolute() && Path.parent_path() == Parent && Resolved.parent_path() == Parent &&
 	    Path.filename().string().starts_with(".mbt-stage-"))
 	{
-		fs::remove_all(Path, Ignored);
+		fs::remove_all(NativePath, Ignored);
 	}
 }
 } // namespace Mod::BuildTool

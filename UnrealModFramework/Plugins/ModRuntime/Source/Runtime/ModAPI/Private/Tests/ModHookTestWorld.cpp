@@ -25,6 +25,9 @@ bool FHookTestWorld::Run(UWorld& World, TArray<Extension::FDefinition> Definitio
 	UModInstance::SetExtensionWorld(*Owner, World, ModId);
 	auto Package = MakeShared<Loader::FMountedPackage>();
 	Package->ModId = ModId;
+	Package->ArchiveSha256 = FString::ChrN(64, TEXT('a'));
+	Package->GameplayRelease.ReleaseId = TEXT("automation-release");
+	Package->GameplayRelease.CompatibilityDigest = Package->ArchiveSha256;
 	for (const auto& Definition : Definitions)
 	{
 		Package->Extensions.Contracts.Add({Definition.Id, Definition.Signature});
