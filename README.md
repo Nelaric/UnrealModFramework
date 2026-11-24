@@ -41,11 +41,13 @@ UnrealModFramework provides a game-side mod runtime and an independently built m
 
 Setup can use CMake 3.20 or later from `PATH`. On a fresh checkout without a suitable CMake, Setup downloads the pinned Kitware archive and verifies its SHA-256 hash; the initial download requires network access. See the [CMake package manifest](Setup/CMakePackages.txt) for details.
 
-Setup builds only the Release versions of the four standalone tools: `ModHeaderTool`, `ModBuildTool`, `ModSourceTool`, and `ModSDKTool`. Each executable is placed under `UnrealModFramework/Plugins/ModRuntime/Tools/build/<tool>/`, where you can run it with `--help` to verify that it launches. When using Ninja or Unix Makefiles, pass `--jobs 8` to limit the build to eight parallel jobs.
+Setup also downloads LLVM 21.1.8 for the build host on x64 and ARM64 Windows, Linux (glibc), and macOS. It extracts the native library from a PyPI wheel and the matching Clang resource headers from the LLVM package archive at `apt.llvm.org`. CMake verifies both SHA-256 hashes and caches the files in `.tools/libclang/` for offline reuse. UHT discovers the cached library automatically. See the [pinned packages](UnrealModFramework/Plugins/ModRuntime/Tools/LibClangPackages.txt).
+
+Setup builds the Release versions of the four standalone tools, `ModHeaderTool`, `ModBuildTool`, `ModSourceTool`, and `ModSDKTool`. Each executable is placed under `UnrealModFramework/Plugins/ModRuntime/Tools/build/<tool>/`, where you can run it with `--help` to verify that it launches. When using Ninja or Unix Makefiles, pass `--jobs 8` to limit the build to eight parallel jobs.
 
 ### Build the development host
 
-Run ModBuildTool with an Unreal Engine 5.6 installation, the target platform SDK, and the build host's libclang. The example below builds the Win64 x64 Development Editor.
+After Setup, run ModBuildTool with an Unreal Engine 5.6 installation and the target platform SDK. The example below builds the Win64 x64 Development Editor.
 
 ```powershell
 $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"

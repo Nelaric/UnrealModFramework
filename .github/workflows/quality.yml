@@ -94,8 +94,12 @@ jobs:
           # LLD 19 supports both visionOS device and simulator platform versions.
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends clang-19 lld-19 llvm-19 libclang-19-dev
+          tools=UnrealModFramework/Plugins/ModRuntime/Tools
+          cmake -P "$tools/SetupLibClang.cmake"
+          read -r library_path < "$tools/build/libclang-Linux-x64.path"
+          libclang=$(realpath "$tools/build/$library_path")
           python3 Scripts/test_hook_targets.py --clang /usr/lib/llvm-19/bin/clang \
-            --resource-dir "$(clang-19 -print-resource-dir)" --libclang /usr/lib/llvm-19/lib/libclang.so \
+            --resource-dir "$(dirname "$libclang")/clang/21" --libclang "$libclang" \
             --mbt "$RUNNER_TEMP/mst/bin/Release/ModBuildTool" --mht "$RUNNER_TEMP/mst/bin/Release/ModHeaderTool" \
             --mst "$RUNNER_TEMP/mst/bin/Release/ModSourceTool"
       - name: Compare existing cross-file exception paths

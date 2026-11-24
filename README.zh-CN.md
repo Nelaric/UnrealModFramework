@@ -41,11 +41,13 @@ UnrealModFramework 为 Unreal Engine 5.6 提供游戏侧模组运行时与独立
 
 Setup 可使用 `PATH` 中的 CMake 3.20 或更高版本。如果新克隆的工作区缺少可用 CMake，Setup 会联网下载 Kitware 固定版本压缩包并校验 SHA-256 哈希（首次下载需要网络连接）；详见 [CMake 包清单](Setup/CMakePackages.txt)。
 
-Setup 仅构建四个独立工具的 Release 版本：`ModHeaderTool`、`ModBuildTool`、`ModSourceTool` 和 `ModSDKTool`。各可执行文件位于 `UnrealModFramework/Plugins/ModRuntime/Tools/build/<工具名>/`，运行 `--help` 可检查其能否正常启动。使用 Ninja 或 Unix Makefiles 时，可传入 `--jobs 8` 将并行构建任务数限制为 8。
+Setup 还会为 Windows、Linux（glibc）和 macOS 的 x64 或 ARM64 构建主机准备 LLVM 21.1.8。CMake 从 PyPI 的 wheel 包提取原生库，从 LLVM 软件源 `apt.llvm.org` 提取配套的 Clang 资源头文件，校验两个包的 SHA-256 后缓存到 `.tools/libclang/`。后续运行可离线复用，UHT 会自动找到这份库。[固定版本与校验值](UnrealModFramework/Plugins/ModRuntime/Tools/LibClangPackages.txt)
+
+Setup 构建 `ModHeaderTool`、`ModBuildTool`、`ModSourceTool` 和 `ModSDKTool` 四个独立工具的 Release 版本。各可执行文件位于 `UnrealModFramework/Plugins/ModRuntime/Tools/build/<工具名>/`，运行 `--help` 可检查其能否正常启动。使用 Ninja 或 Unix Makefiles 时，可传入 `--jobs 8` 将并行构建任务数限制为 8。
 
 ### 构建开发宿主
 
-准备 Unreal Engine 5.6、目标平台 SDK 及构建主机的 libclang。以下示例通过 ModBuildTool 构建 Win64 x64 Development Editor。
+运行 Setup 后，准备 Unreal Engine 5.6 和目标平台 SDK。以下示例通过 ModBuildTool 构建 Win64 x64 Development Editor。
 
 ```powershell
 $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"

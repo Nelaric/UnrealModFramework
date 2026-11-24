@@ -194,7 +194,7 @@ internal static class ModRuntimeExporter
 						: null
 				)
 				?? OptionalText(config, "libclang")
-				?? UbtPreparation.FindHostLibClang();
+				?? UbtPreparation.FindHostLibClang(pluginRoot, factory);
 			string? clang = configuredClang == null ? null : Resolve(projectRoot, configuredClang);
 			string? configuredInput = inputOverride ?? OptionalText(variant, "buildInput");
 			string buildInput =
