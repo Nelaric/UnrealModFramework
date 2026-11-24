@@ -4,8 +4,9 @@ English | [简体中文](README.zh-CN.md)
 
 # ModRuntime UHT adapter
 
-`ModRuntime.ubtplugin.csproj` is a lightweight .NET 8 UHT exporter. UE 5.6 discovers
-the project inside the enabled ModRuntime plugin, builds the assembly, and loads its
+`ModRuntime.ubtplugin.csproj` is a UHT exporter that inherits the engine's target
+framework (.NET 8 on UE 5.6 and .NET 10 on UE 5.8). UBT discovers the project
+inside the enabled ModRuntime plugin, builds the assembly, and loads its
 `[UnrealHeaderTool]` class and `[UhtExporter]` entry point. It references assemblies
 from the active engine directly, requiring no project references or engine changes.
 The exporter is named `ModRuntime`, and the reflected runtime module `ModLoader`

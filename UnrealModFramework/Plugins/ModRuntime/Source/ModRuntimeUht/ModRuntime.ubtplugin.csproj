@@ -6,7 +6,7 @@
 		Condition="Exists('$(EngineDir)/Source/Programs/Shared/UnrealEngine.csproj.props')"
 	/>
 	<PropertyGroup>
-		<TargetFramework>net8.0</TargetFramework>
+		<TargetFramework Condition="'$(TargetFramework)' == ''">net8.0</TargetFramework>
 		<Configurations>Debug;Release;Development</Configurations>
 		<Configuration Condition="'$(Configuration)' == ''">Development</Configuration>
 		<OutputType>Library</OutputType>
@@ -40,7 +40,7 @@
 	<Target Name="RequireUnrealEngine" BeforeTargets="PrepareForBuild">
 		<Error
 			Condition="!Exists('$(EngineDir)/Binaries/DotNET/UnrealBuildTool/EpicGames.UHT.dll')"
-			Text="Build through UBT, or set EngineDir to the UE 5.6 Engine directory."
+			Text="Build through UBT, or set EngineDir to the Unreal Engine directory."
 		/>
 	</Target>
 </Project>

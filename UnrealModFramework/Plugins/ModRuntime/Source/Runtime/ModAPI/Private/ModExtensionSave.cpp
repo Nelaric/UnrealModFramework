@@ -211,6 +211,12 @@ void UpdateMetadata(FModSaveRecord& Record, const Mod::Loader::FMountedPackage& 
 	Record.CompatibilityDigest = Package.GameplayRelease.CompatibilityDigest;
 	Record.ArchiveDigest = Package.ArchiveSha256;
 }
+
+bool HasPersistentReference(const FModSaveSnapshot& Snapshot, const FString& ModId)
+{
+	return Snapshot.References.ContainsByPredicate([&ModId](const auto& Reference)
+	                                               { return Reference.ModId == ModId; });
+}
 } // namespace
 
 bool FModExtensionSave::Serialize(FArchive& Ar, FModSaveSnapshot& Snapshot)
@@ -265,16 +271,15 @@ bool FModExtensionSave::Capture(const UModExtensionSubsystem& Extensions, const 
 		if (!Record)
 		{
 			Record = &Staged.Mods.AddDefaulted_GetRef();
-			Record->bRequired = Package->bRequiredByHost ||
-			                    Staged.References.ContainsByPredicate([Package](const auto& Reference)
-			                                                          { return Reference.ModId == Package->ModId; });
+			Record->bRequired = false;
 		}
 		Record->bRequired |=
 		    Package->bRequiredByHost || Extensions.State->Policy.Selection.Required.Contains(Package->ModId);
 		UpdateMetadata(*Record, *Package);
 	}
-	for (const auto& Record : Staged.Mods)
+	for (auto& Record : Staged.Mods)
 	{
+		Record.bRequired |= HasPersistentReference(Staged, Record.ModId);
 		if (Record.bRequired && !Extensions.State->Mods.ContainsByPredicate(
 		                            [&Record](const auto& Mod) { return Mod.Package->ModId == Record.ModId; }))
 		{
@@ -311,7 +316,8 @@ bool FModExtensionSave::Admit(const UModExtensionSubsystem& Extensions, const FM
 		    State->Mods.FindByPredicate([&Record](const auto& Mod) { return Mod.Package->ModId == Record.ModId; });
 		if (!Found)
 		{
-			if (Record.bRequired)
+			// Older saves may have retained an optional flag after adding a reference.
+			if (Record.bRequired || HasPersistentReference(Original, Record.ModId))
 			{
 				return Fail(Error, Record.ModId + TEXT(": required save package is unavailable."));
 			}
@@ -343,14 +349,6 @@ bool FModExtensionSave::Migrate(const UModExtensionSubsystem& Extensions, const 
 	FModSaveSnapshot Staged = Original;
 	for (auto& Reference : Staged.References)
 	{
-		const auto* Owner =
-		    Staged.Mods.FindByPredicate([&Reference](const auto& Record) { return Record.ModId == Reference.ModId; });
-		if (Owner && !Owner->bRequired &&
-		    !State->Mods.ContainsByPredicate([&Reference](const auto& Mod)
-		                                     { return Mod.Package->ModId == Reference.ModId; }))
-		{
-			continue;
-		}
 		const auto Resolve = [&]
 		{
 			if (!IsKey(Reference.Id) || (!Reference.Slot.IsEmpty() && !IsKey(Reference.Slot)))

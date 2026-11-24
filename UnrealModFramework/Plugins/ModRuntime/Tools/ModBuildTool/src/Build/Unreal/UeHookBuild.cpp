@@ -54,10 +54,10 @@ fs::path FindDotnet(const fs::path& Engine)
 	{
 		const std::string Runtime = std::string(Host) + "-" + std::string(Arch);
 		fs::path Dotnet;
-		for (const auto& Entry : fs::directory_iterator(Runtimes))
+		for (const auto& Entry : fs::directory_iterator(Path::FileSystemPath(Runtimes)))
 		{
-			const fs::path Candidate = Entry.path() / Runtime / Executable;
-			if (Candidate > Dotnet && fs::is_regular_file(Candidate))
+			const fs::path Candidate = Runtimes / Entry.path().filename() / Runtime / Executable;
+			if (Candidate > Dotnet && fs::is_regular_file(Path::FileSystemPath(Candidate)))
 			{
 				Dotnet = Candidate;
 			}
@@ -121,7 +121,8 @@ HookSnapshot ReadHookSources(const fs::path& Generated, const std::string& Game,
 	HookSnapshot Snapshot{Map->second, {}};
 	for (const auto& Entry : SourceMap.at("units"))
 	{
-		const fs::path Source = fs::canonical(Path::PathFromUtf8(ContextDocument::Text(Entry, "source")));
+		const fs::path Source =
+		    fs::canonical(Path::FileSystemPath(Path::PathFromUtf8(ContextDocument::Text(Entry, "source"))));
 		const std::string Name = ContextDocument::Text(Entry, "generated");
 		const fs::path Copy = Path::ResolveGeneratedPath(Generated, Name);
 		const fs::path Relative = Copy.lexically_relative(CopiesRoot);
@@ -145,7 +146,8 @@ void ReuseObjects(UeHookObjects& Objects, const UeHookSources& Sources, const fs
 	{
 		return;
 	}
-	const Json Previous = fs::is_regular_file(Receipt) ? ContextDocument::ReadJson(Receipt) : Json::object();
+	const Json Previous =
+	    fs::is_regular_file(Path::FileSystemPath(Receipt)) ? ContextDocument::ReadJson(Receipt) : Json::object();
 	std::map<fs::path, const Json*> BySource;
 	for (const auto& [Key, Entry] : Previous.items())
 	{
@@ -162,7 +164,8 @@ void ReuseObjects(UeHookObjects& Objects, const UeHookSources& Sources, const fs
 		{
 			const auto& Entry = *Cached->second;
 			const auto Object = Path::PathFromUtf8(Entry.value("object", ""));
-			if (Entry.value("generatedHash", "") == Unit.GeneratedHash && fs::is_regular_file(Object) &&
+			if (Entry.value("generatedHash", "") == Unit.GeneratedHash &&
+			    fs::is_regular_file(Path::FileSystemPath(Object)) &&
 			    Hash::HashFile(Object) == Entry.value("objectHash", ""))
 			{
 				Objects.emplace(Source, Object);
@@ -190,14 +193,15 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	{
 		throw std::runtime_error("build-ue-target mode must be normal, rebuild, or bootstrap.");
 	}
-	fs::path Engine = fs::canonical(Target.Engine);
-	if (!fs::is_regular_file(Engine / UbtEntry))
+	fs::path Engine = fs::canonical(Path::FileSystemPath(Target.Engine));
+	if (!fs::is_regular_file(Path::FileSystemPath(Engine / UbtEntry)))
 	{
 		Engine /= "Engine";
 	}
 	const fs::path Ubt = Engine / UbtEntry;
-	const fs::path Project = fs::canonical(Target.Project);
-	if (!fs::is_regular_file(Ubt) || !fs::is_regular_file(Project) || Project.extension() != ".uproject")
+	const fs::path Project = fs::canonical(Path::FileSystemPath(Target.Project));
+	if (!fs::is_regular_file(Path::FileSystemPath(Ubt)) || !fs::is_regular_file(Path::FileSystemPath(Project)) ||
+	    Project.extension() != ".uproject")
 	{
 		throw std::runtime_error("Supply an Unreal Engine with UnrealBuildTool and a project .uproject file.");
 	}
@@ -225,7 +229,7 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	const auto Root = Project.parent_path();
 	const auto ModTools = Root / "Intermediate/ModTools";
 	const auto Variant = fs::path(Target.Target) / Target.Platform / Target.Configuration / Target.Architecture;
-	const auto WorkPath = ModTools / "HookBuild" / Variant;
+	const auto WorkPath = Path::FileSystemPath(ModTools / "HookBuild" / Variant);
 	fs::create_directories(WorkPath);
 	const auto Work = fs::canonical(WorkPath);
 	const BuildLock Lock(Work / ".build", ".lock");
@@ -242,7 +246,7 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	const auto Game =
 	    ContextDocument::Text(ContextDocument::ReadJson(Root / "Config/ModHeaderTool.json").at("generation"), "gameId");
 	const auto StagePath = Work / (".mbt-stage-" + TemporaryName::UniqueSuffix());
-	if (!fs::create_directory(StagePath))
+	if (!fs::create_directory(Path::FileSystemPath(StagePath)))
 	{
 		throw std::runtime_error("Cannot create a fresh UBT action stage.");
 	}
@@ -255,7 +259,7 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 		Export.emplace_back("-Rebuild");
 	}
 	RunUbt(Export, "action export");
-	const auto Generated = fs::canonical(ModTools / "ModHeaderTool/Generated" / Variant);
+	const auto Generated = fs::canonical(Path::FileSystemPath(ModTools / "ModHeaderTool/Generated" / Variant));
 	const auto Sources = ReadHookSources(Generated, Game, Target);
 	auto Graph = ContextDocument::ReadJson(ActionsFile);
 	auto Objects = UeHookActions::Prepare(Graph, Sources.Sources, Stage.Path);
