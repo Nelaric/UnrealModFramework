@@ -30,6 +30,6 @@ Native compatibility is bound to the generated SDK contract and target profile. 
 
 ## API documentation generation
 
-`Scripts/run_doxygen.py` includes every current project-owned `Public` header directory alongside this entry page and the coding standards. Undocumented framework-integration methods remain hidden. Standard builds fail on documentation warnings; after review, publishing mode is run with `--publish`.
+`Scripts/run_doxygen.py` includes every current project-owned `Public` header directory alongside this entry page and the coding standards. Undocumented framework-integration methods remain hidden. Standard builds treat documentation warnings as errors; after review, pass `--publish` to build in publishing mode.
 
-For project setup, command-line tool usage, contribution templates, and CI configuration, see the [source repository](https://github.com/Nelaric/UnrealModFramework). The published documentation is available over HTTPS at [UnrealModFramework/API](https://docs.nelaric.com/UnrealModFramework/API/), and approved updates are published automatically after reaching `main`.
+For project setup, command-line tool usage, contribution templates, and CI configuration, see the [source repository](https://github.com/Nelaric/UnrealModFramework). The published documentation is served over HTTPS at [UnrealModFramework/API](https://docs.nelaric.com/UnrealModFramework/API/), and approved updates are published automatically once merged to `main`.

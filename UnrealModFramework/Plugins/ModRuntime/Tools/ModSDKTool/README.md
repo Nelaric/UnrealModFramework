@@ -10,9 +10,11 @@ methods that accept typed scalar and public UE object inputs. API IDs, public
 types, names, and native symbols are all defined by the producer contract.
 
 MHT owns C++ analysis and projection, while ExportCodeGenerator owns Blueprint
-export. MDT consumes completed outputs, invokes MBT to compile generated
+export. MDT consumes the `UMF.GeneratedArtifacts` manifest and MBT producer
+contexts from independent compilation, invokes MBT to compile generated
 libraries, creates UE adapters, builds plugins through AutomationTool, and
-publishes a file-hashed bundle. MHT scan reports are not complete contracts.
+publishes a file-hashed bundle. To build only the independent authoring plugin
+for an installed Editor, run `build-editor`.
 
 ## Build and run
 

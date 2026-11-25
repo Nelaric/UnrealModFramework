@@ -8,7 +8,7 @@ Organization documentation is hosted at `https://docs.nelaric.com/<repository>/<
 
 ## Active project publishing
 
-This repository uses GitHub Actions as its Pages source, enables `API_PAGES_ENABLED=true`, and enforces HTTPS. Pushes to `main` publish the API site, and the API Pages workflow can also be triggered manually. Release downloads use bounded retries before extraction so transient upstream errors can recover automatically.
+This repository uses GitHub Actions as its Pages source. When `API_PAGES_ENABLED=true`, pushes to `main` and manual workflow runs build and publish the API site. The build job downloads the pinned Doxygen archive (retrying transient failures and falling back to a mirror if needed), verifies its SHA-256 digest before extraction, and uploads a Pages artifact named after the current run attempt. The deployment job checks artifact visibility by ID—retrying once after 15 seconds if the initial check fails—and then deploys by artifact name. [API Pages workflow](../../.github/workflows/pages.yml)
 
 ## GitHub Pages topology
 
@@ -21,7 +21,7 @@ The project's API Pages workflow builds the API landing pages, current public he
 1. Use the public organization site repository `Nelaric/nelaric.github.io` (create it only if it does not already exist). For initial setup, copy the contents of `Setup/OrganizationPages/`—including `.nojekyll`—to its root directory. When adding this project to an established site, preserve the existing organization index and other project routes. These files serve as a deployment template; the `CNAME` file must contain only the plain domain name without a copyright comment, as required by GitHub.
 2. Publish the organization site with GitHub Pages from the root directory of its default branch, and set its custom domain to `docs.nelaric.com` before adding the DNS record. The provided root page indexes both UnrealModFramework and Nelaric Unreal Gameplay documentation.
 3. Add the record below in the authoritative DNS provider for `nelaric.com`. If Alibaba Cloud hosts the DNS zone, configure it in its public DNS resolution console. Note that the domain registrar and the authoritative DNS provider may differ.
-4. Set this project's Pages publishing source to GitHub Actions and leave its custom domain unset. Then set the repository Actions variable `API_PAGES_ENABLED=true` and run the API Pages workflow from `main`. Until that variable is enabled, its deployment job is skipped.
+4. Set this project's Pages publishing source to GitHub Actions and leave its custom domain unset. Set the repository Actions variable `API_PAGES_ENABLED=true` and run the API Pages workflow from `main` to enable the build and deployment jobs.
 5. Once DNS validation and certificate issuance complete, enable Enforce HTTPS for the organization site. Verify the organization root, project root, API index, an individual API page, and its styles and scripts over HTTPS.
 
 | DNS field | Value |

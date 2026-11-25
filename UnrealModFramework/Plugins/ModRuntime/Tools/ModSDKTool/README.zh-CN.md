@@ -6,7 +6,7 @@
 
 ModSDKTool（MDT）将已解析的导出结果构建为可独立安装的制作 SDK，并将玩家上下文和对象视图连接到按签名生成的方法，支持带类型的标量和公开 UE 对象入参。API ID、公开类型、名称和原生符号均来自生产者契约。
 
-MHT 负责 C++ 分析与投影，ExportCodeGenerator 负责蓝图导出。MDT 消费完整导出结果，调用 MBT 编译生成的库，生成 UE 适配层，通过 AutomationTool 构建插件，最终发布附带完整文件哈希的 SDK 包。MHT 的 scan 报告不是完整的契约，不能代替完整生成清单。
+MHT 负责 C++ 分析与投影，ExportCodeGenerator 负责蓝图导出。MDT 消费独立编译路径产出的 `UMF.GeneratedArtifacts` 清单与 MBT 生产者上下文，调用 MBT 编译生成的静态库，生成 UE 适配层，通过 AutomationTool 构建插件，并发布带文件哈希的 SDK 包。如需仅为已安装的 Editor 构建独立制作插件，可运行 `build-editor`。
 
 ## 构建与命令
 

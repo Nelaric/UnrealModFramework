@@ -86,6 +86,8 @@ UnrealEditor-Cmd <作者工程.uproject> -run=ModPackage -Request=<Request.json>
 - 输入、输出、对象和续调令牌仅在当前回调期间有效。`Wrap` 须使用生成头文件中声明的精确大小调用一次 `Next`。`Replace` 与 `Wrap` 返回 `UMF_ExtensionWrite` 及完整结果；在获得授权的前提下，`Pre` 可返回 `UMF_ExtensionStop` 及取消结果。
 - 结构体线格式采用生成 C 头文件中定义的无填充小端布局，布尔值占 1 字节，对象值以 64 位不透明句柄表示。回调可通过 `FindHostQuery` 接通生成的客户端 API，并使用 `ObjectContext` 与句柄调用只读方法。
 
+### 清单、索引与载荷
+
 Manifest 格式为 `UMF.ModPackage`，其版本与 Header 主版本一致，用于记录 Mod 标识、版本、插件与包根、构建配置及基础发布指纹。Index 的 `entries` 按区分大小写的路径升序排列，每项记录 `path`、`offset`、`size`、`storage: "None"` 及精确的载荷 `sha256`。条目路径不得为绝对路径、包含目录穿越或存在仅大小写不同的重复路径。
 
 当作者 SDK 提供 `ModInstance` 和 `ModInstanceSubSystem` 时，打包器会将所选内容插件内的具体派生蓝图类写入可选的 `lifecycleClasses` 字段，游戏在挂载后依据这些类路径创建会话入口。

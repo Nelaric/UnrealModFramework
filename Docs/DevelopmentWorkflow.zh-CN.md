@@ -15,26 +15,24 @@
 
 ## PR 会运行哪些检查
 
-[Quality 工作流](../.github/workflows/quality.yml)负责检查 PR 与提交命名、格式与文本规范以及 API 文档。另有独立的 Linux Job 构建 MST，并使用 GCC 和 Clang 编译数据库验证跨文件异常分析。工具版本固定在工作流文件及 `.config/dotnet-tools.json` 中。
+Quality 工作流检查 PR 与提交命名、格式、文本规范及 API 文档，并运行 CircleCI 构建交接的单元测试；独立的 Linux 用例进一步验证面向 COFF、ELF 与 Mach-O 目标的自动 Hook 编译链接，以及基于 GCC 和 Clang 编译数据库的 MST 跨文件异常分析。工具版本锁定在工作流文件及 `.config/dotnet-tools.json` 中。[Quality 工作流](../.github/workflows/quality.yml)
 
-完成 [CircleCI 接入](CircleCI.zh-CN.md)后，可通过设置仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED=true` 启用[可信 PR 编译工作流](../.github/workflows/fork-pr-linux.yml)。在该变量启用前，其各 Job 会被跳过；现有的 CircleCI push 流水线保持独立运行。
+完成 [CircleCI 接入](CircleCI.zh-CN.md)后，可通过设置仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED=true` 启用[可信 PR 编译工作流](../.github/workflows/fork-pr-linux.yml)。在该变量启用前，其各 Job 会被跳过；现有的 CircleCI Push 流水线保持独立运行。
 
-PR 工作流会先验证提交并触发 CircleCI，随后并行展示 Game 与 Editor 两个 Job 并汇总结果。两个目标分别上报 `ci/linux-game-build` 和 `ci/linux-editor-build` 状态，`ci/fork-pr-linux-build` 负责汇总两者。汇总摘要包含 CircleCI 日志链接，Actions Job 会镜像输出检出与编译日志，同时排除认证相关输出。贡献者无需 CircleCI 账号。
+PR 工作流会先验证提交并触发 CircleCI，随后并行展示 Game 与 Editor 两个 Job 并汇总结果。两个目标分别上报 `ci/linux-game-build` 和 `ci/linux-editor-build` 状态，`ci/fork-pr-linux-build` 负责汇总两者。汇总摘要包含 CircleCI 日志链接，Actions Job 会镜像输出检出与编译日志，同时过滤认证相关输出。贡献者无需 CircleCI 账号。
 
 对于 Fork PR，如涉及修改 CI 工作流、自动化脚本、Unreal 描述文件与构建脚本、CMake 文件或可执行辅助脚本，须由维护者在源仓库分支中处理。策略会同时检查重命名文件的新旧路径。源仓库分支的 PR 可以修改这些文件并继续使用可信编译流程。原生模组 ABI 变更同样需要维护者审查。
 
 ## Linux 编译的范围
 
-push 配置与可信 PR 配置均使用 Unreal Engine 5.6.1，以 Linux Development 配置构建 `UnrealModFramework/UnrealModFrameworkDev.uproject`：
+Push 配置与可信 PR 配置均使用 Unreal Engine 5.6.1，为 `UnrealModFramework/UnrealModFrameworkDev.uproject` 构建 Linux x64 Development 目标。
 
 | CircleCI Job | 工作内容 |
 | --- | --- |
 | `build_game_linux` | 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。 |
-| `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor` 及其支持的编辑器模块，再通过 `ModSDKTool build-editor` 构建并校验独立的 `ModDevelopmentSDKEditor` 插件。 |
+| `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor`，运行覆盖 C++ 与蓝图 Hook 分发的 `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`，再通过 `ModSDKTool build-editor` 构建并校验独立制作插件。 |
 
-各 Job 使用独立的可写暂存目录，拉取私有引擎镜像后，UE 容器在无网络环境中运行。MBT 的 `build-ue-target` 命令负责构建 Linux 目标，并在所属 UBT 模块中编译生成的宿主代码；Editor Job 还会运行 ChangeHealth 的 C++ 与蓝图用例。工具与输入准备步骤详见 [ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)。
-
-仓库目前没有 Server 目标。这些 Job 仅验证编译与插件打包，不发布可下载包，也不运行 Unreal 自动化测试。其他平台及更新的支持引擎版本仍属于构建覆盖缺口。
+各 Job 在独立的可写暂存目录中执行构建，并在拉取私有引擎镜像后以无网络模式运行 UE 容器。`ModBuildTool build-ue-target` 驱动 UBT 编译生成的 Hook 源码副本，UBT 则在所属模块内直接编译生成的宿主连接代码。Editor Job 同时核对编辑器退出码与测试成功标记，并将校验通过的制作插件保留在 Job 暂存目录中。Server、Shipping 及更多平台与引擎版本的组合仍需单独验证。[ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
 
 每项独立框架功能均须按[审查规范](CodingStandards/BuildAndReview.zh-CN.md#自动化测试)配备面向行为的自动化测试，但不设数值化覆盖率门槛。对于已完成的 Unreal 自动化运行，可使用 `Scripts/check_automation_report.py` 校验导出报告、日志及编辑器退出码：
 

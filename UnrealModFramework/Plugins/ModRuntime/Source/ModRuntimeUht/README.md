@@ -69,12 +69,11 @@ written, and each variant stores its `BuildInput.json` and pinned
 `Ubt/compile_commands.json` in `HostTargets`. MHT validates the target, module,
 configuration, and CPU architecture of each parsed translation unit.
 
-UHT runs `ModHeaderTool generate` with the target compilation database and host
-`libclang`. Win64 x64 MSVC also supplies independent MBT producer contexts; other
-targets compile the generated host units directly in their owning UBT module through
-UHT's `CompileOutput`, publishing a `UMF.UbtHostArtifacts` manifest. On Win64 x64
-MSVC, MBT produces its `UMF.GeneratedArtifacts` manifest and independent SDK
-libraries.
+UHT runs `ModHeaderTool generate <GenerationRequest.json>` with the target compilation
+database and host `libclang`. On Win64 x64 MSVC, MHT emits a `UMF.GeneratedArtifacts`
+manifest and UHT invokes MBT to build the independent host and client archives.
+Other toolchains use a `UMF.UbtHostArtifacts` manifest and compile the generated host
+units in their owning UBT modules through UHT's `CompileOutput`.
 
 The project generation root is
 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`.
@@ -89,17 +88,13 @@ the plugin's
 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`.
 The project batch contains the shared contract, client ABI, and complete manifest.
 
-The following example uses the development host's module and type identities. Adjust
-the native tool and LLVM paths to match your installation:
+The development host uses this configuration with tools and libclang discovered
+automatically from Setup. [Checked-in configuration](../../../../Config/ModHeaderTool.json)
 
 ```json
 {
   "schemaVersion": 1,
-  "executable": "Plugins/ModRuntime/Binaries/ThirdParty/ModHeaderTool/Win64/MHT.exe",
-  "mbt": "Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe",
   "mode": "generate",
-  "timeoutSeconds": 600,
-  "options": "Intermediate/ModTools/ModHeaderTool/MetadataOptions.json",
   "metadataEditorTarget": "UnrealModFrameworkDevEditor",
   "blueprintExports": [{
     "asset": "/Game/Blueprints/BP_ModBlueprintAPIExportTest.BP_ModBlueprintAPIExportTest",
@@ -120,12 +115,13 @@ the native tool and LLVM paths to match your installation:
 ```
 
 Paths in this adapter configuration are resolved relative to the project directory,
-while paths inside a build input retain MHT's own resolution rules. `timeoutSeconds`
-accepts values from 1 to 86400 (default: 600). Automatic preparation uses the host
-`libclang` and matching resource headers provisioned by Setup. An explicit library
-path in the environment or project configuration takes precedence. Without a Setup
-installation, the adapter searches the host LLVM installation.
-`options` is optional.
+while paths inside a build input retain MHT's own resolution rules. Both `options` and
+`timeoutSeconds` (1 to 86400, default 600) are optional. Automatic preparation uses the
+host `libclang` and matching resource headers. With the default configuration, the
+adapter reads `Tools/build/libclang-<system>-<arch>.path` relative to `Tools/build/`
+and falls back to a host LLVM installation. The same relative path file locates
+`libclang` inside a `Dist/ModRuntime` export; an explicit path in the environment or
+project configuration takes precedence.
 
 MBT discovery checks `UMF_MBT_EXECUTABLE`, the root `mbt` setting, and the local
 `Tools/build/ModBuildTool/ModBuildTool[.exe]` output under the ModRuntime plugin, in
@@ -184,8 +180,9 @@ MBT builds the target. C++ Events can call the generated publisher directly or u
 ### Automatic Hook builds
 
 Run MBT on the host that executes the UBT compile actions, with the UE SDK for the
-selected target installed. Each invocation builds one architecture. The following
-example builds the Linux Development Editor from the repository root:
+selected target installed. Each invocation builds one architecture. Apple target
+link checks use `python3` and Xcode's `nm`. This example builds the Linux Development
+Editor from the repository root.
 
 ```sh
 mbt=UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool
@@ -193,13 +190,23 @@ mbt=UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool
   --target UnrealModFrameworkDevEditor --platform Linux --configuration Development --architecture x64 --mode normal
 ```
 
-Supported Windows architectures are `x64`, `arm64`, and `arm64ec`. Apple devices use
-`arm64`; UBT uses `iossimulator` for the iOS and visionOS simulators and
-`tvossimulator` for the tvOS simulator. `UMF_MHT_LIBCLANG` selects the build host's
-`libclang`, and `UMF_MHT_CLANG_RESOURCE_DIR` selects its matching resource directory
-when set. A project can also configure a host-specific library path via
-`hostLibclang`. The compilation database supplies the target SDK, include paths, and
-architecture.
+The standalone Hook fixtures exercise these UBT platform and architecture identifiers.
+The Win64 `arm64ec` fixture also requires the matching Windows SDK runtime library.
+[Hook target fixtures](../../../../../Scripts/test_hook_targets.py)
+
+| UBT platform | Architecture |
+| --- | --- |
+| `Win64` | `x64`, `arm64`, `arm64ec` |
+| `Linux` | `x64` |
+| `LinuxArm64` | `arm64` |
+| `Mac`, `Android` | `x64`, `arm64` |
+| `IOS`, `VisionOS` | `arm64`, `iossimulator` |
+| `TVOS` | `arm64`, `tvossimulator` |
+
+`UMF_MHT_LIBCLANG` selects the build host's `libclang`, and
+`UMF_MHT_CLANG_RESOURCE_DIR` selects its matching resource directory. A project can
+also configure a host-specific library path via `hostLibclang`. The compilation
+database supplies the target SDK, include paths, and architecture. [UE integration builds and automation coverage](../../../../../Docs/DevelopmentWorkflow.md#linux-build-scope)
 
 MHT and MST identify the annotated member in Clang's AST and write its source copy.
 MBT substitutes that input in the matching UBT action (including nested response
@@ -219,8 +226,9 @@ are separate platform integrations.
 
 ## Independent host compilation and linking
 
-The owning module's rules call `ExportMetadata.ConfigureHost(this, Target)`. A
-companion External rules class, such as `ExportTestHost`, calls
+Each exporting module's rules call `ExportMetadata.ConfigureHost(this, Target)`.
+On the independent Win64 x64 MSVC path, a companion External rules class such as
+`ExportTestHost` calls
 `ExportMetadata.ConfigureHostLibrary(this, Target, "ExportTest")`, and the owning
 module privately depends on that External module. Setup is configured per owning
 module, while individual API authors continue to write export macros and ordinary
@@ -232,8 +240,8 @@ The rules write a stable target descriptor in the project under
 its response files. The adapter pins both the expanded commands and their source
 database by hash, preserving module producer definitions and ABI settings while
 replacing source, object, and dependency outputs and appending generated include paths.
-The current automatic adapter requires Win64 x64 MSVC with PCH, unity builds, and LTO
-disabled; it fails rather than guessing missing compiler settings.
+Independent archive compilation requires Win64 x64 MSVC with PCH, unity builds, and
+LTO disabled.
 
 MHT emits declarations in public headers and all implementations in explicit `.cpp`
 compilation units. MBT compiles those units independently and publishes
@@ -272,23 +280,25 @@ UE 5.6 build hooks. When the build script is present, UBT runs
 `Tools/Build.bat --target ModRuntimeUhtTools` on Windows and
 `sh Tools/Build.sh --target ModRuntimeUhtTools` on Linux and macOS. The scripts reuse
 `Tools/build/.cmake` for incremental Release builds; if building the tools fails, UBT
-stops before UHT runs. Linux and macOS use GNU `g++` (on macOS, set `CXX` to the
-installed GNU C++ compiler). A staged Unix project without the workspace CMake finder
-can still continue the UE build when CMake is neither configured nor available on PATH.
+stops the build. When the local MBT executable is driving a Windows UE build, the
+pre-build step reuses it and builds MHT and MST. Linux and macOS use GNU `g++` (on
+macOS, set `CXX` to the installed GNU C++ compiler). A staged Unix project with tools
+already present can skip the native tool build when CMake is unavailable.
 
-On Win64 x64, the next pre-build step asks MBT to update the UHT dependency stamp
-whenever a watched directory changes or a recorded optional file appears. In the
-post-build step, MBT verifies the exact archive's PE export in the owning DLL or EXE,
-checks the UBT target receipt and modular ownership, and writes
+The next pre-build step invokes MBT to update the UHT dependency stamp whenever a
+watched directory changes or a recorded optional file appears. On the independent
+Win64 x64 MSVC path, the post-build step verifies the archive's PE witness symbol in
+the owning DLL or EXE, checks the UBT target receipt and modular ownership, and writes
 `<owner>.lib.link.json` and `<owner>.lib.linked.json` beside the archive. The client
-library has its own build receipt.
+library carries its own build receipt.
 
 ## Build behavior and limits
 
 Native diagnostics are forwarded to UHT. Nonzero exit codes, invalid results, and
-timeouts fail UHT, and UE's managed process group owns child process lifetimes. The
-adapter does not enable `CompileOutput` or register C++ output filters; MHT sources
-remain outside UBT's compilation list.
+timeouts fail UHT, and UE's managed process group owns child process lifetimes. With
+UBT host compilation, the adapter uses `CompileOutput` to register `*.umfhost.cpp`
+wrapper units in the owning module. UBT compiles the host units and MHT emits the
+standalone client source as a separate artifact.
 
 UHT no-output/reference, bootstrap, and `-Mode=GenerateClangDatabase` invocations skip
 native generation. Normal builds run MHT after preparation finishes. Complete
@@ -299,10 +309,10 @@ Existing tools, configurations, metadata snapshots and their configuration input
 reflected headers, build inputs, generated-manifest inputs, compiler recipes,
 libraries, MBT receipts, and their compiler dependencies are registered via
 `AddExternalDependency`. UHT regenerates the affected variant whenever a registered
-file or the watch stamp changes. With MSVC, the Windows SDK, and LLVM installed, a
-normal Win64 build prepares the default project's inputs from a clean checkout.
-Automatic link verification covers standard Win64 x64 project DLLs and monolithic
-EXEs; Live Coding and Hot Reload require separate integration.
+file or the watch stamp changes. Run Setup first to provision LLVM and the tools on a
+fresh checkout, then use MBT to build a target with automatic C++ Hooks. The
+independent archive link verification covers standard Win64 x64 project DLLs and
+monolithic EXEs. Live Coding and Hot Reload require separate integration.
 
 UBT generates the adjacent `.ubtplugin.csproj.props` file containing `EngineDir`
 (ignored by Git). For a direct managed build:

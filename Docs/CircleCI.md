@@ -4,13 +4,13 @@ English | [简体中文](CircleCI.zh-CN.md)
 
 # CircleCI Linux Builds
 
-Both the push and trusted PR configurations define two parallel Unreal Engine 5.6.1 Linux jobs: `build_game_linux` compiles `UnrealModFrameworkDev` and its enabled runtime modules, while `build_editor_linux` compiles `UnrealModFrameworkDevEditor`, builds `ModSDKTool` (MDT) and MBT inside the UE container, and runs `ModSDKTool build-editor` to compile and verify the independent `ModDevelopmentSDKEditor` plugin. See the [push configuration](../.circleci/config.yml) and [trusted PR configuration](../.circleci/pr-build.yml).
+The push and trusted PR configurations define two parallel Unreal Engine 5.6.1 Linux x64 Development jobs: `build_game_linux` builds `UnrealModFrameworkDev`, while `build_editor_linux` builds `UnrealModFrameworkDevEditor`, runs the Hook dispatch automation test, and builds the independent `ModDevelopmentSDKEditor` plugin. [Push configuration](../.circleci/config.yml) · [Trusted PR configuration](../.circleci/pr-build.yml)
 
-Both pipelines build MDT and MBT from the commit under test. The shared build script uses the engine's bundled .NET host and Editor BuildId. MDT generates the plugin from embedded resources and publishes the verified package to `Dist/ModDevelopmentSDKEditor` in the job's staging directory; see the [editor plugin build script](../.circleci/build-editor-plugin.sh).
+Both pipelines build MDT and MBT from the commit under test. The shared build script uses the engine's bundled .NET host and Editor BuildId; MDT generates the plugin from embedded resources and publishes the verified package to `Dist/ModDevelopmentSDKEditor` in the job's staging directory. [Editor plugin build script](../.circleci/build-editor-plugin.sh)
 
 ## Active PR integration
 
-This repository has `CIRCLECI_PR_BUILDS_ENABLED=true` enabled and stores the current trigger endpoint in the encrypted Actions secret `CIRCLECI_PR_BUILD_WEBHOOK_URL`. The `UnrealModFramework PR builds` pipeline uses `.circleci/pr-build.yml`, with both its configuration and initial checkout pinned to `main`. The setup steps below explain how to recreate this integration.
+This repository sets `CIRCLECI_PR_BUILDS_ENABLED=true` and stores the trigger endpoint in the encrypted Actions secret `CIRCLECI_PR_BUILD_WEBHOOK_URL`. The `UnrealModFramework PR builds` pipeline uses `.circleci/pr-build.yml`, with both its configuration and initial checkout pinned to `main`. The setup steps below explain how to recreate this integration.
 
 ## Regular push builds
 
@@ -30,11 +30,11 @@ The [Actions workflow](../.github/workflows/fork-pr-linux.yml) is opt-in: its jo
 
 The bot sends only the PR number, exact head SHA, and a random correlation nonce to the webhook. Before fetching `refs/pull/<number>/head`, the trusted policy confirms that the PR is open and targets this repository's `main` branch, then verifies that the fetched commit still matches the requested SHA. Fork PR changes to protected CI and build paths are rejected—these include workflow and automation directories, `.gitattributes`, `.gitmodules`, Unreal descriptors and build scripts, CMake files, and executable helper scripts, with renames checked against both old and new paths. Maintainers handle such changes in source-repository branches.
 
-Both Actions and CircleCI start from the trusted `main` configuration. Actions never checks out PR source code with a write-enabled token, while CircleCI checks out the validated commit only after the policy passes and pulls the private engine image afterward. GitHub receives separate Game and Editor statuses along with an aggregate result, and newer Actions runs supersede older status owners.
+Both Actions and CircleCI start from the trusted `main` configuration. Actions never checks out PR source code with a write-enabled token, while CircleCI checks out the validated commit only after the policy passes and pulls the private engine image afterward. GitHub receives separate Game and Editor statuses along with an aggregate result. Newer Actions runs supersede older status owners. The handoff bot retries transient API read failures with a bounded backoff and sends one webhook request per handoff. [Handoff implementation](../Scripts/fork_pr_build_bot.py)
 
 ## Build isolation and verification
 
-After pulling the private engine image, UE containers run with `--network none`. Each job copies `UnrealModFramework/` into its own writable temporary directory, where the staged project path is `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`. The Linux jobs invoke MBT's `build-ue-target` command, while the Editor job runs the C++ and Blueprint ChangeHealth test and packages the independent plugin inside that staging directory. The MST GCC/Clang fixture runs separately in [GitHub Actions](../.github/workflows/quality.yml).
+After pulling the private engine image, UE containers run with `--network none`. Each job stages a writable copy of the project at `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`. The Linux jobs run `ModBuildTool build-ue-target` and use the image's libclang 18 and matching resource headers. The Editor job runs `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` in `UnrealEditor` and requires a successful exit and test log marker before building the authoring plugin. [UE image dependencies](../.circleci/ue-linux.Dockerfile)
 
 Validate both configurations before requesting review:
 

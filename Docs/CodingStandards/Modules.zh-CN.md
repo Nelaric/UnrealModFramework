@@ -27,19 +27,23 @@ UE 工程位于 `UnrealModFramework/`。本文中的所有模块与配置路径�
 
 `BlueprintIntegration` 负责 Editor Target 中的蓝图 Mod 导出声明，直接依赖 `Core`、`CoreUObject`、`Engine`、`BlueprintGraph`、`GraphEditor`、`Kismet`、`KismetCompiler`、`ExportMetadata`、`ModAPI`、`Slate`、`SlateCore`、`ToolWidgets`、`UMGEditor` 和 `UnrealEd`。由于导出面板及实现图依赖运行时契约不使用的蓝图编辑器与编译器模块，它们保留在此模块中。其中，`GraphEditor` 和 `ToolWidgets` 提供“我的蓝图”原生的动作列表与“添加”按钮；`UMGEditor` 依赖确保标签页在 Widget 蓝图切换模式后仍保持注册。`ExportMetadata` 和独立的 `DevelopmentEditor` 均不依赖本模块。该模块在引擎初始化完成后加载，以便 `Kismet` 注册编辑器服务。
 
-该模块在蓝图编辑器中注册“蓝图Mod导出”标签页，并在存在“我的蓝图”标签页时停靠在其旁边。对于布局不同的接口、宏库、Widget 和动画蓝图编辑器模式，则由后备标签页生成器负责接入；对于无法提供所需运行时实现的蓝图类型，相应的创建功能将被禁用。面板复用“我的蓝图”的 `SGraphActionMenu`、分类样式、“添加”按钮、搜索框和视图选项控件。API、Event 和 Hook 均以可折叠分类呈现，并带有圆形添加按钮。条目采用原生调色板图标、选中效果和行内重命名：单击可在蓝图编辑器已有的“细节”面板中查看属性，双击可打开实现图，右键菜单及 F2、Delete 键支持重命名与删除。导出标签页内不单设属性面板。各声明是以支持撤销的事务性对象形式保存在当前蓝图的 `UBlueprintExtension` 中。API 实现图与 Hook 原版逻辑图由各自声明持有并纳入蓝图图发现，由编译器据此生成可执行函数图；Event 声明则保存载荷类型与发布设置。本模块不注册函数、变量或事件分发器的细节面板定制。
+该模块在蓝图编辑器中注册 **蓝图Mod导出** 标签页，并在存在“我的蓝图”标签页时停靠在其旁边。对于布局不同的接口、宏库、Widget 和动画蓝图编辑器模式，则由后备标签页生成器负责接入；对于无法提供所需运行时实现的蓝图类型，相应的创建功能将被禁用。面板复用“我的蓝图”的 `SGraphActionMenu`、分类样式、“添加”按钮、搜索框和视图选项控件。API、Event 和 Hook 均以可折叠分类呈现，并带有圆形添加按钮。条目采用原生调色板图标、选中效果和行内重命名：单击可在蓝图编辑器已有的“细节”面板中查看属性，双击可打开实现图，右键菜单及 F2、Delete 键支持重命名与删除。导出标签页内不单设属性面板。
+
+各声明以支持撤销的事务性对象形式保存在当前蓝图的 `UBlueprintExtension` 中。API 实现图与 Hook 原版逻辑图由各自声明持有并纳入蓝图图发现，由编译器据此生成可执行函数图；Event 声明则保存载荷类型与发布设置。本模块不注册函数、变量或事件分发器的细节面板定制。
 
 | 声明 | 保存的字段 | 编辑器图 |
 | --- | --- | --- |
 | API | 版本、显示名与公开名、说明、作用域、线程、失败规则、权限 | 实现图 |
-| Event | 版本、显示名、说明、载荷、来源作用域、发布与退订规则、权限、权威设置 | 宿主业务图中的 `Publish Event` 节点 |
-| Hook | 版本、显示名、说明、载荷、`AllowedStages`、`AllowedOperations`、权限、权威设置 | 原版逻辑图及 `Hook Point` 节点 |
+| Event | 版本、显示名、说明、载荷、来源作用域、发布与退订规则、权限、权威设置 | 宿主业务图中的 **Publish Event** 节点 |
+| Hook | 版本、显示名、说明、载荷、`AllowedStages`、`AllowedOperations`、权限、权威设置 | 原版逻辑图及 **Hook Point** 节点 |
 
 配置项的候选值位于 `Config/DefaultGameMod.ini` 的 `[ModExportMetadata]` 节。API 候选值使用 `APIScopes`、`APIThreads`、`APIPermissions` 和 `APIFailureRules`；Event 候选值使用 `EventSourceScopes` 和 `EventPublishRules`。数组项通过 `+键=值` 添加。API 权限以标识符数组形式存储。
 
 蓝图 Mod 导出仅由在该面板中创建的独立声明定义。API 和 Hook 的实现图由各自声明对象独占，Event 声明自行保存载荷与发布设置。本模块不提供针对普通函数或事件分发器旧声明的导入、迁移、归属修复或兼容路径；不受支持的声明必须重新创建。实现图的生命周期由导出面板控制。图发现、打开和编译阶段均会校验归属，图缺失或脱离声明时会产生诊断信息，而不会作为孤立图被打开。
 
-声明名称统一采用 `ModAPI_<名称>`、`ModEvent_<名称>` 和 `ModHook_<名称>`。数据模型提供统一的显示名称和提示文字，供导出列表、细节标题、原生图标签页、面包屑路径、入口节点、搜索结果及编译诊断共用。编辑时既可输入基础名称，也可输入带对应类型前缀的完整名称；内部仅保存基础名称，因此行内编辑不会重复追加前缀。API 与 Hook 图使用派生自 K2 的 Schema 提供原生图显示名，不依赖内部对象名。图发现与打开时仅为声明独立持有的实现图绑定该 Schema，无需重命名源图或转换旧声明；单独的入口节点绘制工厂已移除。编译生成函数的实际函数名和显示名称元数据均采用声明名称，从而保持调用节点标题与动作菜单标签一致。编译器将该名称应用于中间图、入口与返回节点以及局部变量作用域，而不在编译期间重命名源图。重命名操作会在同一个编辑器事务中同步更新图名、局部变量作用域及已加载的函数引用；当源图内部名与声明编译名不同时，也会更新指向声明编译名的引用。空名称、重名、过长名称和非法名称一律拒绝，不使用 GUID 或自动编号替代。声明 GUID 仅作为内部标识，不在细节面板中显示。
+声明名称统一采用 `ModAPI_<名称>`、`ModEvent_<名称>` 和 `ModHook_<名称>`。数据模型提供统一的显示名称和提示文字，供导出列表、细节标题、原生图标签页、面包屑路径、入口节点、搜索结果及编译诊断共用。编辑时既可输入基础名称，也可输入带对应类型前缀的完整名称；内部仅保存基础名称，因此行内编辑不会重复追加前缀。API 与 Hook 图使用派生自 K2 的 Schema 提供原生图显示名，不依赖内部对象名。图发现与打开时仅为声明独立持有的实现图绑定该 Schema，无需重命名源图或转换旧声明；单独的入口节点绘制工厂已移除。
+
+编译生成函数的实际函数名和显示名称元数据均采用声明名称，从而保持调用节点标题与动作菜单标签一致。编译器将该名称应用于中间图、入口与返回节点以及局部变量作用域，而不在编译期间重命名源图。重命名操作会在同一个编辑器事务中同步更新图名、局部变量作用域及已加载的函数引用；当源图内部名与声明编译名不同时，也会更新指向声明编译名的引用。空名称、重名、过长名称和非法名称一律拒绝，不使用 GUID 或自动编号替代。声明 GUID 仅作为内部标识，不在细节面板中显示。
 
 蓝图扩展会向“在蓝图中查找”提供 API、Event 和 Hook 的名称与提示文字。新建、重命名、编辑属性、删除声明以及面板撤销/重做，均会刷新已保存资产的搜索索引。面板搜索同时匹配规范完整名和基础名称。刷新选中行时也会同步刷新细节标题，包括直接在细节面板中改名后的场景。源图与编译副本共用同一名称绑定流程，以同步入口和返回节点的函数引用、函数显示元数据及局部变量作用域，因此原生的“查找引用”也会使用声明的函数名。
 
@@ -78,7 +82,7 @@ PreparationTimeoutSeconds=120
 
 将游戏和基础发布信息填写为传递给制作工具的值，并选择与游戏发布一致的容器 `Backend`。加载器会校验归档格式、目标平台、UE 构建、Cook 回执以及各载荷摘要。
 
-在未配置摘要且未显式指定开关时，白名单处于关闭状态。要启用白名单，可从打包结果 `Result.json` 的 `sha256` 字段获取整包摘要，为每个经批准的 `.mod` 添加一条 `+TrustedPackageSha256=<摘要>`。显式设置 `bEnforcePackageAllowlist=False` 将跳过已配置的名单；设为 `True` 时，即便名单为空也会执行校验并拒绝所有包。手动加载使用 `FLoadPolicy` 中的对应字段。
+在未配置摘要且未显式指定开关时，白名单处于关闭状态。要启用白名单，可从构建结果的 `sha256` 字段获取整包摘要，为每个经批准的 `.mod` 添加一条 `+TrustedPackageSha256=<摘要>`。显式设置 `bEnforcePackageAllowlist=False` 将跳过已配置的名单；设为 `True` 时，即便名单为空也会执行校验并拒绝所有包。手动加载使用 `FLoadPolicy` 中的对应字段。
 
 进程准入还支持在同一节中配置 `+EnabledMods=<ModId>`、`+RequiredMods=<ModId>`、`+PinnedArchives=<ModId>=<整包 SHA-256>` 和 `+ExtensionGrants=<ModId>=<权限 ID>`。将 `bEnableAllMods=False` 与空的启用列表配合使用，即可选择空模组集合。宿主可通过 `FWorldPolicy::Grants` 为指定 Mod 提供完整的 World 授权集，未指定时则沿用进程准入授权。首次准备确定的包集合与授权会在同一个 GameInstance 内的各个 World 之间沿用。
 
@@ -90,11 +94,11 @@ PreparationTimeoutSeconds=120
 
 载荷提取至 `Saved/ModCache/<整包 SHA-256>`，并在复用前重新核对。每次挂载都会保留其 Cook 时的包根，且同一个 ModId 同时仅允许挂载一个版本。从监听目录移走或删除源归档会触发卸载流程，期间缓存内容仍保持可用。待包可安全释放后，加载器会卸载容器、释放 Shader 库并注销包根；若仍存在外部引用，则保留挂载并记录日志。当前版本接受位于独立包根下的未加密内容，并在存在时将包内 Cooked Asset Registry 追加到游戏索引中。
 
-Windows 环境下，PIE 使用宿主项目的 `Binaries/Win64/Mods` 目录及同一份 `[ModLoader]` 配置。请在 **项目设置 → 引擎 → Cooker** 中启用 **Allow Cooked Content in the Editor**。使用 `Backend=Pak` 时，`ModLoader` 会在编辑器启动时初始化 Pak 平台文件；使用 `Backend=IoStore` 时，请以 `-UsePaks -UseIoStore` 参数启动编辑器。如需加载无版本号的 Cook 资产，请在 `Config/DefaultEngine.ini` 的 `[ConsoleVariables]` 节中设置 `s.AllowUnversionedContentInEditor=1`。
+Windows 环境下，PIE 使用宿主项目的 `Binaries/Win64/Mods` 目录及同一份 `[ModLoader]` 配置。请在 **项目设置 → 引擎 → Cooker** 中启用 **Allow Cooked Content in the Editor** 选项。使用 `Backend=Pak` 时，`ModLoader` 会在编辑器启动时初始化 Pak 平台文件；使用 `Backend=IoStore` 时，请以 `-UsePaks -UseIoStore` 参数启动编辑器。如需加载无版本号的 Cook 资产，请在 `Config/DefaultEngine.ini` 的 `[ConsoleVariables]` 节中设置 `s.AllowUnversionedContentInEditor=1`。
 
 同一进程内的多个 PIE 世界共享已挂载的包，但各自持有独立的 Mod 实例。每个 PIE 地图就绪后，其实例都会收到启动加载结果。结束 PIE 时，加载器会先停止向会话分发结果，待世界销毁后再释放已加载的包，随后卸载容器并注销包根。若编辑器对象仍引用包内资产，加载器会报告相关引用并保留挂载，直至可以安全清理。
 
-`ModSDKTool`（MDT）根据宿主导出的生命周期声明生成 `ModInstance` 和 `ModInstanceSubSystem`，并保留其 `/Script/ModLoader` 类型路径。打包时会自动收集内容插件内的具体蓝图派生类。加载批次完成后，游戏会话为挂载成功的模组创建实例条目，并向活动条目逐项分发结果。C++ 子类可重写 `OnModLoadCompleted`，并通过调用 `Super::OnModLoadCompleted` 触发蓝图事件 `ReceiveModLoadCompleted`（在蓝图中显示为 **On Mod Load Completed**）。两端接收同一份结果，失败项包含错误码与失败原因。
+`ModSDKTool`（MDT）根据宿主导出的生命周期声明生成 `ModInstance` 和 `ModInstanceSubSystem`，并保留其 `/Script/ModLoader` 类型路径。打包时会自动收集内容插件内的具体蓝图派生类。加载批次完成后，游戏会话为挂载成功的模组创建实例条目，并向活动条目逐项分发结果。C++ 子类可重写 `OnModLoadCompleted`，并通过调用 `Super::OnModLoadCompleted` 触发蓝图事件 `ReceiveModLoadCompleted`（在蓝图中显示为 **On Mod Load Completed** 事件）。两端接收同一份结果，失败项包含错误码与失败原因。
 
 **On Mod Before Unload** 会在 Game Thread 上为即将卸载的模组的每个实例调用一次，此时其内容仍处于挂载状态。C++ 子类可重写 `OnModBeforeUnload`，并通过调用 `Super::OnModBeforeUnload` 派发该蓝图事件。模组应在此回调中恢复游戏状态并释放对模组资产的引用。宿主 C++ 可订阅 `IModLoaderModule::OnBeforeUnload()` 以获取已挂载的包记录。
 

@@ -6,7 +6,7 @@
 
 本规范适用于 UnrealModFramework 的所有贡献。贡献者必须同时遵守 [Epic Games 的 Unreal Engine C++ 编码规范](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine)与本项目规则。若两者存在冲突，应先创建 Issue 指明冲突的具体要求，再继续相关工作。仅当锁定版本格式化工具的输出同时符合两套规范时，才由其决定代码布局。
 
-开发基线为 Unreal Engine 5.6。仓库包含开发宿主工程、游戏侧的 `ModRuntime` 插件，以及 MDT 用于独立生成并构建 `ModDevelopmentSDKEditor` 的内嵌源码。Runtime、制作编辑器、共享协议和游戏专属 SDK 各有独立的职责与依赖边界。原生模组的 C ABI 属于跨语言互操作边界，不沿用 UE C++ ABI 约定。
+开发基线为 Unreal Engine 5.6。仓库包含开发宿主工程、游戏侧的 `ModRuntime` 插件，以及 MDT 用于独立生成并构建 `ModDevelopmentSDKEditor` 的内嵌源码。运行时、制作编辑器、共享协议和游戏专属 SDK 各有独立的职责与依赖边界。原生模组的 C ABI 属于跨语言互操作边界，不沿用 UE C++ ABI 约定。
 
 ## 规范目录
 
@@ -19,7 +19,11 @@
 
 [版权声明规则](BuildAndReview.zh-CN.md)适用于所有项目自有文件，但受特定文件格式的例外规则约束。
 
-**Must（必须）** 表示强制要求。**Should（应该）** 表示默认做法，除非 PR 说明了合理的例外情况。**May（可以）** 表示可选项。“公开 API”指面向宿主游戏集成或模组作者的声明，包括 Blueprint 入口和 C ABI 契约。第二个 `public:` 区域可以暴露框架集成方法，但不会因此使其成为面向使用者的 API。
+- **Must（必须）** 表示强制要求。
+- **Should（应该）** 表示默认做法，除非 PR 说明了合理的例外情况。
+- **May（可以）** 表示可选项。
+
+“公开 API”指面向宿主游戏集成或模组作者的声明，包括 Blueprint 入口和 C ABI 契约。第二个 `public:` 区域可以暴露框架集成方法，但不会因此使其成为面向使用者的 API。
 
 ## 规范遵循与冲突
 

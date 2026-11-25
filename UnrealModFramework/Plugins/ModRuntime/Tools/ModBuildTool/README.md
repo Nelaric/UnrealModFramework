@@ -4,9 +4,9 @@ English | [简体中文](README.zh-CN.md)
 
 # ModBuildTool
 
-MBT drives UBT builds with generated Hook sources and independently compiles generated host bindings into a native static archive for each owning module. The game build then links each independent host archive into its owning binary.
+MBT drives UBT builds with generated Hook source copies. On the independent Win64 x64 MSVC path, MBT also compiles the generated host bindings into native static archives, which UBT links into their owning binaries.
 
-The [UHT adapter](../../Source/ModRuntimeUht/README.md) invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets, using private External module rules to attach each host archive to its owner. The Win64 UBT post-build step verifies the owning PE image and publishes link records. `Built` records archive construction, while `Linked` records verified association with a successful link and its image bytes.
+The [UHT adapter](../../Source/ModRuntimeUht/README.md) invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets, using private External module rules to attach each host archive to its owner. The Win64 UBT post-build step verifies the owning PE image and publishes link records: `Built` records archive construction, while `Linked` records verified association with a successful link and its image bytes.
 
 ## Build and commands
 
@@ -104,7 +104,9 @@ The `UMF.ModHostLinkedArtifacts` / `Linked` output includes public files, contra
 
 ## UE 5.6 integration
 
-The current adapter runs MHT and MBT synchronously inside UHT after standard CodeGen. Generated headers contain only declarations, while all generated implementations are `.cpp` files listed exclusively for MBT. `ExportMetadata.ConfigureHost` writes actual Target descriptors and adds an owner-private External dependency, which uses `PublicPreBuildLibraries` to link the stable MBT archive even when it did not exist at the start of the first build. Normal cached builds rely on registered external dependencies, and a forced repeat can invoke MBT while reusing a valid receipt. The adapter relies solely on UE's existing hooks. With the toolchain configured, a normal Win64 build prepares the compilation database and bootstraps the Editor as needed; the pre-build step calls `refresh-ue-watches` for dependency changes, and the post-build step calls `finalize-ue-target` to verify the linked image and publish link records.
+UHT runs MHT after standard CodeGen. For Win64 x64 MSVC, `ExportMetadata.ConfigureHost` writes the Target descriptor and adds a private External module dependency. That module uses `PublicPreBuildLibraries` to link the archive produced by MBT. The pre-build `refresh-ue-watches` step tracks dependency changes, and `finalize-ue-target` verifies the linked image and publishes link records after the build. Other toolchains use UHT `CompileOutput` to compile the generated host units directly in the owning UBT module. [ModRuntime UHT integration](../../Source/ModRuntimeUht/README.md)
+
+`build-ue-target --mode normal` uses the same `Config/ModHeaderTool.json` generation settings as UHT. When the local MBT executable drives a Windows build, the tool pre-build step reuses that executable and builds MHT and MST. Run Setup again after switching to a branch with newer MBT sources so the next invocation uses the updated driver.
 
 The following broader action-graph integration remains a future contract:
 
@@ -117,4 +119,4 @@ The following broader action-graph integration remains a future contract:
 7. Implement platform-specific symbol retention only on the appropriate final link, and include host products in module outputs, receipts, Clean, and plugin output filtering.
 8. After final linkage succeeds, export the trusted current-target link record and invoke `finalize-host`. MDT aggregates all required module and target associations before publishing a complete SDK.
 
-In this UE 5.6 codebase, `GenerateHeaderFuncs` runs after UHT during Makefile creation but not on Makefile reuse, so it cannot serve as the sole trigger. UHT exporter `.ubtplugin.csproj` support is not a general action-graph hook. Missing Editor-derived option snapshots require an explicit, non-publishable top-level bootstrap before the formal build; never recursively build the current Target from a callback. Live Coding, Hot Reload, precompiled distribution, and remote Mac require separate integration.
+In this UE 5.6 codebase, `GenerateHeaderFuncs` runs after UHT during Makefile creation but not on Makefile reuse, so it cannot serve as the sole trigger. UHT exporter `.ubtplugin.csproj` support is not a general action-graph hook. The generation adapter can bootstrap the configured `metadataEditorTarget` when it needs project binaries for an export snapshot. When preparing the Editor manually, use a Development Editor bootstrap followed by the normal build. Live Coding, Hot Reload, precompiled distribution, and remote Mac require separate integration.

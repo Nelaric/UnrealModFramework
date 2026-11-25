@@ -15,7 +15,7 @@ This page explains contribution checks, Linux builds, and documentation publishi
 
 ## Checks on a pull request
 
-The [Quality workflow](../.github/workflows/quality.yml) checks PR and commit naming, formatting and text conventions, and API documentation. A separate Linux job builds MST and verifies cross-file exception analysis using GCC and Clang compile databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`.
+The Quality workflow checks PR and commit naming, formatting, text conventions, and API documentation. It also runs unit tests for the CircleCI handoff and uses standalone Linux fixtures to verify automatic Hook compilation and linking across COFF, ELF, and Mach-O targets, as well as MST cross-file exception analysis with GCC and Clang compilation databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`. [Quality workflow](../.github/workflows/quality.yml)
 
 The [trusted PR build workflow](../.github/workflows/fork-pr-linux.yml) is enabled by setting the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` after completing the [CircleCI setup](CircleCI.md). Until that variable is enabled, its jobs are skipped. The existing CircleCI push pipeline remains separate.
 
@@ -25,16 +25,14 @@ For fork PRs, changes to CI workflows, automation scripts, Unreal descriptors an
 
 ## Linux build scope
 
-Both the push and trusted PR configurations build `UnrealModFramework/UnrealModFrameworkDev.uproject` with Unreal Engine 5.6.1 on Linux in the Development configuration:
+The push and trusted PR configurations build `UnrealModFramework/UnrealModFrameworkDev.uproject` for Linux x64 Development with Unreal Engine 5.6.1.
 
 | CircleCI job | Tasks |
 | --- | --- |
 | `build_game_linux` | Compiles `UnrealModFrameworkDev` and its enabled runtime modules. |
-| `build_editor_linux` | Compiles `UnrealModFrameworkDevEditor` and its supported editor modules, then builds and verifies the independent `ModDevelopmentSDKEditor` plugin with `ModSDKTool build-editor`. |
+| `build_editor_linux` | Compiles `UnrealModFrameworkDevEditor`, runs the C++ and Blueprint Hook dispatch automation test `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`, then builds and verifies the independent authoring plugin with `ModSDKTool build-editor`. |
 
-Each job uses an isolated writable staging directory and runs the UE container without network access after pulling the private engine image. MBT's `build-ue-target` command builds the Linux targets and compiles the generated host inside its UBT module. The Editor job runs the ChangeHealth C++ and Blueprint test. See the [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md) for tool and input preparation.
-
-There is no Server target. These jobs validate compilation and plugin packaging; they do not publish downloadable packages or run Unreal automation tests. Coverage of other platforms and newer supported engine releases remains a build coverage gap.
+Each job builds in an isolated writable staging directory and runs the UE container without network access after pulling the private engine image. `ModBuildTool build-ue-target` drives UBT with the generated Hook source copies, and UBT compiles the generated host bindings directly inside their owning module. The Editor job checks both the editor process exit code and the test success marker, retaining the verified authoring plugin in the job's staging directory. Server, Shipping, and other platform or engine combinations require additional validation. [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
 
 Each independent framework capability requires behavior-focused automated tests as specified in the [review standard](CodingStandards/BuildAndReview.md#automation-tests), without a numeric coverage threshold. For an existing Unreal automation run, `Scripts/check_automation_report.py` validates the exported report, log, and editor exit code:
 

@@ -5,8 +5,9 @@ English | [简体中文](README.zh-CN.md)
 # MHT client ABI generation
 
 MHT generates a C-compatible `ContextHandlesV1` boundary alongside its UE view
-backend. MBT compiles all generated implementations independently, while UBT only
-consumes the host declarations and links each owning module's archive.
+backend. On Win64 x64 MSVC, MBT compiles the host and standalone client archives
+independently, and UBT links each host archive into its owning module; other
+toolchains compile the generated host units directly inside their owning UBT modules. [UHT integration](../../Source/ModRuntimeUht/README.md#complete-generation)
 
 ## Generated connection artifacts
 
@@ -22,10 +23,10 @@ Paths below are relative to the fixed MHT output root:
 | `<game>.generated-artifacts.json` | v3 inventory with explicit host/client compilation units and required symbol bindings |
 
 The descriptor conforms to [client-abi.schema.json](Protocol/client-abi.schema.json).
-The client library owner is `<game>ModClient`, which has its own MBT producer
-context, output library, registration anchor, and receipt, and does not link
-game-private or UE code. The Win64 adapter derives its recipe from the actual
-selected toolchain while stripping game include paths and forced UE definitions.
+On the independent MBT path, the client library owner is `<game>ModClient`, with
+its own producer context, output library, registration anchor, and receipt. The
+Win64 adapter derives its recipe from the selected toolchain while stripping game
+include paths and forced UE definitions.
 
 The `.modviews.h` and `.modcalls.h` headers are private UE `HostHeader` artifacts.
 Public `SdkHeader` artifacts include `.modabi.h` and, when applicable, the error
@@ -88,7 +89,7 @@ When renaming a member, list its former names in the same marker—for example, 
 
 ### Generated C++ Event publishers
 
-Set `HostEndpoint` to the name of a `Mod::Extension::FEndpoint` member to emit the annotated member's definition in `<owner>.modhost.cpp`. The generated Event body forwards its argument to `Publish`. C++ declarations can also call the helpers directly from their own definitions.
+Set `HostEndpoint` to the name of a `Mod::Extension::FEndpoint` member to emit the annotated member's definition in `<owner>.modhost.cpp`. The generated Event body forwards its argument to `Publish`. C++ declarations can also call the helpers directly from their own definitions. `HostCommitPayload` is reserved in the current generator and requires `HostEndpoint`.
 
 ## API compatibility names
 
@@ -140,17 +141,19 @@ connection functions, and release functions are also required symbols. The host
 registration anchor retains the ABI object through final linking.
 
 The UHT adapter runs `generate <GenerationRequest.json>` with a
-`UMF.ModHeaderGenerationRequest` v1 document requiring `buildInput`,
-`outputDirectory`, and `hostContexts`. The matching context set covers every host
-module and the standalone client. The request can also carry target-specific
-`metadataOptions`, `libclang`, and `lifecycleSource` paths, with relative paths
-resolved against the request directory. After generation finishes, UHT runs MBT for
-the declared libraries.
+`UMF.ModHeaderGenerationRequest` v1 document containing `buildInput` and
+`outputDirectory`. For independent compilation, `hostContexts` covers every host
+module and the standalone client. MHT publishes `UMF.GeneratedArtifacts` and UHT
+runs MBT for the declared libraries. For direct host compilation, UHT supplies
+`hostCompiler` as `UBT` and provides `sourceTool`. MHT publishes
+`UMF.UbtHostArtifacts` and UBT builds the host units. The request can also carry
+`metadataOptions`, `libclang`, `lifecycleSource`, and `blueprintSnapshot` paths.
+Relative paths are resolved against the request directory.
 
 MDT consumes `.sdkcontract.json`, the Host and Client contexts, and the same v3
-generated manifest. It retains the existing object getter and float method adapters
-while also emitting typed methods with scalar and public UE object inputs. When the
-SDK contract cannot represent the full API set, it records `Unsupported`.
+`UMF.GeneratedArtifacts` manifest. It retains the existing object getter and float
+method adapters while also emitting typed methods with scalar and public UE object
+inputs. When the SDK contract cannot represent the full API set, it records `Unsupported`.
 
 On Win64 x64 MSVC, the UBT adapter prepares the inputs and MBT verifies the final
 linked image. A generated SDK can acquire an authorized Blueprint World provider

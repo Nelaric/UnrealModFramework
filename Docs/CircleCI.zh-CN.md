@@ -4,15 +4,15 @@
 
 # CircleCI Linux 构建
 
-Push 配置与可信 PR 配置各定义了两个并行的 Unreal Engine 5.6.1 Linux Job：`build_game_linux` 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块；`build_editor_linux` 在编译 `UnrealModFrameworkDevEditor` 后，于 UE 容器中构建 `ModSDKTool`（MDT）和 MBT，并运行 `ModSDKTool build-editor` 编译和校验独立的 `ModDevelopmentSDKEditor` 插件。配置定义详见 [Push 配置](../.circleci/config.yml)和[可信 PR 配置](../.circleci/pr-build.yml)。
+Push 配置与可信 PR 配置各定义了两个并行的 Unreal Engine 5.6.1 Linux x64 Development Job：`build_game_linux` 构建 `UnrealModFrameworkDev`，`build_editor_linux` 构建 `UnrealModFrameworkDevEditor`、运行 Hook 分发自动化测试，并构建独立的 `ModDevelopmentSDKEditor` 插件。[Push 配置](../.circleci/config.yml) · [可信 PR 配置](../.circleci/pr-build.yml)
 
-两条流水线均从待测提交构建 MDT 和 MBT。共享构建脚本使用引擎自带的 .NET 宿主和 Editor BuildId，由 MDT 基于内嵌资源生成插件，并将校验通过的产物发布到 Job 暂存目录下的 `Dist/ModDevelopmentSDKEditor`；详见[编辑器插件构建脚本](../.circleci/build-editor-plugin.sh)。
+两条流水线均从待测提交构建 MDT 和 MBT。共享构建脚本使用引擎自带的 .NET 宿主和 Editor BuildId，由 MDT 基于内嵌资源生成插件，并将校验通过的产物发布到 Job 暂存目录下的 `Dist/ModDevelopmentSDKEditor`。[编辑器插件构建脚本](../.circleci/build-editor-plugin.sh)
 
 ## 已启用的 PR 接入
 
-当前仓库已启用 `CIRCLECI_PR_BUILDS_ENABLED=true`，并将触发端点保存在加密的 Actions Secret `CIRCLECI_PR_BUILD_WEBHOOK_URL` 中。`UnrealModFramework PR builds` 流水线使用 `.circleci/pr-build.yml`，其配置来源与初始检出分支均固定为 `main`。如需重建该接入，请按以下步骤操作。
+当前仓库已设置 `CIRCLECI_PR_BUILDS_ENABLED=true`，并将触发端点保存在加密的 Actions Secret `CIRCLECI_PR_BUILD_WEBHOOK_URL` 中。`UnrealModFramework PR builds` 流水线使用 `.circleci/pr-build.yml`，其配置来源与初始检出分支均固定为 `main`。如需重建该接入，请按以下步骤操作。
 
-## 常规 push 构建
+## 常规 Push 构建
 
 使用 CircleCI 的 `github/Nelaric/UnrealModFramework` GitHub OAuth 项目，将本仓库设为配置与检出源，配置路径设为 `.circleci/config.yml`，并配置针对源仓库 push 的触发器。在 CircleCI 项目环境变量中设置 `GHCR_USERNAME` 和 `GHCR_TOKEN`，确保该令牌具备拉取 `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1` 的权限，切勿将变量值写入 Git。
 
@@ -30,11 +30,11 @@ Push 配置与可信 PR 配置各定义了两个并行的 Unreal Engine 5.6.1 Li
 
 机器人仅向 Webhook 发送 PR 编号、准确的 head SHA 与随机关联标识。在获取 `refs/pull/<number>/head` 之前，可信策略会先确认该 PR 处于开放状态且目标分支为本仓库的 `main`，并在获取后验证实际提交仍与请求的 SHA 一致。Fork PR 对受保护 CI 及构建路径的修改会被拒绝；受保护路径包括工作流与自动化目录、`.gitattributes`、`.gitmodules`、Unreal 描述文件与构建脚本、CMake 文件以及可执行辅助脚本，重命名操作会同时检查新旧路径。此类改动须由维护者在源仓库分支中处理。
 
-Actions 与 CircleCI 均从可信的 `main` 配置启动。Actions 绝不会使用带写权限的令牌检出 PR 源码；CircleCI 则在策略校验通过后才检出已验证的提交，并随后拉取私有引擎镜像。GitHub 会收到独立的 Game 与 Editor 状态以及汇总结果，较新的 Actions 运行会自动接管旧运行的状态所有权。
+Actions 与 CircleCI 均从可信的 `main` 配置启动。Actions 绝不会使用带写权限的令牌检出 PR 源码；CircleCI 则在策略校验通过后才检出已验证的提交，并随后拉取私有引擎镜像。GitHub 会收到独立的 Game 与 Editor 状态以及汇总结果，较新的 Actions 运行会接管旧运行的状态。交接脚本会对临时 API 读取失败进行有限次数的退避重试，每次交接只发送一次 Webhook 请求。[交接实现](../Scripts/fork_pr_build_bot.py)
 
 ## 构建隔离与验证
 
-拉取私有引擎镜像后，UE 容器会以 `--network none` 模式运行。每个 Job 都会将 `UnrealModFramework/` 复制到独立的可写临时目录中，暂存工程路径为 `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`。Linux 构建调用 MBT 的 `build-ue-target` 命令；Editor Job 会运行 ChangeHealth 的 C++ 和蓝图用例，并在该暂存目录中打包独立插件。MST 的 GCC/Clang 用例则在独立的 [GitHub Actions Job](../.github/workflows/quality.yml) 中运行。
+拉取私有引擎镜像后，UE 容器以 `--network none` 模式运行。各 Job 将工程复制到独立的可写目录，容器内的工程路径为 `/workspace/UnrealModFramework/UnrealModFrameworkDev.uproject`。Linux 构建调用 `ModBuildTool build-ue-target`，使用镜像内的 `libclang` 18 与配套资源头文件。Editor Job 在 `UnrealEditor` 中运行 `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`，确认编辑器退出成功且日志包含测试成功标记后，再构建制作插件。[UE 镜像依赖](../.circleci/ue-linux.Dockerfile)
 
 发起审查前请先校验两份配置：
 
