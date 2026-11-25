@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 2,
-	"VersionName": "0.1.4",
+	"Version": 3,
+	"VersionName": "0.1.5",
 	"FriendlyName": "Mod Runtime",
 	"Description": "Runtime integration for UnrealModFramework host games.",
 	"Category": "Mod Framework",

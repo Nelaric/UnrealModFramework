@@ -61,8 +61,8 @@ fs::path PluginSources::PrepareDevelopmentSource(const fs::path& Work)
 	                          "/Binaries/ThirdParty/ModSDKTool/...\n/README.md\n/README.zh-CN.md\n");
 	const Json Descriptor = {
 	    {"FileVersion", 3},
-	    {"Version", 2},
-	    {"VersionName", "0.1.4"},
+	    {"Version", 3},
+	    {"VersionName", "0.1.5"},
 	    {"FriendlyName", "模组开发 SDK 编辑器"},
 	    {"Description", "Independent mod development SDK editor for UnrealModFramework."},
 	    {"Category", "Mod Framework"},
