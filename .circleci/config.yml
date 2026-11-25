@@ -12,7 +12,7 @@ commands:
             : "${GHCR_USERNAME:?Set GHCR_USERNAME in CircleCI project settings}"
             : "${GHCR_TOKEN:?Set GHCR_TOKEN in CircleCI project settings}"
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-            docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1
+            sh .circleci/pull-ue-linux-image.sh
             docker build --tag umf-ue-build:5.6.1 - < .circleci/ue-linux.Dockerfile
             docker logout ghcr.io
   stage_project:
