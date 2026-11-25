@@ -8,21 +8,21 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: api-pages
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
     if: vars.API_PAGES_ENABLED == 'true'
-    name: Publish API documentation
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    name: Build API documentation
     runs-on: ubuntu-latest
+    env:
+      PAGES_ARTIFACT_NAME: github-pages-${{ github.run_attempt }}
+    outputs:
+      artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
+      artifact_id: ${{ steps.upload.outputs.artifact_id }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -54,9 +54,42 @@ jobs:
           mkdir -p .tools/pages/API
           cp -a .tools/api-docs/html/. .tools/pages/API/
           cp Docs/Hosting/project-index.html .tools/pages/index.html
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - id: upload
+        uses: actions/upload-pages-artifact@v3
         with:
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: .tools/pages
+
+  deploy:
+    name: Publish API documentation
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      # Download by ID checks the same Actions artifact service that deploy-pages uses.
+      - name: Check the uploaded Pages artifact
+        id: check_artifact
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/pages-artifact
+      - name: Wait for the artifact to become visible
+        if: steps.check_artifact.outcome == 'failure'
+        run: sleep 15
+      - name: Retry checking the Pages artifact
+        if: steps.check_artifact.outcome == 'failure'
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/pages-artifact
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact_name }}

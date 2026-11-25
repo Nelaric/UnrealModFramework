@@ -4,9 +4,9 @@
 
 # ModBuildTool
 
-MBT 负责驱动 UBT 构建以接入生成的 Hook 源码，同时为各所属模块独立编译宿主连接代码并产出原生静态库，再由游戏构建将各宿主库链接到对应的所属二进制。
+MBT 驱动 UBT 构建编译生成的 Hook 源码副本。在 Win64 x64 MSVC 独立编译路径中，MBT 还负责将生成的宿主连接代码编译为原生静态库，再由 UBT 链接至对应的二进制。
 
-当前实现包含静态库构建、多符号校验、供 ModSDKTool（MDT）消费的公共产物清单，以及宿主库与成功链接记录的关联核对。[UHT 适配层](../../Source/ModRuntimeUht/README.zh-CN.md)已为示例 UE 5.6 Win64 MSVC 目标调用 MHT 生成与 MBT 独立编译，并通过私有 External 模块规则将宿主库链接到所属模块；UE 5.6 的 PostBuildSteps 会核对宿主库与实际链接产物并发布链接回执。现有的 MHT `scan` 报告不能作为 MBT 输入。`Built` 表示宿主库构建完成，`Linked` 表示其与可信链接记录及实际二进制的关联核对通过，二者均不证明游戏运行时行为。
+当前实现覆盖静态库构建、多符号校验、供 ModSDKTool（MDT）消费的公共产物清单，以及宿主库与成功链接记录的关联核对。[UHT 适配层](../../Source/ModRuntimeUht/README.zh-CN.md)为示例 UE 5.6 Win64 MSVC 目标调用 MHT 生成与 MBT 独立编译，并通过私有 External 模块规则将宿主库链接到所属模块；UE 5.6 的 PostBuildSteps 随后核对宿主库与实际链接产物并发布链接回执。MHT `scan` 报告不能作为 MBT 输入。`Built` 表示宿主库构建完成，`Linked` 表示其与可信链接记录及实际二进制字节的关联核对通过，二者均不证明游戏运行时行为。
 
 ## 构建和命令
 
@@ -153,7 +153,9 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，将生成的 JSON �
 
 ## UE 5.6 集成
 
-当前适配层在标准 CodeGen 后的 UHT 阶段同步运行 MHT 和 MBT。生成的头文件仅含声明，全部生成实现以 `.cpp` 文件形式仅列入 MBT 清单。`ExportMetadata.ConfigureHost` 写入真实 Target 描述并添加所属模块私有的 External 依赖；该 External 模块使用 `PublicPreBuildLibraries` 登记稳定的宿主库路径，即使首次构建开始时库尚不存在也能接入。常规缓存构建依赖已登记的外部依赖，强制重复生成时 MBT 可复用有效回执。整个接入无需引擎补丁。工具链就绪后，正常的 Win64 构建会按需生成编译数据库及引导 Editor；预构建阶段调用 `refresh-ue-watches` 更新依赖标记，最终链接后通过 `finalize-ue-target` 核对 UBT 回执并生成链接记录。
+UHT 在标准 CodeGen 后运行 MHT。Win64 x64 MSVC 路径中，`ExportMetadata.ConfigureHost` 写入 Target 描述并添加私有 External 模块依赖，该模块使用 `PublicPreBuildLibraries` 链接 MBT 生成的宿主库。预构建步骤通过 `refresh-ue-watches` 跟踪依赖变化，最终链接后通过 `finalize-ue-target` 核对二进制并发布链接记录。其他工具链通过 UHT `CompileOutput` 在所属 UBT 模块中直接编译生成的宿主单元。[ModRuntime UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md)
+
+`build-ue-target --mode normal` 与 UHT 使用同一份 `Config/ModHeaderTool.json` 生成配置。Windows 上由本地 MBT 驱动构建时，工具预构建步骤复用正在运行的 MBT，并构建 MHT 和 MST。切换到包含新 MBT 源码的分支后，重新执行 Setup 可更新下一次运行使用的 MBT。
 
 以下更完整的动作图接入仍是后续契约：
 
@@ -168,4 +170,4 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，将生成的 JSON �
 
 在这份 UE 5.6 源码中，`GenerateHeaderFuncs` 仅在 Makefile 重建路径位于 UHT 之后执行，在缓存复用路径不会重新运行，因此不能作为唯一触发点。现有的 `.ubtplugin.csproj` UHT Exporter 入口也不等同于完整的 UBT 动作图扩展。
 
-首次缺少依赖 Editor 的选项目录时，应由顶层流程先完成不可发布的 Bootstrap 和选项目录导出，再启动正式构建；MBT 不在目标回调中递归构建当前 Target。Live Coding、Hot Reload、预编译分发和远程 Mac 均需要单独适配，不能依据普通 UBT 增量构建推导为已支持。
+导出快照需要工程二进制时，生成适配层可引导配置中的 `metadataEditorTarget`。手动准备 Editor 时，先执行 Development Editor 引导构建，再执行正式构建。Live Coding、Hot Reload、预编译分发和远程 Mac 均需要单独适配。

@@ -4,7 +4,7 @@
 
 # MHT 客户端 ABI 生成
 
-MHT 在生成 UE 视图后端的同时，生成纯 C 兼容的 `ContextHandlesV1` 边界。全部生成的实现均由 MBT 独立编译，UBT 仅消费宿主声明并链接各所属模块的静态库。
+MHT 在生成 UE 视图后端的同时，生成纯 C 兼容的 `ContextHandlesV1` 边界。在 Win64 x64 MSVC 上，MBT 分别独立编译宿主与客户端静态库，再由 UBT 将宿主库链接到所属模块；其他工具链则由 UBT 在所属模块内直接编译生成的宿主单元。[UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md#完整生成模式)
 
 ## 连接产物
 
@@ -19,11 +19,11 @@ MHT 在生成 UE 视图后端的同时，生成纯 C 兼容的 `ContextHandlesV1
 | `Contract/<game>.sdkcontract.json` | 供 ModSDKTool（MDT）在受支持的适配图中使用的已解析 `UMF.SdkContract` v2 |
 | `<game>.generated-artifacts.json` | v3 完整清单，显式列出 Host/Client 编译单元及必需符号绑定 |
 
-连接描述遵循 [client-abi.schema.json](Protocol/client-abi.schema.json)。客户端库所属模块为 `<game>ModClient`，拥有独立的 MBT 生产者上下文、输出库路径、注册锚点与回执，不链接游戏私有代码或 UE。Win64 适配层从实际选中工具链的配方派生客户端参数，并移除游戏包含目录与强制 UE 定义。
+在 MBT 独立编译路径中，客户端库所属模块为 `<game>ModClient`，具有自己的生产者上下文、输出库路径、注册锚点与回执。Win64 适配层从实际选中的工具链配方派生客户端参数，并移除游戏包含目录和强制 UE 定义。[客户端 ABI Schema](Protocol/client-abi.schema.json)
 
 `.modviews.h` 和 `.modcalls.h` 属于宿主私有的 `HostHeader` 产物；公共 `SdkHeader` 产物包含 `.modabi.h`，并按契约发布错误码目录及独立扩展 ABI 头。MDT 仅复制具备公共角色的已校验产物。
 
-## 明确连接顺序
+## 连接与生命周期
 
 1. 根据描述中的 `ownerModule` 定位实际所属二进制，解析 `querySymbol`，并使用生成的 ABI 版本、`sizeof(table)` 和 ABI 哈希查询函数表。
 2. 使用该函数表调用对应客户端的 `connectSymbol`。Connect 会先校验版本、结构体大小、哈希和全部必需回调，再绑定函数指针。
@@ -54,7 +54,7 @@ Hook 接收一个载荷并返回同类型结果；Event 的发布函数接收一
 
 ### 生成 C++ Event 发布函数
 
-将 `HostEndpoint` 设为 `Mod::Extension::FEndpoint` 成员的名称，即可在 `<owner>.modhost.cpp` 中生成该声明对应的函数定义；生成的 Event 函数体会自动将参数转发给 `Publish`。游戏代码也可以自行定义成员函数并调用辅助函数。
+将 `HostEndpoint` 设为 `Mod::Extension::FEndpoint` 成员的名称，即可在 `<owner>.modhost.cpp` 中生成对应的函数定义，将参数转发给 `Publish`。游戏代码也可自行定义成员函数并调用辅助函数。`HostCommitPayload` 是当前生成器的保留字段，使用时须提供 `HostEndpoint`。
 
 ## API 兼容名
 
@@ -74,8 +74,8 @@ UE SDK 调用者直接传入类型化的 UObject 指针。`ContextHandlesV1` 则
 
 每个宿主模块生成四个编译单元——桥接、ABI 入口、校验与 UE 视图实现，独立客户端另有一个单元；清单的 `compilationUnits` 逐项列出所有源文件。`requiredSymbols` 同时记录宿主和客户端入口，关联相同的 ExportId、签名哈希与投影哈希，并按库所属模块检查 ExportId 唯一性。查询、连接、断开与释放函数同样是必需符号，宿主注册锚点可确保 ABI 对象参与最终链接。
 
-UHT 适配层使用 `UMF.ModHeaderGenerationRequest` v1 文档执行 `generate <GenerationRequest.json>`，必填字段为 `buildInput`、`outputDirectory` 和 `hostContexts`（上下文集覆盖各宿主模块与独立客户端）。请求还可携带当前 Target 的 `metadataOptions`、`libclang` 和 `lifecycleSource` 路径，相对路径均从请求所在目录解析。生成完成后，UHT 会调用 MBT 构建清单中声明的库。
+UHT 适配层使用 `UMF.ModHeaderGenerationRequest` v1 文档执行 `generate <GenerationRequest.json>`，请求包含 `buildInput` 和 `outputDirectory`。独立编译路径通过 `hostContexts` 提供宿主模块和独立客户端的上下文，MHT 发布 `UMF.GeneratedArtifacts`，UHT 调用 MBT 构建库。直接编译路径设置 `hostCompiler` 为 `UBT` 并提供 `sourceTool`，MHT 发布 `UMF.UbtHostArtifacts`，由 UBT 构建宿主单元。请求还可提供 `metadataOptions`、`libclang`、`lifecycleSource`、`blueprintSnapshot` 路径。相对路径从请求文件所在目录解析。
 
-MDT 消费 `.sdkcontract.json`、Host/Client 上下文及同一份 v3 生成清单。它保留原有的对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。当 SDK 契约无法表示完整 API 集时，标记为 `Unsupported`。
+MDT 消费 `.sdkcontract.json`、Host/Client 上下文及同批的 v3 `UMF.GeneratedArtifacts` 清单。它保留原有的对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。当 SDK 契约无法表示完整 API 集时，标记为 `Unsupported`。
 
 在 Win64 x64 MSVC 平台上，UBT 适配层自动准备输入，MBT 则在目标链接后核对实际产物。生成的 SDK 支持通过活跃的 `UModInstance` 获取已授权的宿主蓝图 World 提供者，LocalPlayer 等其他作用域由游戏接入层交付。独立原生回调通过运行时在 World 准备期间接入。详见 [UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md) 与[独立扩展打包](../ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)。

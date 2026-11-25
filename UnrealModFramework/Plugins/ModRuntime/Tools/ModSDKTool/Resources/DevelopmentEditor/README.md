@@ -86,6 +86,8 @@ Include the SDK's `ModExtensionABI.h` and `<GameId>.modextensionsabi.h`, and exp
 - Input, output, object, and continuation tokens are valid only for the duration of the current callback. `Wrap` invokes `Next` once with the exact generated size. Both `Replace` and `Wrap` return `UMF_ExtensionWrite` along with the complete result. When permitted, `Pre` may return `UMF_ExtensionStop` with a cancellation result.
 - Struct wire fields use the compact little-endian layout defined in the generated C header, with Booleans occupying one byte and object values represented as opaque 64-bit handles. Callbacks can connect to the generated client API via `FindHostQuery` and invoke read-only methods using `ObjectContext` and the handle.
 
+### Package manifest and payloads
+
 `UMF.ModPackage` matches the header's major version and records the Mod identity, version, plugin/package root, build options, and base release fingerprints. Index `entries` are sorted in ascending order by case-sensitive path and record `path`, `offset`, `size`, `storage: "None"`, and the exact payload `sha256`. Absolute paths, directory traversal, and case-insensitive duplicates are rejected.
 
 When the authoring SDK supplies `ModInstance` and `ModInstanceSubSystem`, the packager records concrete Blueprint subclasses from the selected content plugin in the optional `lifecycleClasses` field. The game uses these class paths to create session entries after mounting.
