@@ -20,6 +20,7 @@ commands:
                 raise SystemExit("Invalid PR build request")
             print(number, sha)
             ' > /tmp/unrealmodframework-pr-info
+            ci_base_commit="$(git rev-parse HEAD)"
             read -r pr_number pr_sha < /tmp/unrealmodframework-pr-info
             python3 Scripts/pr_build_policy.py "$pr_number" "$pr_sha"
             git fetch --no-tags https://github.com/Nelaric/UnrealModFramework.git "refs/pull/$pr_number/head"
@@ -27,6 +28,7 @@ commands:
             test "$actual_sha" = "$pr_sha"
             git checkout --detach "$actual_sha"
             test "$(git rev-parse HEAD)" = "$pr_sha"
+            printf 'export UMF_CI_BASE_COMMIT=%q\n' "$ci_base_commit" >> "$BASH_ENV"
   pull_unreal_image:
     steps:
       - run:
@@ -37,7 +39,7 @@ commands:
             : "${GHCR_USERNAME:?Set GHCR_USERNAME in CircleCI project settings}"
             : "${GHCR_TOKEN:?Set GHCR_TOKEN in CircleCI project settings}"
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
-            docker pull ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1
+            git show "$UMF_CI_BASE_COMMIT:.circleci/pull-ue-linux-image.sh" | sh
             image_spec=.circleci/ue-linux.Dockerfile
             if [ -f "$image_spec" ]; then
               docker build --tag umf-ue-build:5.6.1 - < "$image_spec"
