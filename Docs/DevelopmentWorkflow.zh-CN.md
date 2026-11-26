@@ -29,7 +29,7 @@
 
 每项先编译四个原生 Mod 工具，验证可执行文件架构并测试自动化报告检查脚本，再由 MBT 编译对应目标。Game 作业烹饪、暂存并启动打包游戏；Editor 作业启动编辑器，另用 MDT 构建并校验独立制作插件。两种目标都验证生命值变化、C++ Hook 的 Pre、On、Post 阶段。Editor 还验证已编译蓝图的调用。作业保留宿主链接凭据，并要求本次 Unreal 报告中两个指定用例都通过。[CI 脚本](../Scripts/run_desktop_ci.py)
 
-每个作业使用自己的目标包，仓库变量 `UE_PACKAGE_RECIPE` 固定到制包仓库的完整提交 SHA。`Nelaric/UnrealEngine-CI` 从固定的 Epic 上游输入制包，按目标裁剪并记录每个文件，再用另一台原生 runner 校验解压结果。该 runner 还会编译和烹饪一个独立 C++ 工程，其反射插件依赖 GameplayAbilities。发布记录包含各文件的保留理由、摘要和裁剪前后大小。Game 包保留代码工程烹饪所需的 Editor 命令行程序及其依赖。
+每个作业使用自己的目标包，仓库变量 `UE_PACKAGE_RECIPE` 固定到制包仓库的完整提交 SHA。需要分别更新目标时，变量 `UE_PACKAGE_RECIPES` 可存放 JSON 映射，例如将 `WINDOWS_X64_Editor` 指向该包的完整制包提交。`Nelaric/UnrealEngine-CI` 从固定的 Epic 上游输入制包，按目标裁剪并记录每个文件，再用另一台原生 runner 校验解压结果。该 runner 还会编译和烹饪一个独立 C++ 工程，其反射插件依赖 GameplayAbilities。发布记录包含各文件的保留理由、摘要和裁剪前后大小。Game 包保留代码工程烹饪所需的 Editor 命令行程序及其依赖。
 
 在框架仓库设置变量 `UE_PACKAGES_APP_ID` 和 Actions 密钥 `UE_PACKAGES_APP_PRIVATE_KEY`。组织的 GitHub App 只需安装到私有制包仓库，并授予 Contents 只读权限。每个作业使用短期安装令牌下载对应的 Release。安装器核对目标、架构、验证记录、分卷及文件清单。[安装脚本](../Scripts/install_ci_engine.py)
 

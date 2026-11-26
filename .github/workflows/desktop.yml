@@ -22,6 +22,8 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 180
+    env:
+      RECIPE: ${{ fromJSON(vars.UE_PACKAGE_RECIPES || '{}')[format('{0}_{1}', matrix.host.key, matrix.target)] || vars.UE_PACKAGE_RECIPE }}
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +76,6 @@ jobs:
         env:
           TRUSTED_SOURCE: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
           APP_ID: ${{ vars.UE_PACKAGES_APP_ID }}
-          RECIPE: ${{ vars.UE_PACKAGE_RECIPE }}
         run: |
           [[ "$TRUSTED_SOURCE" == true ]] || { echo "::error::A maintainer must verify this revision from a trusted branch."; exit 1; }
           [[ -n "$APP_ID" && "$RECIPE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Configure UE_PACKAGES_APP_ID and the pinned UE_PACKAGE_RECIPE."; exit 1; }
@@ -90,7 +91,6 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ steps.packages.outputs.token }}
-          RECIPE: ${{ vars.UE_PACKAGE_RECIPE }}
         run: |
           system=$(echo "${{ matrix.host.os }}" | tr '[:upper:]' '[:lower:]')
           python Scripts/install_ci_engine.py "${{ runner.temp }}/ue" "$system" "${{ matrix.host.arch }}" "${{ matrix.target }}" "$RECIPE"
