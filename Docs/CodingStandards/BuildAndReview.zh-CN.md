@@ -24,7 +24,7 @@
 
 - 对 `.Build.cs` 和 `.Target.cs` 文件运行 CSharpier。其强制要求程度与 C++ 的 clang-format 相同。
 - 保持模块依赖最小化，并依据头文件实际需求区分公开与私有依赖。不得在 Runtime 中引入厂商 SDK 依赖。
-- 面向 UE 5.6 及以上版本。请求审查前，应使用 UE 5.6 构建开发宿主的 Game 和 Editor Target；引入 Server Target 后也应一并构建。未来的 CI 应覆盖最低与最新支持的引擎版本。GitHub Actions 负责执行命名、格式、文本规范、API 文档、自动 Hook 目标用例及 MST 源码分析检查；CircleCI 负责构建 UE Linux Game 和 Editor Target、运行 Editor Hook 分发自动化测试，并构建独立制作插件，详见 [CI 构建范围](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.zh-CN.md#linux-编译的范围)。
+- 面向 UE 5.6 及以上版本。请求审查前，应使用 UE 5.6 构建开发宿主的 Game 和 Editor Target；引入 Server Target 后也应一并构建。未来的 CI 应覆盖最低与最新支持的引擎版本。GitHub Actions 负责执行命名、格式、文本规范、API 文档、自动 Hook 目标用例及 MST 源码分析检查。桌面矩阵负责构建和测试 Game、Editor，并验证独立制作插件，详见 [CI 构建范围](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.zh-CN.md#桌面构建范围)。
 
 ## 自动化测试
 

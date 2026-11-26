@@ -44,7 +44,7 @@ $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuil
 
 Change `--target` to `UnrealModFrameworkDev` for a Development Game build. When an export snapshot needs Editor binaries, the build bootstraps the configured Editor target automatically. To test in the Editor, open the development project once the build finishes. [Development host project](UnrealModFramework/UnrealModFrameworkDev.uproject) · [Linux command and target architectures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#automatic-hook-builds)
 
-UBT compiles generated host code in its owning module on every toolchain. The game's shared SDK Runtime module compiles the Client implementation. CircleCI builds the UE 5.6.1 Linux x64 Development Game and Editor targets and runs the `ChangeHealthDispatch` automation test in the Editor job. [Build and test coverage](Docs/DevelopmentWorkflow.md#linux-build-scope)
+UBT compiles generated host code in its owning module. The game’s shared SDK Runtime module compiles the Client implementation. GitHub Actions defines native x64 and ARM64 Game and Editor jobs for Windows, macOS and Linux. The desktop checks exercise Hook dispatch in each target. [Build and test coverage](Docs/DevelopmentWorkflow.md#desktop-build-scope)
 
 ## Get ModRuntime from a development branch
 
@@ -145,4 +145,4 @@ Project-authored material is licensed under the [MIT License](LICENSE) unless st
 
 ## Thanks
 
-Thanks to everyone contributing to UnrealModFramework, to Epic Games for Unreal Engine, and to CircleCI for the Linux project build service.
+Thanks to everyone contributing to UnrealModFramework and to Epic Games for Unreal Engine.

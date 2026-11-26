@@ -1,7 +1,7 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModHookTestWorld.h"
 
-#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+#if WITH_DEV_AUTOMATION_TESTS
 
 #include "Engine/World.h"
 #include "Misc/ScopeExit.h"

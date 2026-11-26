@@ -112,6 +112,8 @@ FString FModSdkBuildEditor::FindExecutable() const
 	const FString Relative = TEXT("Binaries/ThirdParty/ModSDKTool/Win64/ModSDKTool.exe");
 #elif PLATFORM_MAC
 	const FString Relative = TEXT("Binaries/ThirdParty/ModSDKTool/Mac/ModSDKTool");
+#elif PLATFORM_LINUXARM64
+	const FString Relative = TEXT("Binaries/ThirdParty/ModSDKTool/LinuxArm64/ModSDKTool");
 #else
 	const FString Relative = TEXT("Binaries/ThirdParty/ModSDKTool/Linux/ModSDKTool");
 #endif

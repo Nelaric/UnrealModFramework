@@ -30,7 +30,7 @@ EditorBuild EditorBuildOptions::ReadEditorBuild(const Options& Options)
 #elif defined(__APPLE__)
 	    .Platform = "Mac",
 #else
-	    .Platform = "Linux",
+	    .Platform = Architecture == "arm64" ? "LinuxArm64" : "Linux",
 #endif
 	    .Architecture = Architecture,
 	    .BuildId = JsonDocument::Text(JsonDocument::ReadJson(CommandOptions::OptionPath(Options, "--editor-modules")),

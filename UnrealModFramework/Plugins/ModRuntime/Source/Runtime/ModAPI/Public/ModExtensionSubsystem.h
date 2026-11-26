@@ -15,7 +15,7 @@ class UModInstance;
 class USceneComponent;
 struct FModExtensionWorld;
 
-#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+#if WITH_DEV_AUTOMATION_TESTS
 namespace Mod::Tests
 {
 struct FHookTestWorld;
@@ -268,7 +268,7 @@ protected:
 private:
 	friend class Mod::Extension::FModNetworkHandshake;
 	friend class Mod::Extension::FModExtensionSave;
-#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+#if WITH_DEV_AUTOMATION_TESTS
 	friend struct Mod::Tests::FHookTestWorld;
 #endif
 	void OnWorldTearDown(UWorld* World);

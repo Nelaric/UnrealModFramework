@@ -208,7 +208,7 @@ The Win64 `arm64ec` fixture also requires the matching Windows SDK runtime libra
 `UMF_MHT_LIBCLANG` selects the build host's `libclang`, and
 `UMF_MHT_CLANG_RESOURCE_DIR` selects its matching resource directory. A project can
 also configure a host-specific library path via `hostLibclang`. The compilation
-database supplies the target SDK, include paths, and architecture. [UE integration builds and automation coverage](../../../../../Docs/DevelopmentWorkflow.md#linux-build-scope)
+database supplies the target SDK, include paths, and architecture. [UE integration builds and automation coverage](../../../../../Docs/DevelopmentWorkflow.md#desktop-build-scope)
 
 MHT and MST identify the annotated member in Clang's AST and write its source copy.
 MBT substitutes that input in the matching UBT action (including nested response

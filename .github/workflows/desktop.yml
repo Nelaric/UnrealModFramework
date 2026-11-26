@@ -1,0 +1,89 @@
+# Copyright (c) 2026 Nelaric Contributors
+name: Desktop CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: ${{ matrix.host.os }} ${{ matrix.host.arch }} · ${{ matrix.target }}
+    runs-on: ${{ matrix.host.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        host:
+          - {os: Windows, arch: x64, platform: Win64, runner: windows-2022, key: WINDOWS_X64}
+          - {os: Windows, arch: arm64, platform: Win64, runner: windows-11-arm, key: WINDOWS_ARM64}
+          - {os: macOS, arch: x64, platform: Mac, runner: macos-15-intel, key: MACOS_X64}
+          - {os: macOS, arch: arm64, platform: Mac, runner: macos-15, key: MACOS_ARM64}
+          - {os: Linux, arch: x64, platform: Linux, runner: ubuntu-24.04, key: LINUX_X64}
+          - {os: Linux, arch: arm64, platform: LinuxArm64, runner: ubuntu-24.04-arm, key: LINUX_ARM64}
+        target: [Game, Editor]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Build the four native tools on Windows
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call UnrealModFramework\Plugins\ModRuntime\Tools\Build.bat --setup --generator Ninja --jobs 4
+      - name: Build the four native tools on Linux or macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            brew list --versions gcc >/dev/null || brew install gcc
+            gcc_dir="$(brew --prefix gcc)/bin"
+            for compiler in "$gcc_dir"/g++-[0-9]*; do
+              [[ -x "$compiler" ]] || exit 1
+              export CXX="$compiler"
+            done
+          fi
+          sh UnrealModFramework/Plugins/ModRuntime/Tools/Build.sh --setup --generator Ninja --jobs 4
+      - name: Install Unreal Engine 5.6.1
+        env:
+          UE_ARCHIVE_URL: ${{ secrets[format('UE_561_{0}_URL', matrix.host.key)] }}
+          UE_ARCHIVE_SHA256: ${{ vars[format('UE_561_{0}_SHA256', matrix.host.key)] }}
+        run: python Scripts/install_ci_engine.py "${{ runner.temp }}/ue" ${{ matrix.host.key }}
+      - name: Build Development ${{ matrix.target }} and run its automation
+        run: >-
+          python -u Scripts/run_desktop_ci.py "${{ runner.temp }}/ue"
+          ${{ matrix.host.platform }} ${{ matrix.host.arch }} ${{ matrix.target }}
+          "${{ runner.temp }}/desktop-results"
+      - name: Upload build receipt and Unreal automation evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.host.key }}-${{ matrix.target }}-evidence
+          path: |
+            ${{ runner.temp }}/desktop-results/host-link.json
+            ${{ runner.temp }}/desktop-results/automation.log
+            ${{ runner.temp }}/desktop-results/report/index.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  result:
+    name: Desktop build and automation
+    if: always()
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all twelve targets
+        env:
+          MATRIX_RESULT: ${{ needs.build.result }}
+        run: test "$MATRIX_RESULT" = success

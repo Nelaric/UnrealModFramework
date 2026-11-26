@@ -4,7 +4,7 @@ English | [简体中文](DevelopmentWorkflow.zh-CN.md)
 
 # Development and CI Workflow
 
-This page explains contribution checks, Linux builds, and documentation publishing. Start with the [contribution guide](../CONTRIBUTING.md) when preparing a change.
+This page explains contribution checks, desktop builds, and documentation publishing. Start with the [contribution guide](../CONTRIBUTING.md) when preparing a change.
 
 ## From a change to `main`
 
@@ -15,30 +15,25 @@ This page explains contribution checks, Linux builds, and documentation publishi
 
 ## Checks on a pull request
 
-The Quality workflow checks PR and commit naming, formatting, text conventions, and API documentation. It also runs unit tests for the CircleCI handoff and uses standalone Linux fixtures to verify automatic Hook compilation and linking across COFF, ELF, and Mach-O targets, as well as MST cross-file exception analysis with GCC and Clang compilation databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`. [Quality workflow](../.github/workflows/quality.yml)
+The [Quality workflow](../.github/workflows/quality.yml) checks naming, text, formatting and API documentation. Linux fixtures also exercise automatic Hook compilation and linking for COFF, ELF and Mach-O and cross-file MST analysis with GCC and Clang.
 
-The [trusted PR build workflow](../.github/workflows/fork-pr-linux.yml) is enabled by setting the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` after completing the [CircleCI setup](CircleCI.md). Until that variable is enabled, its jobs are skipped. The existing CircleCI push pipeline remains separate.
+## Desktop build scope
 
-The PR workflow validates the submitted commit, triggers CircleCI, and displays parallel Game and Editor jobs followed by a result summary. Each job reports its own status (`ci/linux-game-build` or `ci/linux-editor-build`), while `ci/fork-pr-linux-build` summarizes both. The summary links to the CircleCI logs, and the Actions jobs mirror checkout and compile output without exposing authentication output. Contributors do not need a CircleCI account.
+[Desktop CI](../.github/workflows/desktop.yml) runs on pull requests to `main`, pushes to `main` and manual dispatch. Each of the six GitHub-hosted machines runs two independent UE 5.6.1 Development jobs.
 
-For fork PRs, changes to CI workflows, automation scripts, Unreal descriptors and build scripts, CMake files, or executable helper scripts must be handled by a maintainer in a source-repository branch. The policy checks both old and new paths for renamed files. Source-repository PRs can modify these files and still run the trusted workflow. Native mod ABI changes also require maintainer review.
+| System | x64 runner | ARM64 runner |
+| --- | --- | --- |
+| Windows | `windows-2022` | `windows-11-arm` |
+| macOS | `macos-15-intel` | `macos-15` |
+| Linux | `ubuntu-24.04` | `ubuntu-24.04-arm` |
 
-## Linux build scope
+Each job builds the four native Mod tools and compiles its target with MBT. Game jobs cook, stage and launch the game. Editor jobs launch the editor and use MDT to build and verify the independent authoring plugin. Both targets check health changes and C++ Hook dispatch, including Pre, On and Post handlers. Editor also tests calls from a compiled Blueprint. Each successful job records the host link receipt and requires both named tests to pass in a fresh Unreal report. [CI driver](../Scripts/run_desktop_ci.py)
 
-The push and trusted PR configurations build `UnrealModFramework/UnrealModFrameworkDev.uproject` for Linux x64 Development with Unreal Engine 5.6.1.
+For each host, configure the Actions secret `UE_561_<KEY>_URL` with a private HTTPS download URL and the repository variable `UE_561_<KEY>_SHA256` with the archive digest. The keys are `WINDOWS_X64`, `WINDOWS_ARM64`, `MACOS_X64`, `MACOS_ARM64`, `LINUX_X64` and `LINUX_ARM64`. The tar archive must contain `Engine/` at its root, the matching native Editor, UBT, UAT, bundled .NET, toolchain and Development Game libraries. Allow disk space for the compressed archive, extracted engine, intermediate files and staged game. Actions runner images do not include UE. Windows ARM64 Editor requires a custom engine port. An x64 Editor under emulation cannot validate that target. [GitHub runner specifications](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) · [Epic Windows ARM64 support](https://dev.epicgames.com/documentation/unreal-engine/windows-arm64-support-in-unreal-engine-5-8)
 
-| CircleCI job | Tasks |
-| --- | --- |
-| `build_game_linux` | Compiles `UnrealModFrameworkDev` and its enabled runtime modules. |
-| `build_editor_linux` | Compiles `UnrealModFrameworkDevEditor`, runs the C++ and Blueprint Hook dispatch automation test `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`, then builds and verifies the independent authoring plugin with `ModSDKTool build-editor`. |
+GitHub withholds repository secrets from fork pull requests. Public quality and native-tool checks can run there. For engine validation, a maintainer reviews the submitted code and runs that revision on a branch in the source repository. Missing engine inputs fail the affected jobs. The aggregate check `Desktop build and automation` requires all twelve jobs to pass.
 
-Each job builds in an isolated writable staging directory and runs the UE container without network access after pulling the private engine image. `ModBuildTool build-ue-target` drives UBT with the generated Hook source copies, and UBT compiles the generated host bindings directly inside their owning module. The Editor job checks both the editor process exit code and the test success marker, retaining the verified authoring plugin in the job's staging directory. Server, Shipping, and other platform or engine combinations require additional validation. [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
-
-Each independent framework capability requires behavior-focused automated tests as specified in the [review standard](CodingStandards/BuildAndReview.md#automation-tests), without a numeric coverage threshold. For an existing Unreal automation run, `Scripts/check_automation_report.py` validates the exported report, log, and editor exit code:
-
-```text
-python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
-```
+When the matrix passes, replace the three legacy required checks (`ci/linux-game-build`, `ci/linux-editor-build`, `ci/fork-pr-linux-build`) in the `main` ruleset with `Desktop build and automation`. Retain the quality checks. Disable the legacy project push trigger in CircleCI and remove the obsolete Actions webhook secret and enable variable.
 
 ## Run the call benchmark
 
@@ -52,6 +47,4 @@ The standalone benchmark runs 200 cases with 1,000 samples per available path. W
 
 ## If a check fails
 
-Open the failed Actions job to read its summary and follow the link to its CircleCI logs. Regular push builds are also listed in the [CircleCI project](https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework). If a PR build is skipped, maintainers should verify the enable variable, webhook setup, and secret as described in [CircleCI setup](CircleCI.md). When asking for review assistance, include the failed run link and the diagnosis you have already tried.
-
-Workflow definitions live in [Quality](../.github/workflows/quality.yml), [trusted PR builds](../.github/workflows/fork-pr-linux.yml), [API Pages](../.github/workflows/pages.yml), [CircleCI push builds](../.circleci/config.yml), and [CircleCI PR builds](../.circleci/pr-build.yml).
+Open the failed GitHub Actions job and inspect its first failing step. After Unreal starts, the job uploads the available host link receipt, automation log and report index. Include the run link and the failing target when requesting assistance.

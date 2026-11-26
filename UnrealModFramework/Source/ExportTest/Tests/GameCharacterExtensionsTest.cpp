@@ -1,29 +1,33 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "Misc/AutomationTest.h"
 
-#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+#if WITH_DEV_AUTOMATION_TESTS
 
 #include "GameCharacter.h"
 
-#include "EdGraph/EdGraph.h"
-#include "EdGraphSchema_K2.h"
-#include "Engine/Blueprint.h"
-#include "Engine/BlueprintGeneratedClass.h"
 #include "Engine/World.h"
-#include "K2Node_CallFunction.h"
-#include "K2Node_FunctionEntry.h"
-#include "Kismet2/BlueprintEditorUtils.h"
-#include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/ScopeExit.h"
 #include "ModExtensionSubsystem.h"
 #include "ModHookTestWorld.h"
 #include "ModInstance.h"
+
+#if WITH_EDITOR
+#include "EdGraph/EdGraph.h"
+#include "EdGraphSchema_K2.h"
+#include "Engine/Blueprint.h"
+#include "Engine/BlueprintGeneratedClass.h"
+#include "K2Node_CallFunction.h"
+#include "K2Node_FunctionEntry.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/KismetEditorUtilities.h"
 #include "UObject/Script.h"
+#endif
 
 #include <limits>
 
 namespace Mod::Tests
 {
+#if WITH_EDITOR
 namespace
 {
 const FName BlueprintProbeName(TEXT("ProbeChangeHealth"));
@@ -58,9 +62,11 @@ UClass* CompileHealthProbe()
 	return Blueprint->Status == BS_Error ? nullptr : Blueprint->GeneratedClass;
 }
 } // namespace
+#endif
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameCharacterHealthTest, "Nelaric.UnrealModFramework.Host.ChangeHealth",
-                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext |
+                                     EAutomationTestFlags::EngineFilter)
 
 bool FGameCharacterHealthTest::RunTest(const FString&)
 {
@@ -88,7 +94,8 @@ bool FGameCharacterHealthTest::RunTest(const FString&)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGameCharacterHookDispatchTest, "Nelaric.UnrealModFramework.Host.ChangeHealthDispatch",
-                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext |
+                                     EAutomationTestFlags::EngineFilter)
 
 bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 {
@@ -114,19 +121,24 @@ bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 	}
 	Definition = *Generated;
 #endif
-	UClass* ProbeClass = CompileHealthProbe();
-	if (!TestNotNull(TEXT("Compiled Blueprint calling ChangeHealth"), ProbeClass))
-	{
-		return false;
-	}
 	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
 	ON_SCOPE_EXIT
 	{
 		World->DestroyWorld(false);
 	};
 	auto* Native = World->SpawnActor<AGameCharacter>();
+	if (!TestNotNull(TEXT("Native health probe"), Native))
+	{
+		return false;
+	}
+#if WITH_EDITOR
+	UClass* ProbeClass = CompileHealthProbe();
+	if (!TestNotNull(TEXT("Compiled Blueprint calling ChangeHealth"), ProbeClass))
+	{
+		return false;
+	}
 	auto* Blueprint = World->SpawnActor<AGameCharacter>(ProbeClass);
-	if (!TestNotNull(TEXT("Native health probe"), Native) || !TestNotNull(TEXT("Blueprint health probe"), Blueprint))
+	if (!TestNotNull(TEXT("Blueprint health probe"), Blueprint))
 	{
 		return false;
 	}
@@ -140,6 +152,7 @@ bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 		FEditorScriptExecutionGuard Guard;
 		Blueprint->ProcessEvent(BlueprintCall, nullptr);
 	};
+#endif
 	TArray<TPair<EStage, float>> Trace;
 	FDefinition Former = Definition;
 	Former.Id = Former.Permission = TEXT("hook/game.character/adjust-health");
@@ -205,20 +218,24 @@ bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 #if MOD_API_BOOTSTRAP
 		    TestEqual(TEXT("Bootstrap C++ calls the original body"), NativeResult, 80.0f);
 		    TestTrue(TEXT("Bootstrap C++ bypasses the installed handlers"), Trace.IsEmpty());
+#if WITH_EDITOR
 		    RunBlueprint();
 		    TestEqual(TEXT("Bootstrap Blueprint calls the original body"), Blueprint->GetCurrentHealth(), 80.0f);
 		    TestTrue(TEXT("Bootstrap Blueprint bypasses the installed handlers"), Trace.IsEmpty());
+#endif
 #else
 		    const TArray<TPair<EStage, float>> Expected{
 		        {EStage::Pre, -20.0f}, {EStage::On, -7.0f}, {EStage::Post, ReplacementValue}};
 		    TestEqual(TEXT("C++ returns the On replacement value"), NativeResult, ReplacementValue);
 		    TestEqual(TEXT("C++ replacement suppresses the original body"), Native->GetCurrentHealth(), 100.0f);
 		    TestTrue(TEXT("C++ executes Pre, On, Post with the expected arguments"), Trace == Expected);
+#if WITH_EDITOR
 		    Trace.Reset();
 		    RunBlueprint();
 		    TestTrue(TEXT("Blueprint executes Pre, On, Post with the expected arguments"), Trace == Expected);
 		    TestEqual(TEXT("Blueprint replacement suppresses the original body"), Blueprint->GetCurrentHealth(),
 		              100.0f);
+#endif
 		    Trace.Reset();
 		    const TArray<TPair<EStage, float>> SameFile{
 		        {EStage::Pre, 10.0f}, {EStage::On, -7.0f}, {EStage::Post, ReplacementValue}};

@@ -2,7 +2,7 @@
 /** @file ModHookTestWorld.h */
 #pragma once
 
-#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+#if WITH_DEV_AUTOMATION_TESTS
 
 #include "Containers/Array.h"
 #include "Containers/Set.h"

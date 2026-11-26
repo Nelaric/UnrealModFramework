@@ -4,7 +4,7 @@
 
 # 开发与 CI 流程
 
-本文说明贡献检查、Linux 构建与文档发布流程。准备改动前，请先阅读[贡献指南](../CONTRIBUTING.zh-CN.md)。
+本文说明贡献检查、桌面构建与文档发布流程。准备改动前，请先阅读[贡献指南](../CONTRIBUTING.zh-CN.md)。
 
 ## 从改动到 `main`
 
@@ -15,30 +15,25 @@
 
 ## PR 会运行哪些检查
 
-Quality 工作流检查 PR 与提交命名、格式、文本规范及 API 文档，并运行 CircleCI 构建交接的单元测试；独立的 Linux 用例进一步验证面向 COFF、ELF 与 Mach-O 目标的自动 Hook 编译链接，以及基于 GCC 和 Clang 编译数据库的 MST 跨文件异常分析。工具版本锁定在工作流文件及 `.config/dotnet-tools.json` 中。[Quality 工作流](../.github/workflows/quality.yml)
+[Quality 工作流](../.github/workflows/quality.yml)检查命名、文本、格式和 API 文档。Linux 用例还验证 COFF、ELF、Mach-O 的自动 Hook 编译链接，以及 GCC 和 Clang 下的 MST 跨文件源码分析。
 
-完成 [CircleCI 接入](CircleCI.zh-CN.md)后，可通过设置仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED=true` 启用[可信 PR 编译工作流](../.github/workflows/fork-pr-linux.yml)。在该变量启用前，其各 Job 会被跳过；现有的 CircleCI Push 流水线保持独立运行。
+## 桌面构建范围
 
-PR 工作流会先验证提交并触发 CircleCI，随后并行展示 Game 与 Editor 两个 Job 并汇总结果。两个目标分别上报 `ci/linux-game-build` 和 `ci/linux-editor-build` 状态，`ci/fork-pr-linux-build` 负责汇总两者。汇总摘要包含 CircleCI 日志链接，Actions Job 会镜像输出检出与编译日志，同时过滤认证相关输出。贡献者无需 CircleCI 账号。
+[桌面 CI](../.github/workflows/desktop.yml) 在向 `main` 提交 PR、推送到 `main` 或手动触发时运行。以下六种 GitHub 官方托管环境各运行独立的 Game 和 Editor 作业，均使用 UE 5.6.1 Development。
 
-对于 Fork PR，如涉及修改 CI 工作流、自动化脚本、Unreal 描述文件与构建脚本、CMake 文件或可执行辅助脚本，须由维护者在源仓库分支中处理。策略会同时检查重命名文件的新旧路径。源仓库分支的 PR 可以修改这些文件并继续使用可信编译流程。原生模组 ABI 变更同样需要维护者审查。
+| 系统 | x64 runner | ARM64 runner |
+| --- | --- | --- |
+| Windows | `windows-2022` | `windows-11-arm` |
+| macOS | `macos-15-intel` | `macos-15` |
+| Linux | `ubuntu-24.04` | `ubuntu-24.04-arm` |
 
-## Linux 编译的范围
+每项先编译四个原生 Mod 工具，再由 MBT 编译对应目标。Game 作业烹饪、暂存并启动打包游戏；Editor 作业启动编辑器，另用 MDT 构建并校验独立制作插件。两种目标都验证生命值变化、C++ Hook 的 Pre、On、Post 阶段。Editor 还验证已编译蓝图的调用。作业保留宿主链接凭据，并要求本次 Unreal 报告中两个指定用例都通过。[CI 脚本](../Scripts/run_desktop_ci.py)
 
-Push 配置与可信 PR 配置均使用 Unreal Engine 5.6.1，为 `UnrealModFramework/UnrealModFrameworkDev.uproject` 构建 Linux x64 Development 目标。
+每种环境需设置 Actions secret `UE_561_<KEY>_URL`（私有 HTTPS 下载地址）和仓库变量 `UE_561_<KEY>_SHA256`（压缩包摘要）。KEY 分别为 `WINDOWS_X64`、`WINDOWS_ARM64`、`MACOS_X64`、`MACOS_ARM64`、`LINUX_X64`、`LINUX_ARM64`。tar 包根目录应包含 `Engine/`，并提供匹配的原生 Editor、UBT、UAT、内置 .NET、工具链和 Development Game 库。磁盘还要容纳压缩包、解压后的引擎、中间文件与暂存游戏。官方 runner 镜像没有预装 UE。Windows ARM64 Editor 需要自定义移植版引擎，x64 模拟运行无法验证该目标。[GitHub runner 规格](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) · [Epic 对 Windows ARM64 的说明](https://dev.epicgames.com/documentation/unreal-engine/windows-arm64-support-in-unreal-engine-5-8)
 
-| CircleCI Job | 工作内容 |
-| --- | --- |
-| `build_game_linux` | 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。 |
-| `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor`，运行覆盖 C++ 与蓝图 Hook 分发的 `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`，再通过 `ModSDKTool build-editor` 构建并校验独立制作插件。 |
+GitHub 不向 Fork PR 提供仓库密钥。公共质量检查和原生工具编译可在 Fork PR 中运行。需要验证引擎时，由维护者审查后在源仓库分支上运行相应版本。缺少引擎配置会使对应作业失败。汇总检查 `Desktop build and automation` 要求 12 项全部通过。
 
-各 Job 在独立的可写暂存目录中执行构建，并在拉取私有引擎镜像后以无网络模式运行 UE 容器。`ModBuildTool build-ue-target` 驱动 UBT 编译生成的 Hook 源码副本，UBT 则在所属模块内直接编译生成的宿主连接代码。Editor Job 同时核对编辑器退出码与测试成功标记，并将校验通过的制作插件保留在 Job 暂存目录中。Server、Shipping 及更多平台与引擎版本的组合仍需单独验证。[ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
-
-每项独立框架功能均须按[审查规范](CodingStandards/BuildAndReview.zh-CN.md#自动化测试)配备面向行为的自动化测试，但不设数值化覆盖率门槛。对于已完成的 Unreal 自动化运行，可使用 `Scripts/check_automation_report.py` 校验导出报告、日志及编辑器退出码：
-
-```text
-python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
-```
+矩阵通过后，将 `main` 规则集的三个旧检查（`ci/linux-game-build`、`ci/linux-editor-build`、`ci/fork-pr-linux-build`）替换为 `Desktop build and automation`，保留质量检查。在 CircleCI 停用旧项目的推送触发器，再移除 GitHub Actions 中的旧 webhook 密钥和启用变量。
 
 ## 运行调用性能基准
 
@@ -52,6 +47,4 @@ python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/u
 
 ## 检查失败时
 
-请打开失败的 Actions Job 查看摘要，并点击其中的链接进入对应 CircleCI 日志；常规 push 构建也会显示在 [CircleCI 项目](https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework)中。如果 PR 编译被跳过，维护者应参照 [CircleCI 接入说明](CircleCI.zh-CN.md)核对启用变量、Webhook 配置及密钥。请求协助排查时，请附上失败运行的链接及已尝试的排查步骤。
-
-各工作流配置分别位于 [Quality](../.github/workflows/quality.yml)、[可信 PR 编译](../.github/workflows/fork-pr-linux.yml)、[API Pages](../.github/workflows/pages.yml)、[CircleCI push 编译](../.circleci/config.yml)和 [CircleCI PR 编译](../.circleci/pr-build.yml)。
+打开失败的 GitHub Actions 作业，查看第一个失败步骤。Unreal 启动后，作业会上传已生成的链接凭据、自动化日志和报告索引。请求协助时可附上运行链接及失败目标。

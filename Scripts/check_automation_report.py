@@ -8,9 +8,10 @@ import sys
 from pathlib import Path
 
 
-def check_report(report_path: Path, log_path: Path, editor_status: int) -> None:
+def check_report(report_path: Path, log_path: Path, editor_status: int,
+                 *, required_tests: tuple[str, ...] = ()) -> None:
     if not report_path.is_file():
-        if log_path.is_file():
+        if not required_tests and log_path.is_file():
             log = log_path.read_text(encoding="utf-8", errors="replace")
             if "No automation tests matched 'StartsWith:Nelaric'" in log and "**** TEST COMPLETE." in log:
                 if editor_status:
@@ -35,8 +36,14 @@ def check_report(report_path: Path, log_path: Path, editor_status: int) -> None:
     )
     if failed or not_run or in_process:
         raise ValueError("Automation tests failed or did not finish")
+    if required_tests:
+        completed = {test.get("fullTestPath") for test in report.get("tests", [])
+                     if isinstance(test, dict) and test.get("state") == "Success"}
+        missing = set(required_tests) - completed
+        if missing or succeeded + warnings < len(required_tests):
+            raise ValueError("Missing successful Unreal automation results: " + ", ".join(sorted(missing or required_tests)))
     if editor_status:
-        raise ValueError(f"Unreal Editor exited with status {editor_status}")
+        raise ValueError(f"Unreal process exited with status {editor_status}")
 
 
 if __name__ == "__main__":
