@@ -2,6 +2,64 @@
 version: 2.1
 
 commands:
+  start_disk_measurement:
+    steps:
+      - run:
+          name: Sample build disk usage every second
+          background: true
+          command: |
+            set -euo pipefail
+            out=/tmp/umf-ci-disk
+            mkdir -p "$out"
+            docker_root=$(docker info --format '{{.DockerRootDir}}')
+            declare -A seen=()
+            paths=()
+            for path in / /tmp "$PWD" "$docker_root" /var/lib/containerd; do
+              [[ -d "$path" ]] || continue
+              device=$(stat -Lc '%d' -- "$path")
+              if [[ -z "${seen[$device]:-}" ]]; then
+                paths+=("$path")
+                seen[$device]=1
+              fi
+            done
+            printf '%s\n' 'utc,source,mount,size_bytes,used_bytes,available_bytes' > "$out/samples.csv"
+            while true; do
+              utc=$(date -u '+%Y-%m-%dT%H:%M:%S.%3NZ')
+              LC_ALL=C df -B1 --output=source,target,size,used,avail -- "${paths[@]}" |
+                awk -v utc="$utc" 'NR > 1 { print utc "," $1 "," $2 "," $3 "," $4 "," $5 }' >> "$out/samples.csv"
+              [[ ! -e "$out/stop" ]] || break
+              sleep 1
+            done
+            touch "$out/finished"
+      - run:
+          name: Confirm initial disk sample before checkout
+          command: |
+            for attempt in {1..30}; do
+              if [[ -s /tmp/umf-ci-disk/samples.csv ]] && [[ $(wc -l < /tmp/umf-ci-disk/samples.csv) -gt 1 ]]; then
+                cat /tmp/umf-ci-disk/samples.csv
+                exit 0
+              fi
+              sleep 1
+            done
+            exit 1
+  report_disk_measurement:
+    steps:
+      - run:
+          name: Report peak build disk usage
+          when: always
+          command: |
+            set -euo pipefail
+            out=/tmp/umf-ci-disk
+            touch "$out/stop"
+            for attempt in {1..20}; do
+              [[ ! -e "$out/finished" ]] || break
+              sleep 1
+            done
+            test -f "$out/finished"
+            python3 .circleci/report-disk.py "$out/samples.csv"
+      - store_artifacts:
+          path: /tmp/umf-ci-disk/samples.csv
+          destination: disk-usage/samples.csv
   pull_unreal_image:
     steps:
       - run:
@@ -61,16 +119,19 @@ jobs:
       image: ubuntu-2404:current
     resource_class: large
     steps:
+      - start_disk_measurement
       - checkout
       - pull_unreal_image
       - stage_project
       - compile_target:
           target: UnrealModFrameworkDev
+      - report_disk_measurement
   build_editor_linux:
     machine:
       image: ubuntu-2404:current
     resource_class: large
     steps:
+      - start_disk_measurement
       - checkout
       - pull_unreal_image
       - stage_project
@@ -107,6 +168,7 @@ jobs:
               --workdir /workspace \
               umf-ue-build:5.6.1 \
               bash .circleci/build-editor-plugin.sh
+      - report_disk_measurement
 
 workflows:
   linux_build:
