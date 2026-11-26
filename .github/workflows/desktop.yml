@@ -99,6 +99,9 @@ jobs:
         run: |
           system=$(echo "${{ matrix.host.os }}" | tr '[:upper:]' '[:lower:]')
           python Scripts/install_ci_engine.py "${{ runner.temp }}/ue" "$system" "${{ matrix.host.arch }}" "${{ matrix.target }}" "$RECIPE"
+      - name: Prepare the x64 cooker runtime for the ARM64 Linux Game
+        if: matrix.host.platform == 'LinuxArm64' && matrix.target == 'Game'
+        run: python Scripts/setup_linux_arm64_cooker.py
       - name: Build Development ${{ matrix.target }} and run its automation
         run: >-
           python -u Scripts/run_desktop_ci.py "${{ runner.temp }}/ue"

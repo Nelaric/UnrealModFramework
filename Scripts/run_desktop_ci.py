@@ -22,11 +22,19 @@ def run(*args: str | Path) -> None:
     subprocess.run(args, check=True)
 
 
-def stage_game(engine: Path, dotnet: Path, editor: Path, project: Path, ue_platform: str,
+def editor_host(ue_platform: str, arch: str, target: str) -> tuple[str, str]:
+    if target == "Game" and arch == "arm64" and ue_platform in ("Win64", "LinuxArm64"):
+        return ("Linux" if ue_platform == "LinuxArm64" else ue_platform), "x64"
+    return ue_platform, arch
+
+
+def stage_game(engine: Path, dotnet: Path, editor: Path, project: Path, mbt: Path, ue_platform: str,
                arch: str, stage: Path, receipt: dict) -> Path:
-    cooker_arch = "x64" if (ue_platform, arch) == ("Win64", "arm64") else arch
-    run(dotnet, engine / "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll", HOST + "Editor",
-        ue_platform, "Development", f"-Project={project}", f"-architecture={cooker_arch}", "-NoHotReload")
+    cooker_platform, cooker_arch = editor_host(ue_platform, arch, "Game")
+    # The cooker loads the project's Editor modules, including their generated Mod hook definitions.
+    run(mbt, "build-ue-target", "--engine", engine.parent, "--project", project,
+        "--target", HOST + "Editor", "--platform", cooker_platform, "--configuration", "Development",
+        "--architecture", cooker_arch, "--mode", "normal")
     run(dotnet, engine / "Binaries/DotNET/AutomationTool/AutomationTool.dll", "BuildCookRun",
         f"-project={project}", f"-target={HOST}", f"-platform={ue_platform}", f"-clientarchitecture={arch}",
         "-clientconfig=Development", "-nocompile", "-nocompileeditor", "-nop4", "-unattended", "-utf8output",
@@ -70,7 +78,8 @@ def main() -> None:
     suffix = ".exe" if ue_platform == "Win64" else ""
     mbt = tools / "ModBuildTool" / ("ModBuildTool" + suffix)
     mdt = tools / "ModSDKTool" / ("ModSDKTool" + suffix)
-    binaries = engine / "Binaries" / ue_platform
+    editor_platform, _ = editor_host(ue_platform, arch, args.target)
+    binaries = engine / "Binaries" / editor_platform
     editor = binaries / {"Win64": "UnrealEditor-Cmd.exe", "Mac": "UnrealEditor.app/Contents/MacOS/UnrealEditor"
                          }.get(ue_platform, "UnrealEditor")
     host = {"Win64": "win", "Mac": "mac"}.get(ue_platform, "linux")
@@ -104,7 +113,7 @@ def main() -> None:
         executable = editor
         arguments = [str(project)]
     else:
-        executable = stage_game(engine, dotnet, editor, project, ue_platform, arch,
+        executable = stage_game(engine, dotnet, editor, project, mbt, ue_platform, arch,
                                 results.parent / (results.name + "-stage"), receipt)
         arguments = ["/Engine/Maps/Entry"]
     if ue_platform == "Mac":
