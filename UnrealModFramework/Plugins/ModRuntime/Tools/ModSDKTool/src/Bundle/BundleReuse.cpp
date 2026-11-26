@@ -17,7 +17,7 @@ using Json = nlohmann::json;
 Json BundleReuse::ReuseBundle(const SdkRequest& Request)
 {
 	const Json Existing = JsonDocument::ReadJson(Request.Output / "Manifest.json");
-	JsonDocument::RequireFormat(Existing, "UMF.ModSdkBundle", {1, 2});
+	JsonDocument::RequireFormat(Existing, "UMF.ModSdkBundle", {1, 2, 3});
 	if (Existing.at("gameId") != Request.Document.at("gameId") ||
 	    Existing.at("sdkVersion") != Request.Document.at("sdkVersion") ||
 	    Existing.at("pluginName") != Request.Document.at("pluginName"))

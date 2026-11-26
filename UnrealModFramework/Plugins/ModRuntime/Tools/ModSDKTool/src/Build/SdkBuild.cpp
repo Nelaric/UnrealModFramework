@@ -5,10 +5,8 @@
 #include "Common/Files/Executable.h"
 #include "Common/Files/File.h"
 #include "Common/Files/Path.h"
-#include "Common/Files/TemporaryName.h"
 #include "Common/Hash/Hash.h"
 #include "ModSDKTool/src/Build/BuildProgress.h"
-#include "ModSDKTool/src/Build/NativeBuild.h"
 #include "ModSDKTool/src/Build/PathRelations.h"
 #include "ModSDKTool/src/Build/SdkInputCheck.h"
 #include "ModSDKTool/src/Build/Workspace.h"
@@ -17,13 +15,12 @@
 #include "ModSDKTool/src/Bundle/BundleReuse.h"
 #include "ModSDKTool/src/Editor/EditorPackage.h"
 #include "ModSDKTool/src/Editor/PluginSources.h"
-#include "ModSDKTool/src/Manifest/ContractSchema.h"
 #include "ModSDKTool/src/Manifest/ContractValidator.h"
 #include "ModSDKTool/src/Manifest/JsonDocument.h"
-#include "ModSDKTool/src/Manifest/Library.h"
 #include "ModSDKTool/src/Manifest/PortableNames.h"
 #include "ModSDKTool/src/Manifest/SdkInputs.h"
 #include "ModSDKTool/src/Manifest/SdkPlan.h"
+#include "ModSDKTool/src/Manifest/TargetArtifacts.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -46,20 +43,9 @@ void SdkBuild::ValidatePublishInputs() const
 	const std::string ExpectedFingerprint = Request.Fingerprint;
 	SdkBuild Current(Request.File);
 	Current.Plan();
-	if (Current.Request.Fingerprint != ExpectedFingerprint ||
-	    std::any_of(Current.Request.Libraries.begin(), Current.Request.Libraries.end(),
-	                [](const Library& Job) { return !Job.Plan.at("upToDate").get<bool>(); }))
+	if (Current.Request.Fingerprint != ExpectedFingerprint)
 	{
-		throw std::runtime_error("InputsChanged: native compilation dependencies changed during SDK assembly.");
-	}
-	for (const Library& Job : Request.Libraries)
-	{
-		const fs::path Receipt = Mod::BuildTool::Path::PathFromUtf8(JsonDocument::Text(Job.Plan, "receipt"));
-		if (Mod::BuildTool::Hash::HashFile(Mod::BuildTool::Path::PathFromUtf8(JsonDocument::Text(
-		        Job.Plan, "library"))) != JsonDocument::Text(JsonDocument::ReadJson(Receipt), "libraryHash"))
-		{
-			throw std::runtime_error("Native library changed during UE SDK compilation.");
-		}
+		throw std::runtime_error("SDK generation inputs changed during assembly.");
 	}
 }
 
@@ -78,22 +64,13 @@ Json SdkBuild::Build()
 	                         ? Mod::BuildTool::Path::ResolvePath(Request.File.parent_path(),
 	                                                             JsonDocument::Text(Request.Document, "workDirectory"))
 	                         : fs::temp_directory_path());
-	const auto LibraryResults = NativeBuild::BuildNativeLibraries(Request, Work.Root);
-	// Newly discovered compiler dependencies participate in the final SDK key.
-	PlanResult = Plan();
 	SdkInputCheck::CheckInputs(Request);
 	const std::string Plugin = JsonDocument::Text(Request.Document, "pluginName");
 	const auto Packages = EditorPackage::BuildSdkPackages(Request, Work.Root, Plugin);
 	const fs::path Bundle = Work.Root / "Bundle";
 	BundleAssembly::CopySdkPackages(Request, Packages, Plugin, Bundle);
-	if (!Request.LifecycleArtifact.is_null() &&
-	    std::any_of(Request.Libraries.begin(), Request.Libraries.end(), [](const Library& Job)
-	                { return Job.Role == "Client" && Job.Plan.at("target").at("type") != "Editor"; }))
-	{
-		PluginSources::PrepareSdkSource(Request, Bundle / "Host" / "Plugins" / Plugin, true);
-	}
+	PluginSources::PrepareSdkSource(Request, Bundle / "Host" / "Plugins" / Plugin, true);
 	Mod::BuildTool::File::WriteFileAtomically(Bundle / "Build" / "Plan.json", PlanResult.dump(2) + "\n");
-	Mod::BuildTool::File::WriteFileAtomically(Bundle / "Build" / "NativeResults.json", LibraryResults.dump(2) + "\n");
 	BundleAssembly::CopySdkNativeArtifacts(Request, Bundle);
 	const auto Capabilities = BundleAssembly::WriteBundleManifest(Request, Bundle, Plugin);
 	ValidatePublishInputs();
@@ -117,7 +94,7 @@ SdkRequest SdkBuild::ReadRequest(const fs::path& File)
 	SdkRequest Request;
 	Request.File = fs::canonical(File);
 	Request.Document = JsonDocument::ReadJson(Request.File);
-	JsonDocument::RequireFormat(Request.Document, "UMF.SdkBuildRequest", {2});
+	JsonDocument::RequireFormat(Request.Document, "UMF.SdkBuildRequest", {3});
 	const fs::path Root = Request.File.parent_path();
 	const Json& Document = Request.Document;
 	if (Document.contains("developmentPlugin"))
@@ -199,55 +176,7 @@ SdkRequest SdkBuild::ReadRequest(const fs::path& File)
 	{
 		SdkInputs::AddInput(Request, Mod::BuildTool::Executable::ExecutablePath().parent_path() / "Licenses" / Name);
 	}
-	const Json& Libraries = Document.at("libraries");
-	if (!Libraries.is_array() || Libraries.empty() || Libraries.size() > 256)
-	{
-		throw std::runtime_error("libraries must be a bounded nonempty array.");
-	}
-	for (const Json& Entry : Libraries)
-	{
-		Library Job;
-		Job.Role = JsonDocument::Text(Entry, "role");
-		if (Job.Role != "Host" && Job.Role != "Client")
-		{
-			throw std::runtime_error("Library role must be Host or Client.");
-		}
-		Job.Context = fs::canonical(Mod::BuildTool::Path::ResolvePath(Root, JsonDocument::Text(Entry, "context")));
-		Job.Manifest =
-		    fs::canonical(Mod::BuildTool::Path::ResolvePath(Root, JsonDocument::Text(Entry, "generatedManifest")));
-		const Json Context = JsonDocument::ReadJson(Job.Context);
-		const Json Manifest = JsonDocument::ReadJson(Job.Manifest);
-		JsonDocument::RequireFormat(Manifest, "UMF.GeneratedArtifacts", {1, 2, 3});
-		if (Manifest.value("status", "") != "Complete")
-		{
-			throw std::runtime_error("MST needs complete generated artifacts; MHT scan reports are not SDK inputs.");
-		}
-		for (const char* Key : {"contractHash", "projectionHash", "nativeABIHash"})
-		{
-			if (Manifest.at(ContractSchema::ContractIdentityKey(Manifest, Key)) !=
-			    Request.Contract.at(ContractSchema::ContractIdentityKey(Request.Contract, Key)))
-			{
-				throw std::runtime_error(std::string("Mixed SDK batches: ") + Key);
-			}
-		}
-		SdkInputs::AddInput(Request, Job.Context);
-		SdkInputs::AddInput(Request, Job.Manifest);
-		for (const Json& Generated : Manifest.at("generatedFiles"))
-		{
-			const fs::path Path = Mod::BuildTool::Path::ResolveGeneratedPath(Job.Manifest.parent_path(),
-			                                                                 JsonDocument::Text(Generated, "path"));
-			SdkInputs::AddInput(Request, Path);
-		}
-		const fs::path LibraryPath =
-		    Mod::BuildTool::Path::ResolvePath(Job.Context.parent_path(), JsonDocument::Text(Context, "outputLibrary"));
-		if (PathRelations::IsInside(LibraryPath, Request.Output) ||
-		    PathRelations::IsInside(Request.Output, Job.Manifest.parent_path()) ||
-		    PathRelations::IsInside(Request.Output, LibraryPath))
-		{
-			throw std::runtime_error("SDK output overlaps a library or generated input root.");
-		}
-		Request.Libraries.push_back(std::move(Job));
-	}
+	TargetArtifacts::ReadTargets(Request);
 	for (const Json& Input : Request.Inputs)
 	{
 		if (PathRelations::IsInside(Mod::BuildTool::Path::PathFromUtf8(Input.at("path").get<std::string>()),
@@ -264,9 +193,10 @@ SdkRequest SdkBuild::ReadRequest(const fs::path& File)
 		{
 			throw std::runtime_error("workDirectory cannot be inside the SDK output.");
 		}
-		for (const Library& Job : Request.Libraries)
+		for (const Json& Target : Request.Targets)
 		{
-			if (PathRelations::IsInside(WorkRoot, Job.Manifest.parent_path()))
+			const auto RootPath = Path::PathFromUtf8(JsonDocument::Text(Target, "generatedManifest")).parent_path();
+			if (PathRelations::IsInside(WorkRoot, RootPath))
 			{
 				throw std::runtime_error("workDirectory cannot be inside generated input roots.");
 			}
@@ -296,42 +226,12 @@ void SdkBuild::ValidateResultOutput(const fs::path& Output) const
 			throw std::runtime_error("Result output would replace an SDK input.");
 		}
 	}
-	for (const Library& Job : Request.Libraries)
-	{
-		const Json Context = JsonDocument::ReadJson(Job.Context);
-		const fs::path Library =
-		    Mod::BuildTool::Path::ResolvePath(Job.Context.parent_path(), JsonDocument::Text(Context, "outputLibrary"));
-		if (PathRelations::SamePath(Destination, Library) ||
-		    PathRelations::SamePath(Destination, fs::path(Library.native() + fs::path(".mbt.json").native())))
-		{
-			throw std::runtime_error("Result output would replace a native artifact.");
-		}
-	}
 }
 
 Json SdkBuild::Plan()
 {
-	using namespace Mod::BuildTool;
-	BuildProgress::ReportStage("Plan", "Validating complete contracts and native library inputs.");
-	const fs::path Temporary =
-	    fs::temp_directory_path() /
-	    Mod::BuildTool::Path::PathFromUtf8("umf-mst-plan-" + Mod::BuildTool::TemporaryName::UniqueSuffix());
-	if (!fs::create_directory(Temporary))
-	{
-		throw std::runtime_error("Cannot create an exclusive MST planning directory.");
-	}
-	try
-	{
-		const auto Jobs = SdkPlan::CollectLibraryPlans(Request, Temporary);
-		Request.Fingerprint = SdkPlan::FingerprintPlan(Request, Jobs);
-		fs::remove_all(Temporary);
-		return SdkPlan::MakeSdkPlan(Request, Jobs);
-	}
-	catch (...)
-	{
-		std::error_code Ignored;
-		fs::remove_all(Temporary, Ignored);
-		throw;
-	}
+	BuildProgress::ReportStage("Plan", "Validating UBT generation and shared SDK inputs.");
+	Request.Fingerprint = SdkPlan::FingerprintPlan(Request);
+	return SdkPlan::MakeSdkPlan(Request);
 }
 } // namespace Mod::SdkTool

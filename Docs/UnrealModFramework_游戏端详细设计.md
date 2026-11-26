@@ -5,13 +5,13 @@
 > 设计基线 v0.5 · 实现快照 `b0db0aa`（2026 年 11 月 24 日核对）\
 > 开发基线 Unreal Engine 5.6
 
-游戏通过 C++ 或蓝图声明扩展契约，在实际业务路径中完成接入，并在开放玩法前准备 World 扩展。MHT 生成类型化连接、投影与契约；在 Win64 x64 MSVC 上由 MBT 独立编译宿主归档，其他工具链则由 UBT 在所属模块内编译生成的宿主单元。MDT 消费独立编译路径的产物发布作者 SDK，也可单独构建制作插件。
+游戏通过 C++ 或蓝图声明扩展契约，并在开放玩法前准备 World 扩展。MHT 生成类型化连接、投影与契约，UBT 在每个所属模块内编译宿主。MBT 驱动自动 C++ Hook 的编译动作并校验受支持桌面目标的最终链接。MDT 发布宿主版和独立制作端 SDK，由共享 Runtime 承载 Client 调用表。
 
 ## 当前实现与限制
 
 | 链路 | 当前实现 | 仍需验收或扩展的范围 |
 | --- | --- | --- |
-| 导出和宿主构建 | MHT 解析活动 C++ 声明与 `ModExportBlueprints` 快照；MBT 驱动 UBT 编译生成的 Hook 源码副本。Win64 x64 MSVC 核对独立归档及 PE 链接结果，Linux x64 CI 覆盖直接编译路径的 Development Game/Editor 构建与 Editor Hook 分发测试 | 更丰富的类型与异步调用形状、远程编译、更多目标与工具链组合 |
+| 导出和宿主构建 | MHT 解析活动 C++ 声明与 `ModExportBlueprints` 快照。UBT 直接编译宿主单元，MBT 驱动 Hook 源替换并校验桌面最终链接。Linux x64 CI 覆盖 Development Game、Editor 和 Editor Hook 分发。 | 更丰富的类型与异步调用形状、远程编译、更多目标与工具链组合 |
 | SDK 和作者工程 | MDT 生成作者端 SDK、独立制作插件及可选的宿主 SDK 源插件；`TestMod` 演示独立制作、Cook 与完整生命周期 | 扩展至更多目标构建与实际 Shipping 发行 |
 | 包加载 | `ModLoader` 发现并验证 v1/v2/v3 归档，执行依赖与授权准入，挂载内容并分发结果；Win64 x64 Pak 支持按宿主配置加载匹配的 UE 模块或独立 C ABI 扩展 DLL | 各平台的 Shipping Pak/IoStore、完整资源清理与原生模块生命周期验收 |
 | World 扩展 | `UModExtensionSubsystem` 管理同步 Hook、`Immediate`/`NextTick` Event、内容槽、Actor/组件/数据 Patch 及版本化跨模组服务 | 任意结构或容器投影、工作线程扩展、游戏业务的完整回归矩阵 |
@@ -413,7 +413,7 @@ Windows 隐式链接需要公开声明、导入库与运行时 DLL；显式动�
 
 ### MHT、MBT 与原生 UBT 的职责
 
-MHT 负责声明解析与代码生成。使用自动 C++ Hook 时，以 `ModBuildTool build-ue-target` 驱动 UBT 导出动作，再用 MHT 与 MST 生成的源码副本替换编译输入。Win64 x64 MSVC 通过 MBT 独立编译和校验宿主归档，其他工具链通过 UHT `CompileOutput` 把生成宿主单元登记到所属 UBT 模块。
+MHT 解析声明并生成源码。UBT 使用所属模块的编译环境构建所有宿主单元。使用自动 C++ Hook 时，`ModBuildTool build-ue-target` 驱动 UBT，并用 MHT 与 MST 生成的源码副本替换对应的原始编译输入。
 
 | 职责 | MHT | MBT | 原生 UE 工具 |
 | --- | --- | --- | --- |
@@ -421,33 +421,33 @@ MHT 负责声明解析与代码生成。使用自动 C++ Hook 时，以 `ModBuil
 | 获取真实 C++ 类型与成员签名 | libclang 按选定 Target 解析活动声明 | 使用所属模块真实编译上下文 | UHT 生成标准反射头，UBT 提供编译数据库 |
 | 完整类型依赖闭包、游戏到 Mod/ABI 类型投影 | 唯一负责方 | 不解析类型或重算规则 | 不定义 Mod 导出语义 |
 | 生成 FModRuntimeObject、参数/结果转换及调用连接 | 唯一负责方 | 在独立编译路径消费生成实现 | UBT 消费宿主库或在所属模块内编译宿主单元 |
-| 生成契约描述符、ABI 声明和编译期验证代码 | 唯一负责方 | 在独立编译路径按清单编译校验单元 | UBT 在直接编译路径编译校验单元 |
+| 生成契约描述符、ABI 声明和编译期校验 | 生成源码 | 跟踪输入 | UBT 在所属模块内编译校验单元 |
 | 识别 Target、配置、平台、架构与工具链 | 消费已锁定上下文 | 核对 Profile 与构建输入 | UBT 提供实际 Target 环境 |
 | 管理生成文件 | 生成内容、清单与语义依赖 | 管理构建输入、缓存与清单引用 | 按登记的依赖决定增量执行 |
 | 检查 SDK 与二进制兼容性 | 提供契约/投影/ABI 摘要 | 核对构建身份、批次与实际产物 | 提供构建凭证及模块元数据 |
 | 收集 DLL、LIB 和必要 UE 元数据 | 不负责 | 从成功目标的结果收集 | 按目标实际产生 |
-| 组织 SDK 发布包 | 提供生成契约 | 返回公共文件及库的校验结果 | MDT 调用 UAT 构建并发布 SDK |
-| 编译 MHT 宿主实现 | 不负责 | Win64 x64 MSVC 使用所属模块配方独立构建静态库 | 其他工具链由 UBT 使用模块上下文编译生成单元 |
-| 编译 UE 模块与最终链接 | 提供注册锚点与 Hook 替换清单 | 替换 Hook 编译动作输入，核对独立归档路径的链接结果 | UBT 执行编译动作及最终链接 |
+| 组织 SDK 发布包 | 提供契约、连接描述、Client 源与目标清单 | 提供二进制核验 | MDT 调用 UAT 构建制作端插件并发布 SDK |
+| 编译 MHT 宿主实现 | 生成宿主源码 | 维护依赖与 Hook 动作 | 所有工具链均由 UBT 在所属模块编译 |
+| 编译 UE 模块与最终链接 | 提供注册标记与 Hook 替换清单 | 核对支持的桌面目标链接结果 | UBT 执行编译与链接 |
 
-当前 Win64 x64 MSVC 适配按如下顺序执行：Target 规则准备独立工具与依赖标记，C# UHT Exporter 在标准 CodeGen 后调用 MHT，MBT 按真实拥有者配方构建各归档，MST 生成宿主链接头，UBT 完成链接后由 MBT 核对目标回执及 PE 见证符号；MDT 则根据独立 SDK 请求构建并发布。[^R04][^R21]
+UHT 在标准 CodeGen 后调用 MHT，再逐模块登记宿主与编译校验单元。独立的制作端工程和游戏工程使用同名的共享 Runtime 模块。每个目标的生成目录与最终链接记录均独立保存。
 
 ```mermaid
 flowchart TD
     A[UBT 准备工具和编译上下文] --> B[标准 UHT CodeGen]
     B --> C[UHT Exporter 准备配置和蓝图快照]
     C --> D[MHT 生成连接、契约和清单]
-    D -->|Win64 x64 MSVC| E[MBT 编译宿主和客户端静态库]
-    E --> F[MST 生成宿主链接头]
-    F --> G[UBT 编译 UE 模块并链接宿主库]
-    G --> H[MBT 核对当前目标的最终链接]
-    E --> I[MDT 消费匹配的契约和库任务]
-    I --> J[UAT 构建作者 SDK 和制作插件]
-    D -->|其他工具链| K[UHT 登记生成的宿主单元]
-    K --> L[UBT 在所属模块内编译并链接]
+    D --> E[UHT 登记宿主与校验单元]
+    E --> F[UBT 在所属模块编译并链接]
+    F --> G[MBT 核对最终宿主映像]
+    D --> I[MDT 校验各目标与公开契约]
+    I --> J[UAT 构建制作端 SDK 与编辑器插件]
+    I --> K[游戏安装共享 SDK Runtime]
+    K --> L[UBT 编译 Runtime 中的 Client 实现]
+    L --> M[Cook 游戏并验证实际 Mod 调用]
 ```
 
-各 Target 保留自己的上下文与生成目录。独立归档路径的清单格式为 `UMF.GeneratedArtifacts`，直接编译路径为 `UMF.UbtHostArtifacts`。Linux CI 验证 Game/Editor 构建、Editor Hook 分发和制作插件构建。[完整生成与自动 Hook 构建](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#完整生成模式)
+各目标统一发布 `UMF.GeneratedArtifacts` v4。`ClientSource` 是共享 Runtime 的编译输入，其余宿主与校验单元由 UHT 注册到所属 UBT 模块。
 
 ### MHT 的声明关联与统一 IR
 
@@ -549,7 +549,7 @@ Exporter 通过 UHT 的 AddExternalDependency 登记 Schema、选项目录及其
 | G2 类型分析与签名投影 | MHT 消费真实上下文、声明与类型信息 | 精确成员、完整类型闭包、Mod 签名与转换规则确定；完整批次 unresolved 为零 |
 | G3 代码与清单生成 | MHT 消费已解析 IR 与所属模块 | 宿主/SDK/Editor 源码、验证函数、契约及 Generated Artifact Manifest 同批完成 |
 | G4 宿主连接与目标构建 | MBT 按清单独立编译宿主库，或 UBT 在所属模块内编译生成单元 | 具体调用、转换与校验参与目标链接，新反射源码由后续目标的 UHT 处理 |
-| G5 目标产物核对 | Win64 x64 MSVC 的 MBT Finalize 消费生成清单、实际输入与成功构建凭证 | 记录本次 Target 已验证的 DLL、LIB 与模块元数据 |
+| G5 目标产物核对 | MBT Finalize 校验生成标记、实际 UBT 回执与所属二进制 | 记录目标、生成身份、映像及 SHA-256 |
 | G6 SDK 发布 | MDT 消费完成的契约与 Host/Client 库任务，按需调用 MBT 与 UAT | 校验作者 Editor 工具链与 BuildId，发布带哈希库存的 Bundle |
 
 UE 标准流程由 UBT 调用 UHT，再调度 UE 模块编译。MHT 将宿主实现写入工程或导出插件的 `Intermediate/ModTools/`，并在清单的 `compilationUnits` 中登记。独立路径由 MBT 编译清单指定的单元，直接路径通过 UHT 生成 `*.umfhost.cpp` 包装单元，由 UBT 在所属模块内编译。带新 UCLASS/USTRUCT/UFUNCTION 的 SDK 包装源码进入后续消费模块的正式输入，再运行相应 UHT。[^R04]
@@ -587,11 +587,11 @@ Win64 的链接核对在归档旁写出 `<owner>.lib.link.json` 与 `<owner>.lib
 
 ### Generated Artifact Manifest
 
-MHT 在生成成功后提交 `<game>.generated-artifacts.json`，记录本批次的全部生成文件。独立归档路径发布 `UMF.GeneratedArtifacts`，直接编译路径发布 `UMF.UbtHostArtifacts`，目标构建结果由目标回执记录。以下为独立归档路径的 Host/Client 清单示意，版本和哈希均为占位值，目标身份、必需符号及依赖字段已省略。
+MHT 在每个目标的生成目录中提交 `<game>.generated-artifacts.json`。以下节选展示 v4 清单的生成文件与编译单元。
 
 ```json
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "format": "UMF.GeneratedArtifacts",
   "generatorVersion": "<mht-generator-version>",
   "gameId": "MyGame",
@@ -599,14 +599,10 @@ MHT 在生成成功后提交 `<game>.generated-artifacts.json`，记录本批次
   "status": "Complete",
   "inputHash": "<normalized-input-hash>",
   "buildContextHash": "<mht-analysis-context-hash>",
-  "hostBuildContexts": {
-    "MyGame": "<actual-host-context-hash>",
-    "MyGameModClient": "<actual-client-context-hash>"
-  },
   "contractHash": "<contract-hash>",
   "projectionHash": "<projection-hash>",
   "nativeABIHash": "<abi-hash>",
-  "independentNativeABI": true,
+  "clientABI": "ContextHandlesV1",
   "unresolvedTypeCount": 0,
   "generatedFiles": [
     { "path": "SDK/Public/MyGame.modviews.h", "contentHash": "<view-hash>", "ownerModule": null, "role": "HostHeader" },
@@ -617,17 +613,17 @@ MHT 在生成成功后提交 `<game>.generated-artifacts.json`，记录本批次
     { "path": "Host/MyGame/MyGame.modabi.cpp", "contentHash": "<c-abi-host-hash>", "ownerModule": "MyGame", "role": "HostBinding" },
     { "path": "Host/MyGame/MyGame.modverify.cpp", "contentHash": "<verify-hash>", "ownerModule": "MyGame", "role": "CompileVerification" },
     { "path": "SDK/Private/MyGame.modviews.cpp", "contentHash": "<views-implementation-hash>", "ownerModule": "MyGame", "role": "HostBinding" },
-    { "path": "Client/MyGameModClient/MyGameModClient.modclient.cpp", "contentHash": "<client-hash>", "ownerModule": "MyGameModClient", "role": "HostBinding" },
+    { "path": "Client/MyGameModClient/MyGameModClient.modclient.cpp", "contentHash": "<client-hash>", "ownerModule": "MyGameModClient", "role": "ClientSource" },
     { "path": "Contract/MyGame.clientabi.json", "contentHash": "<connection-hash>", "ownerModule": null, "role": "Contract" },
     { "path": "Contract/MyGame.sdkcontract.json", "contentHash": "<sdk-contract-hash>", "ownerModule": null, "role": "Contract" },
     { "path": "Contract/MyGame.modcontract.json", "contentHash": "<contract-file-hash>", "ownerModule": null, "role": "Contract" }
   ],
   "compilationUnits": [
-    { "ownerModule": "MyGame", "source": "Host/MyGame/MyGame.modhost.cpp" },
-    { "ownerModule": "MyGame", "source": "Host/MyGame/MyGame.modverify.cpp" },
-    { "ownerModule": "MyGame", "source": "SDK/Private/MyGame.modviews.cpp" },
-    { "ownerModule": "MyGame", "source": "Host/MyGame/MyGame.modabi.cpp" },
-    { "ownerModule": "MyGameModClient", "source": "Client/MyGameModClient/MyGameModClient.modclient.cpp" }
+    { "ownerModule": "MyGame", "role": "HostBinding", "source": "Host/MyGame/MyGame.modhost.cpp" },
+    { "ownerModule": "MyGame", "role": "CompileVerification", "source": "Host/MyGame/MyGame.modverify.cpp" },
+    { "ownerModule": "MyGame", "role": "HostBinding", "source": "SDK/Private/MyGame.modviews.cpp" },
+    { "ownerModule": "MyGame", "role": "HostBinding", "source": "Host/MyGame/MyGame.modabi.cpp" },
+    { "ownerModule": "MyGameModClient", "role": "ClientSource", "source": "Client/MyGameModClient/MyGameModClient.modclient.cpp" }
   ]
 }
 ```
@@ -636,7 +632,7 @@ MHT 在生成成功后提交 `<game>.generated-artifacts.json`，记录本批次
 
 文件路径相对于该批次输出根，须规范化、唯一且不越界，每项均附内容哈希、所属模块与用途。生成清单不将自身纳入文件哈希集合，以避免自引用。MHT 负责原子提交文件与清单，并依据上一份受管理清单清除失效输出；失败时不提交新的成功批次。旧批次仅在仍匹配全部当前输入时方可复用。
 
-`compilationUnits` 是 MBT 的显式编译输入。每项必须引用 `generatedFiles` 中同属该模块且哈希匹配的 `.cpp`、`.cc` 或 `.cxx`；MBT 不通过递归扫描猜测源文件，也不接受 `.inl` 作为独立单元。MBT 校验清单与上下文后编译这些单元并创建静态库，再关联实际构建结果，而不从 `.modcontract.json` 重新解释 `GetHealth` 的 C++ 类型或重算转换规则。宿主私有源码不作为作者 SDK 的公共文件发布。
+`compilationUnits` 的每项都对应 `generatedFiles` 中同一所属模块的生成源码及内容哈希。UHT 按 role 交给 UBT 编译宿主与校验单元，MDT 将 ClientSource 放入共享 SDK Runtime 模块。
 
 ### 客户端 ABI 与后续连接
 
@@ -673,10 +669,10 @@ MHT 在生成成功后提交 `<game>.generated-artifacts.json`，记录本批次
 | MyGame.modabi.cpp | 宿主 C ABI 入口与函数表查询 |
 | MyGame.modverify.cpp | 精确签名断言、完整转换与调用形状校验 |
 | MyGame.modviews.cpp | SDK 视图方法、构造函数与 TypeId 实现 |
-| MyGameModClient.modclient.cpp | 独立客户端库的连接、断开、释放及类型化转发入口 |
+| MyGameModClient.modclient.cpp | 共享 Runtime 持有的连接、断开、释放及类型化转发入口 |
 | MyGame.modcontract.json | 稳定契约身份、源/Mod 签名及投影/ABI 摘要 |
 
-MHT 生成上述文件与生成清单后即完成生成阶段。宿主实现先由 MBT 编译为所属模块的静态库，再由 UBT 链入游戏可执行文件或所属模块 DLL；后续 SDK 的 UE 反射包装由 MDT 生成，并按消费目标另行构建。
+生成完成后，UBT 将宿主实现编入游戏或所属模块 DLL。MDT 生成游戏和作者侧的 SDK 插件。在每个实际目标上，由 UBT 将 Client 源编入同名 Runtime 模块。
 
 | 类别 | 宿主产物 | Mod/SDK 与 Editor 产物 |
 | --- | --- | --- |
@@ -1276,7 +1272,7 @@ Hook、Event、CheckedBinding 与 ABI 转换分别记录单次固定成本、每
 
 | 阶段 | 已有接入点 | 发布前的主要验证 |
 | --- | --- | --- |
-| P0 | Win64 x64 MSVC 独立归档、Linux x64 Development 构建及 Hook 用例、独立作者工程与调用基准 | 独立验证 Pak/IoStore Shipping、双 PIE 及更多构建目标 |
+| P0 | UBT 直编宿主、桌面链接检查、Linux Development 构建与 Hook 用例、独立作者工程、调用基准及 Win64 Development 双 Mod 共享 Runtime 回归 | 独立验证 Pak/IoStore Shipping、双 PIE 及更多构建目标 |
 | P1 | 当前签名集的 C++ 与蓝图导出、SDK 契约与 MDT 发布 | 覆盖复杂签名、完整差异报告与消费目标矩阵 |
 | P2 | GameInstance API Registry、World/Player 绑定、World 就绪与停止 | 多玩家、旅行与完整关闭行为 |
 | P3 | Hook 三阶段、类型化 Event、内容槽、World Patch 与服务 | 失败、顺序、重入、幂等与回收用例 |

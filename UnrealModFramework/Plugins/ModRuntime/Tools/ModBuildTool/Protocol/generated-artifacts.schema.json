@@ -1,25 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "UMF complete generated artifacts v3",
+  "title": "UMF complete generated artifacts v4",
   "type": "object",
-  "required": ["format", "schemaVersion", "target", "platform", "configuration", "architecture", "generationId", "status", "unresolvedTypeCount", "buildContextHash", "inputHash", "contractHash", "projectionHash", "nativeABIHash", "generatedFiles", "compilationUnits", "requiredSymbols", "hostBuildContexts", "inputFiles", "watchedDirectories"],
+  "required": ["format", "schemaVersion", "target", "platform", "configuration", "architecture", "generationId", "status", "unresolvedTypeCount", "buildContextHash", "inputHash", "contractHash", "projectionHash", "nativeABIHash", "generatedFiles", "compilationUnits", "requiredSymbols", "inputFiles", "watchedDirectories"],
   "properties": {
     "format": { "const": "UMF.GeneratedArtifacts" },
-    "schemaVersion": { "const": 3 },
+    "schemaVersion": { "const": 4 },
     "target": { "type": "string", "minLength": 1 },
-    "platform": { "enum": ["Win64", "Linux", "Mac"] },
+    "platform": { "type": "string", "minLength": 1 },
     "configuration": { "enum": ["Debug", "DebugGame", "Development", "Shipping", "Test"] },
-    "architecture": { "enum": ["x64", "arm64"] },
+    "architecture": { "type": "string", "minLength": 1 },
     "status": { "const": "Complete" },
     "unresolvedTypeCount": { "const": 0 },
     "generationId": { "$ref": "#/$defs/hash" },
     "buildContextHash": { "$ref": "#/$defs/hash" },
-    "hostBuildContexts": {
-      "type": "object",
-      "description": "Exact MBT producer-context hash for every compilation owner, including the standalone client.",
-      "minProperties": 1,
-      "additionalProperties": { "$ref": "#/$defs/hash" }
-    },
     "inputFiles": {
       "type": "array",
       "items": {
@@ -65,7 +59,7 @@
           "path": { "type": "string", "minLength": 1 },
           "contentHash": { "$ref": "#/$defs/hash" },
           "ownerModule": { "type": ["string", "null"], "minLength": 1 },
-          "role": { "enum": ["HostBinding", "HostRegistration", "CompileVerification", "HostHeader", "SdkHeader", "Contract", "SdkResource", "Diagnostic"] }
+          "role": { "enum": ["ClientSource", "HostBinding", "HostRegistration", "CompileVerification", "HostHeader", "SdkHeader", "Contract", "SdkResource", "Diagnostic"] }
         }
       }
     },
@@ -88,10 +82,11 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["ownerModule", "source"],
+        "required": ["ownerModule", "source", "role"],
         "properties": {
           "ownerModule": { "type": "string", "minLength": 1 },
-          "source": { "type": "string", "minLength": 1 }
+          "source": { "type": "string", "minLength": 1 },
+          "role": { "enum": ["HostBinding", "CompileVerification", "HostRegistration", "ClientSource"] }
         }
       }
     }

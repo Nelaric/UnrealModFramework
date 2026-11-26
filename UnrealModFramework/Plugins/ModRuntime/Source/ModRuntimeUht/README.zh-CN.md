@@ -6,7 +6,7 @@
 
 `ModRuntime.ubtplugin.csproj` 从当前引擎继承 UHT Exporter 的目标框架（UE 5.6 对应 .NET 8，UE 5.8 对应 .NET 10）。UBT 会在已启用的 ModRuntime 插件内发现该工程，构建程序集并加载 `[UnrealHeaderTool]` 类与 `[UhtExporter]` 入口。该工程直接引用当前引擎的程序集，无需项目引用或修改引擎。Exporter 名称为 `ModRuntime`，反射运行时模块 `ModLoader` 在 Game 和 Editor 清单中均会启用它。
 
-C# 适配层负责启动独立的 MHT 与 MBT 进程，传递真实编译配方、登记依赖并传播失败信息。C++ 分析、参数校验、投影与源码生成由 MHT 负责；独立编译与归档校验由 MBT 负责；蓝图导出仍归属 ExportCodeGenerator 编辑器模块；最终的游戏与模块链接由 UBT 执行。发现机制参见 Epic 的 [UE 5.6 UHT 扩展文档](https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-header-tool-for-unreal-engine?application_version=5.6)。
+适配层从当前 UBT Target 准备分析输入并执行 MHT。MHT 负责 C++ 投影和生成，ExportCodeGenerator 负责蓝图导出，UBT 编译并链接宿主。
 
 ## 工具发现与默认调用
 
@@ -52,9 +52,9 @@ ModSourceTool（MST）按以下顺序查找：环境变量 `UMF_MOD_SOURCE_TOOL_
 
 也可通过 `UMF_MHT_BUILD_INPUT` 指定本次构建使用的 build input（同时启用 `generate` 模式并覆盖 Target 配置），并通过 `UMF_MHT_LIBCLANG` 覆盖 `libclang` 路径。环境变量变更后需要重新触发 UHT 执行，例如在 UBT 命令中传入 `-ForceHeaderGeneration`。
 
-`generate` 模式按实际 Target、平台、配置和架构选择 build input，并校验其与当前工程和 UHT 会话一致。适配层在对应变体的 `HostTargets` 目录写入 `GenerationRequest.json`，再执行 `ModHeaderTool generate <GenerationRequest.json>`。在 Win64 x64 MSVC 上，适配层提供独立编译的生产者上下文，由 MHT 发布 `UMF.GeneratedArtifacts` 清单、UHT 调用 MBT 构建宿主与客户端静态库；其他工具链使用 `UMF.UbtHostArtifacts` 清单，通过 UHT 的 `CompileOutput` 在所属 UBT 模块内编译生成的宿主单元。
+各目标生成 `UMF.GeneratedArtifacts` v4 清单。宿主编译单元列出所属模块和用途，Client 源交给 MDT。
 
-工程的生成根目录为 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。每次生成会更新当前变体的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 和 `<gameId>.generated-artifacts.json`；内容未变更的文件保留时间戳，完整清单在所有文件替换完成后原子提交。独立编译路径还会将导出插件所属模块的生成文件按相同相对路径同步发布到插件目录，工程目录则保留共享契约、客户端 ABI 和完整清单。
+工程的生成根目录为 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。每次生成会更新当前变体的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 和 `<gameId>.generated-artifacts.json`；内容未变更的文件保留时间戳，完整清单在所有文件替换完成后原子提交。
 
 正常构建时，适配层会使用当前 Target 和目标编译器运行 UBT 的 `GenerateClangDatabase`，并在正式编译动作生成前展开导出模块的响应文件。对应变体的 `HostTargets` 目录保存 `BuildInput.json` 和 `Ubt/compile_commands.json`；生成时会根据当前 Target 的编译动作刷新输入。Target 或变体中显式配置的 `buildInput` 由调用方维护，其编译数据库及响应文件须与当前 Target 匹配。Clang 还依赖标准 UHT CodeGen 生成的头文件。
 
@@ -129,25 +129,11 @@ mbt=UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool
 
 MHT 和 MST 通过 Clang 定位标记的成员函数并生成源码副本。MBT 会替换对应 UBT 编译动作及嵌套响应文件中的源码输入，同时沿用原定的对象文件和链接输出。生成的注册代码引用源码副本中定义的版本符号，因此 COFF 和 ELF 链接器会拒绝未经替换的原目标文件。Apple 构建还会使用 Xcode 的 `nm` 检查实际的 Mach-O 产物，即便在动态查找模式下也能发现遗留的 Hook 导入。C++ 与蓝图调用最终进入同一个公开函数。当工具链需要引导编辑器时，会以 `-MhtBootstrap` 调用 UBT，生成的 Development Editor 直接执行原函数。`Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` 测试覆盖了这两种调用入口。
 
-构建规则对 Win64 x64 MSVC 使用独立 MBT 静态库，对其他工具链则通过 UBT 编译生成的宿主单元（直接编译路径的清单格式为 `UMF.UbtHostArtifacts`）。主机专有 SDK、远程 Mac 编译动作、通用二进制打包和第三方原生 Mod 安装各自需要单独的平台接入。
+各目标生成 `UMF.GeneratedArtifacts` v4 清单。宿主编译单元列出所属模块和用途，Client 源交给 MDT。
 
-## 独立宿主编译与链接
+## 宿主编译与链接
 
-每个宿主 Target 配置一次。导出模块按 UE 常规方式依赖 `ModAPI`。该模块提供宿主运行时符号，并公开 `ExportMetadata` 的导出宏头文件。UHT 将生成代码或链接单元加入所属模块，调用方按实际使用的接口配置模块依赖。
-
-构建规则会在工程的 `Intermediate/ModTools/ModHeaderTool/HostTargets/<Target>/<Platform>/<Configuration>/<Architecture>` 下写入稳定的目标描述。`MbtHostBuild` 从真实 UBT 编译数据库中读取 MSVC 动作并展开响应文件，按哈希锁定展开后的配方与原始数据库：保留模块生产者宏和 ABI 设置，仅替换源码、对象和依赖输出，并追加生成头目录。在 Win64 x64 MSVC 上，MBT 单独编译各生成单元，归档配方要求关闭 PCH 和 LTO。
-
-MHT 在公共头中声明签名和常量，在显式 `.cpp` 编译单元中生成实现。MBT 独立编译这些单元，并在所属工程或插件的 `Intermediate/ModTools/ModBuildTool/<Target>/<Platform>/<Configuration>/<Architecture>` 下发布 `<owner>.lib` 和 `.mbt.json` 回执。另有独立的 `<game>ModClient` 生产者上下文，移除 UE/游戏包含路径与强制定义并保留真实工具链参数，由 MBT 独立编译客户端 ABI 库并写入工程的 `Intermediate/ModTools/ModBuildTool` 对应变体目录。v3 清单为单宿主示例列出了全部五个 Host/Client 单元，并将两类入口绑定到 ExportId。ModSDKTool（MDT）发布 C ABI 公共头，并为结构化错误码目录发布独立的 `<game>.moderrors.h`。清单中的 `hostBuildContexts` 锁定每个真实生产者上下文；输入指纹一致时，MBT 会直接复用已有库。详见 [MHT 连接协议](../../Tools/ModHeaderTool/README.zh-CN.md)。
-
-UBT 提供每个所属模块的实际 EXE 或 DLL 路径。MBT 生成静态库后，UHT 在所属模块中生成一个链接单元，包含 MSVC 库路径和 MST 生成的符号保留指令。链接头记录静态库内容哈希，库发生变化时会触发重新链接。`UModAPIHostSubsystem` 在 GameInstance 初始化时运行生成的注册入口。MHT 为 Player 作用域中导出的 `ULocalPlayerSubsystem` 类型生成提供者标记，运行时据此从指定玩家取得已有实例。SDK 视图方法、构造函数和 TypeId 辅助函数也由 MBT 编译。
-
-原生产物发布后，适配层会刷新宿主库、回执和生成文件的 UE `FileItem` 缓存。由于 Internal UHT 与 UBT 共享该缓存，刷新后当前构建才能识别新库并立即重新链接。
-
-Target 规则调用一次 `ExportMetadata.ConfigureTarget(this)` 即可安装 UE 5.6 构建钩子。构建脚本存在时，UBT 在 Windows 上执行 `Tools/Build.bat --target ModRuntimeUhtTools`，在 Linux 和 macOS 上执行 `sh Tools/Build.sh --target ModRuntimeUhtTools`。脚本复用 `Tools/build/.cmake` 执行增量 Release 构建，工具构建失败会中止 UE 构建。Windows 上由本地 MBT 驱动 UE 构建时，预构建步骤会复用该 MBT 并构建 MHT 和 MST。Linux 和 macOS 使用 GNU `g++`，macOS 通过 `CXX` 指定已安装的 GNU C++ 编译器。已备齐工具的 Unix 暂存工程在缺少 CMake 时可跳过工具重建。
-
-已随包提供预编译原生工具及其依赖的宿主可以调用 `ExportMetadata.ConfigureTarget(this, buildNativeTools: false)`，跳过工具编译并保留 MHT 输入跟踪与链接校验。
-
-后续预构建步骤调用 MBT 检查受监控目录和此前缺失的可选输入，发生变更时更新 UHT 依赖标记。Win64 x64 MSVC 独立编译路径的 PostBuildSteps 核对 UBT 目标回执、模块归属及最终 DLL 或 EXE 中对应归档的 PE 见证符号，并在宿主库旁发布 `<owner>.lib.link.json` 和 `<owner>.lib.linked.json`。独立客户端库有自己的构建回执。
+UHT 通过 `CompileOutput` 将宿主与编译校验单元交给所属 UBT 模块。MDT 将 `ClientSource` 放入共享 SDK Runtime。MBT 驱动 Hook 源替换、跟踪输入，并用 UBT 回执、模块清单和最终二进制中的生成标记写出当前变体的 `HostTargets/.../host-link.json`。
 
 ## 构建语义与范围
 
@@ -155,7 +141,7 @@ Target 规则调用一次 `ExportMetadata.ConfigureTarget(this)` 即可安装 UE
 
 UHT 的 NoOutput、reference、引导模式及 `-Mode=GenerateClangDatabase` 调用会跳过原生生成；正常构建在准备完成后运行 MHT。由于 MHT 尚无等价的 dry-run 协议，`-FailIfGeneratedCodeChanges` 下拒绝完整生成；`scan` 模式的最终报告仍由 UHT 执行常规的变更检查。
 
-工具、配置、选项快照及其配置输入、反射头、编译输入、生成清单输入、编译配方、库文件、回执及其 `compilerDependencies` 均通过 `AddExternalDependency` 登记。对应文件或依赖标记变化时，UHT 会重新生成该变体。新检出的工程先运行 Setup 准备 LLVM 和工具，再通过 MBT 构建使用自动 C++ Hook 的目标。独立编译路径的链接核对覆盖标准 Win64 x64 工程 DLL 和 monolithic EXE。Live Coding 与 Hot Reload 需要单独接入。
+UHT 通过 `AddExternalDependency` 跟踪工具、生成输入、配置、快照及相关源文件。源文件集合变化时 MBT 更新监视标记，使 UBT 重新收集编译动作。
 
 UBT 会自动生成包含 `EngineDir` 的邻接 `.ubtplugin.csproj.props` 文件（已加入 Git 忽略）。手工编译适配程序集可运行：
 

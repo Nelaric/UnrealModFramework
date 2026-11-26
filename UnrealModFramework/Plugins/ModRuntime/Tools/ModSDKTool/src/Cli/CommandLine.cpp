@@ -34,7 +34,7 @@ Usage:
   ModSDKTool inspect --bundle <directory> [--output <inspection.json>]
   ModSDKTool --help | --version
 
-Accepts UMF.SdkBuildRequest v2 and UMF.SdkContract v1 or v2.
+Accepts UMF.SdkBuildRequest v3 and UMF.SdkContract v1 or v2.
 Contracts must already contain complete, resolved projections. MHT scan reports
 are rejected. Blueprint export belongs to ExportCodeGenerator.
 
@@ -42,11 +42,11 @@ The SDK adapter supports player object getters and typed instance methods,
 including world-scoped host Blueprint APIs with scalar parameters and results.
 IDs, names, types and native symbols come from the contract.
 
-plan asks MBT to validate its inputs but does not compile or publish.
-build calls MBT and UE AutomationTool, builds the SDK and independent developer
+plan validates the requested UBT generations and shared Runtime inputs.
+build calls UE AutomationTool, builds the SDK and independent developer
 plugin, verifies their artifacts, then publishes a versioned bundle.
 build-editor generates and packages the authoring plugin for the installed Editor.
-Host library creation does not prove final game linkage or runtime binding.
+Game integration compiles the shared Runtime and verifies final host bindings.
 
 Progress and child diagnostics use stderr; the final JSON uses stdout or
 --output. Exit codes: 0 success, 1 input/build failure, 130 cancelled.

@@ -2,12 +2,9 @@
 /** @file SdkRequest.h */
 #pragma once
 
-#include "ModSDKTool/src/Manifest/Library.h"
-
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <string>
-#include <vector>
 
 namespace Mod::SdkTool
 {
@@ -35,8 +32,10 @@ struct SdkRequest
 	fs::path Dotnet;
 	/// Actual UE AutomationTool assembly.
 	fs::path AutomationTool;
-	/// Checked per-module library jobs.
-	std::vector<Library> Libraries;
+	/// Producer targets and immutable generation identities.
+	Json Targets = Json::array();
+	/// Generated standalone Client implementation compiled only in the shared UE module.
+	Json ClientSource;
 	/// Public include paths mapped to validated generated source files.
 	Json Headers = Json::array();
 	/// Optional hash-checked public connection descriptor supplied by MHT.

@@ -7,6 +7,7 @@
 #include "ModSDKTool/src/Manifest/ContractSchema.h"
 #include "ModSDKTool/src/Manifest/JsonDocument.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <set>
@@ -23,7 +24,7 @@ Json SdkBundle::InspectSdk(const fs::path& Directory)
 	using namespace Mod::BuildTool;
 	const fs::path Root = fs::canonical(Directory);
 	const Json Manifest = JsonDocument::ReadJson(Root / "Manifest.json");
-	JsonDocument::RequireFormat(Manifest, "UMF.ModSdkBundle", {1, 2});
+	JsonDocument::RequireFormat(Manifest, "UMF.ModSdkBundle", {1, 2, 3});
 	const Json& Files = Manifest.at("files");
 	if (!Files.is_array() || Files.empty() || Files.size() > 100000)
 	{
@@ -45,6 +46,34 @@ Json SdkBundle::InspectSdk(const fs::path& Directory)
 	if (BundleInventory::Inventory(Root) != Files)
 	{
 		throw std::runtime_error("Bundle inventory does not exactly match the published files.");
+	}
+	if (Manifest.at("schemaVersion") == 3)
+	{
+		const auto Plugin = JsonDocument::Text(Manifest, "pluginName");
+		const auto Runtime = Plugin + "Runtime";
+		const auto& Shared = Manifest.at("sharedRuntime");
+		const auto Source = JsonDocument::Text(Shared, "clientSource");
+		const auto Digest = JsonDocument::Text(Shared, "clientSourceHash");
+		Hash::RequireDigest(Digest, "sharedRuntime.clientSourceHash");
+		if (Shared.at("module") != Runtime || !Source.starts_with("Source/" + Runtime + "/Private/") ||
+		    !Source.ends_with(".modclient.cpp"))
+		{
+			throw std::runtime_error("Invalid shared Runtime source declaration.");
+		}
+		for (const auto* Prefix : {"Plugins/", "Host/Plugins/"})
+		{
+			const auto Sdk = Path::ResolveGeneratedPath(Root, Prefix + Plugin);
+			const auto Descriptor = JsonDocument::ReadJson(Sdk / (Plugin + ".uplugin"));
+			const auto& Modules = Descriptor.at("Modules");
+			if (Descriptor.at("UMFSharedRuntimeModule") != Runtime ||
+			    std::count_if(Modules.begin(), Modules.end(), [&](const Json& Module)
+			                  { return Module.at("Name") == Runtime && Module.at("Type") == "Runtime"; }) != 1 ||
+			    Hash::HashFile(Path::ResolveGeneratedPath(Sdk, Source)) != Digest)
+			{
+				throw std::runtime_error(
+				    "Published shared Runtime module or Client source mismatch: " + std::string(Prefix) + Plugin);
+			}
+		}
 	}
 	const Json Contract = JsonDocument::ReadJson(Root / "Contract" / "SdkContract.json");
 	JsonDocument::RequireFormat(Contract, "UMF.SdkContract", {1, 2});

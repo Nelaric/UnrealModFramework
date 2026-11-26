@@ -9,12 +9,7 @@ resolved exports. It binds player contexts and object views to generated
 methods that accept typed scalar and public UE object inputs. API IDs, public
 types, names, and native symbols are all defined by the producer contract.
 
-MHT owns C++ analysis and projection, while ExportCodeGenerator owns Blueprint
-export. MDT consumes the `UMF.GeneratedArtifacts` manifest and MBT producer
-contexts from independent compilation, invokes MBT to compile generated
-libraries, creates UE adapters, builds plugins through AutomationTool, and
-publishes a file-hashed bundle. To build only the independent authoring plugin
-for an installed Editor, run `build-editor`.
+MHT owns C++ projection and ExportCodeGenerator owns Blueprint exports. MDT validates the v4 target manifests, generates the game and author variants of the shared Runtime, builds the authoring plugins through AutomationTool, and publishes a hashed bundle.
 
 ## Build and run
 
@@ -28,14 +23,7 @@ ModSDKTool build --request SdkBuildRequest.json --output Result.json
 ModSDKTool inspect --bundle <published-directory>
 ```
 
-Paths in a request are resolved relative to the request file. `plan` validates
-MBT inputs in a dedicated temporary directory without compiling or publishing,
-while `build` runs real MBT recipes and UE `BuildPlugin`. Tool paths must point
-to native executables rather than shell commands or batch files. Child
-diagnostics and JSON progress are written to stderr, and the final JSON result
-is written to stdout or `--output`. Every child process enforces a deadline and
-supports process-tree cancellation. Result files must be written outside the
-published bundle.
+Request paths are relative to the request file. `plan` checks the manifests, host and Client connection metadata, and input hashes. `build` invokes UAT `BuildPlugin` and publishes the bundle. Diagnostics go to stderr. Write result files outside the bundle.
 
 Published bundles are immutable. Identical inputs reuse a fully verified bundle
 and return `UpToDate`; changed inputs require a new versioned output directory.
@@ -69,10 +57,10 @@ includes both plugins.
 MDT also supports reading v1 contracts that use the original ABI field names.
 The contract must have status `Complete` with zero unresolved types, and its
 contract, projection, and native ABI SHA-256 identities must agree across all
-library batches. A contract with Hook/Event declarations and lifecycle
+target manifests. A contract with Hook/Event declarations and lifecycle
 projection v2 may have an empty API list. The contract JSON itself must appear
 as a hash-checked `Contract` artifact in a generated manifest, and public
-includes must be MBT-reported `SdkHeader` artifacts. Host implementations,
+includes must be MHT-declared `SdkHeader` artifacts. Host implementations,
 registration and verification code, and private headers are never copied into
 the public SDK.
 
@@ -115,37 +103,12 @@ contexts via `FromNative`. Adapter errors are reported as negative numbers,
 while nonnegative Blueprint `int64` error codes preserve native status values.
 
 MHT exports global lifecycle declarations to `Contract/ModLifecycle.json` and
-records the digest in `modLifecycle`. Once MBT verifies the export and compiles
-the libraries, MDT generates `ModInstance.h` and `ModInstanceSubSystem.h`, then
+records the digest in `modLifecycle`. Once MDT verifies the lifecycle artifact, it generates `ModInstance.h` and `ModInstanceSubSystem.h`, then
 invokes UAT to build the authoring SDK and the development editor plugin. The
 generated reflection module preserves the game's `/Script/ModLoader` type paths,
 while the game session owns the instances and delivers lifecycle events.
 
-`UMF.SdkBuildRequest` v2 is defined in [sdk-build-request.schema.json](Protocol/sdk-build-request.schema.json).
-Set `schemaVersion` to `2` and omit `developmentPlugin`.
-
-| Field | Purpose |
-| --- | --- |
-| `project`, `gameId`, `sdkVersion` | Target project and versioned game identity |
-| `pluginName` | Stable SDK plugin and reflection module identity |
-| `contract` | Completed public producer contract |
-| `outputDirectory` | Optional bundle output directory (defaults to `<project>/Intermediate/ModTools/ModSDKTool/<pluginName>/<sdkVersion>`) |
-| `tools.mbt` | MBT executable supporting the input manifest version and binary inspection |
-| `tools.dotnet`, `tools.automationTool` | UE-compatible .NET host executable and UAT assembly |
-| `editor` | Host platform, architecture, Development configuration, actual engine `.modules` file, and matching `buildId` |
-| `libraries` | Host and Client entries, each specifying `context` and `generatedManifest` |
-| `workDirectory` | Optional short temporary root directory (useful on Windows) |
-| `timeoutSeconds` | Per-child process deadline in seconds (1–86400; default 1800) |
-
-Both library roles use MBT's owning-module archive builder. A Client context is
-the producer context for the independent client library's own module, not an
-import context for game-private code. At least one Client profile must match the
-authoring Editor, and each job must write to a distinct output.
-
-Plugin compilation runs `BuildPlugin -NoTargetPlatforms` for the authoring
-Editor. MDT verifies actual module binaries, target architecture, matching
-BuildId, and the complete file inventory. The generated Build.cs rejects builds
-when no matching client profile is present.
+The v3 `UMF.SdkBuildRequest` includes `project`, `gameId`, `sdkVersion`, `pluginName`, `contract`, `tools`, `editor` and `targets`. Each target supplies `target`, `platform`, `configuration`, `architecture` and `generatedManifest`. MDT checks file hashes, compilation ownership, API signatures, connection symbols and ABI identity. All profiles must agree on the public headers and Client implementation. [Request schema](Protocol/sdk-build-request.schema.json)
 
 ### World extension contracts
 
@@ -174,44 +137,17 @@ bundles carry MDT, MBT, and their license notices under the plugin's
 `Binaries/ThirdParty/ModSDKTool/<platform>` directory.
 
 ```text
-<bundle>/
-  Manifest.json
-  Contract/SdkContract.json
-  Native/Include/...
-  Native/Lib/<platform>/<architecture>/<configuration>/<target-type>/...
-  Plugins/<game-sdk>/...
-  Plugins/ModDevelopmentSDKEditor/...
-  Host/Plugins/<game-sdk>/...  (when non-Editor Client profiles are supplied)
-  Build/Plan.json
-  Build/NativeResults.json
+Manifest.json
+Build/Plan.json
+Contract/
+Native/Include/
+Host/Plugins/<game-sdk>/
+Plugins/<game-sdk>/
+Plugins/ModDevelopmentSDKEditor/
 ```
 
-A `Built` status confirms that MDT compiled and verified the native archives and
-authoring Editor plugins. Final game linkage, the Game-target SDK Runtime build,
-and live API binding are performed and verified on the host side. The UE 5.6
-Win64 host post-build step can produce MBT link records. Cooked Blueprint calls
-require the matching Runtime SDK module in the game. Because public module,
-type, function, and parameter names define reflection identity, keep them stable
-across compatible releases.
+The publisher installs `Host/Plugins/<game-sdk>` in the game providing the shared Runtime before building and cooking it. This variant uses the real `ModRuntime` dependency. Independent author projects install both plugins under `Plugins/`. The author SDK supplies the `/Script/ModLoader` reflection mirror. Both SDK variants have the same Runtime module name, reflected types, Client source and ABI.
 
-The optional `Host/Plugins/<game-sdk>` variant shares the same runtime module
-and Blueprint names as the authoring SDK. Supply matching Host and Client
-library requests for every target that builds or cooks the game, and install and
-enable the host variant in the game project before building or cooking. When
-installing the plugin into a host whose export commandlets need the new module
-before it is compiled, run the Development Editor bootstrap build with
-`-MhtBootstrap` first.
+Mod packaging collects its private modules and retains the shared plugin dependency. The game issues separate caller tokens for the Mods and revokes each caller independently.
 
-MHT emits a matching `.sdkcontract.json`, pure C `.modabi.h`, independent client
-endpoints, and a v3 manifest; see the [MHT connection protocol](../ModHeaderTool/README.md)
-for details. Configure its Host and `<game>ModClient` contexts as separate
-library jobs. The native connection descriptor lists host queries and client
-Connect/Disconnect symbols; MDT requires it to be a hash-checked public Contract
-artifact, verifies its identities and API signatures, and copies it into both
-the bundle and the SDK plugin at the declared relative path. `inspect` verifies
-both copies and their contract identity. The game supplies the authorization
-policy and live world provider for host Blueprint APIs, while other context
-delivery (such as local-player scope) belongs to the game integration. MHT marks
-the SDK adapter contract `Unsupported` for API graphs outside this MDT adapter's
-supported shapes. The internal UE-view `.modcontract.json` remains a separate
-contract and is rejected as an MDT SDK contract.
+`inspect` verifies the inventory, shared Client implementation and Runtime module declarations in both plugins. Each game build provides a separate `host-link.json`. The publisher tests the live ABI and the two independent Mods in the staged game and keeps that evidence alongside the SDK. [Game verification](../../../../../Test/SharedRuntime/README.md)

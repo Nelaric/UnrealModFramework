@@ -19,6 +19,11 @@ public:
 	                            std::string_view Name);
 	static bool IsElfExecutable(std::ifstream& Stream, std::string_view Header, std::uint64_t FileSize);
 
+	static void RequireElfSymbol(std::ifstream& Stream, std::string_view Header, std::uint64_t Size,
+	                             std::string_view Name);
+	static void RequireMachSymbol(std::ifstream& Stream, std::string_view Header, std::uint64_t Size,
+	                              std::string_view Name);
+
 private:
 	static std::uint64_t WideInteger(std::string_view Bytes, std::size_t Offset);
 };

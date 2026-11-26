@@ -456,41 +456,36 @@ Json NativeABIGenerator::WriteNativeABI(const GenerationModel& Model, std::map<s
 	Header << "#pragma pack(pop)\n\n/** @brief Returns the compiled client ABI version. */\n"
 	       << Macro << "_CLIENT_API uint32_t " << Macro << "_CALL UMF_ModClient_" << Game
 	       << "(void);\n\n#ifdef __cplusplus\n}\n#endif\n";
-	if (!Model.Extensions.empty() ||
-	    std::any_of(Model.APIs.begin(), Model.APIs.end(), [](const auto& Api) { return Api.Blueprint.has_value(); }))
+	Header << "\n#ifdef __cplusplus\n"
+	       << "/** @brief Connects each client table using host symbol addresses.\n"
+	       << " * @param Resolve Receives an owning module and its query symbol.\n"
+	       << " * @return Zero on success, otherwise a native status.\n"
+	       << " * @details Call on the game thread before delivering caller tokens.\n"
+	       << " */\n"
+	       << "template <class FResolve> uint32_t " << Prefix << "_ConnectHost(FResolve Resolve)\n{\n";
+	for (const auto& Connection : Connections)
 	{
-		Header << "\n#ifdef __cplusplus\n"
-		       << "/** @brief Connects each client table using host symbol addresses.\n"
-		       << " * @param Resolve Receives an owning module and its query symbol.\n"
-		       << " * @return Zero on success, otherwise a native status.\n"
-		       << " * @details Call on the game thread before delivering caller tokens.\n"
-		       << " */\n"
-		       << "template <class FResolve> uint32_t " << Prefix << "_ConnectHost(FResolve Resolve)\n{\n";
-		for (const auto& Connection : Connections)
-		{
-			const std::string Owner = Connection.at("ownerModule");
-			const std::string Table = Connection.at("tableType");
-			const std::string Query = Connection.at("querySymbol");
-			Header << "    " << Table << " " << Owner << "Table{};\n"
-			       << "    const auto " << Owner << "Query = reinterpret_cast<decltype(&" << Query << ")>(Resolve("
-			       << NativeCode::Literal(Owner) << ", " << NativeCode::Literal(Query) << "));\n"
-			       << "    if (!" << Owner << "Query) { return " << Prefix << "_NotConnected; }\n"
-			       << "    if (const uint32_t Status = " << Owner << "Query(" << Macro << "_ABI_VERSION, sizeof("
-			       << Owner << "Table), " << Macro << "_ABI_HASH, &" << Owner
-			       << "Table); Status != 0) { return Status; }\n";
-		}
-		for (const auto& Connection : Connections)
-		{
-			Header << "    if (const uint32_t Status = " << Connection.at("connectSymbol").get<std::string>() << "(&"
-			       << Connection.at("ownerModule").get<std::string>() << "Table); Status != 0)\n    {\n";
-			for (const auto& Other : Connections)
-			{
-				Header << "        " << Other.at("disconnectSymbol").get<std::string>() << "();\n";
-			}
-			Header << "        return Status;\n    }\n";
-		}
-		Header << "    return 0;\n}\n#endif\n";
+		const std::string Owner = Connection.at("ownerModule");
+		const std::string Table = Connection.at("tableType");
+		const std::string Query = Connection.at("querySymbol");
+		Header << "    " << Table << " " << Owner << "Table{};\n"
+		       << "    const auto " << Owner << "Query = reinterpret_cast<decltype(&" << Query << ")>(Resolve("
+		       << NativeCode::Literal(Owner) << ", " << NativeCode::Literal(Query) << "));\n"
+		       << "    if (!" << Owner << "Query) { return " << Prefix << "_NotConnected; }\n"
+		       << "    if (const uint32_t Status = " << Owner << "Query(" << Macro << "_ABI_VERSION, sizeof(" << Owner
+		       << "Table), " << Macro << "_ABI_HASH, &" << Owner << "Table); Status != 0) { return Status; }\n";
 	}
+	for (const auto& Connection : Connections)
+	{
+		Header << "    if (const uint32_t Status = " << Connection.at("connectSymbol").get<std::string>() << "(&"
+		       << Connection.at("ownerModule").get<std::string>() << "Table); Status != 0)\n    {\n";
+		for (const auto& Other : Connections)
+		{
+			Header << "        " << Other.at("disconnectSymbol").get<std::string>() << "();\n";
+		}
+		Header << "        return Status;\n    }\n";
+	}
+	Header << "    return 0;\n}\n#endif\n";
 	Files[HeaderPath] = Header.str();
 	Files["Client/" + ClientOwner + "/" + ClientOwner + ".modclient.cpp"] = Client.str();
 	Files["Contract/" + Game + ".clientabi.json"] = Descriptor.dump(2) + "\n";

@@ -31,6 +31,5 @@ struct GenerationInput
 	std::map<std::string, TypeIdentity> Types;
 	std::vector<std::string> AnalysisArguments;
 	std::map<std::string, fs::path> PathRoots;
-	std::map<std::string, fs::path> HostContexts;
 };
 } // namespace Mod::HeaderTool

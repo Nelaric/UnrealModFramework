@@ -4,9 +4,11 @@ English | [简体中文](README.zh-CN.md)
 
 # ModBuildTool
 
-MBT drives UBT builds with generated Hook source copies. On the independent Win64 x64 MSVC path, MBT also compiles the generated host bindings into native static archives, which UBT links into their owning binaries.
+MBT drives UBT with generated Hook source replacements and verifies the final desktop images against their target receipts. UBT compiles the generated host and verification units in their owning modules.
 
 The [UHT adapter](../../Source/ModRuntimeUht/README.md) invokes MHT generation and MBT independent compilation for the sample UE 5.6 Win64 MSVC targets, using private External module rules to attach each host archive to its owner. The Win64 UBT post-build step verifies the owning PE image and publishes link records: `Built` records archive construction, while `Linked` records verified association with a successful link and its image bytes.
+
+All current host targets compile MHT's v4 host units with UBT. MBT prepares Hook compile actions and verifies the generation-specific binding symbol in each final desktop image using the UBT target receipt. The per-variant `host-link.json` records image and receipt hashes. MDT packages the generated Client implementation in a shared UE Runtime module. The independent archive commands below accept historical producer inputs. [Current generation format](Protocol/generated-artifacts.schema.json) · [Historical v3 format](Protocol/generated-artifacts-v3.schema.json)
 
 ## Build and commands
 
@@ -104,7 +106,7 @@ The `UMF.ModHostLinkedArtifacts` / `Linked` output includes public files, contra
 
 ## UE 5.6 integration
 
-UHT runs MHT after standard CodeGen. For Win64 x64 MSVC, UHT obtains each export owner’s binary from UBT and generates a compile unit in that module to link its MBT archive. The pre-build `refresh-ue-watches` step tracks dependency changes, and `finalize-ue-target` verifies the linked image and publishes link records after the build. Other toolchains use UHT `CompileOutput` to compile the generated host units directly in the owning UBT module. [ModRuntime UHT integration](../../Source/ModRuntimeUht/README.md)
+MBT drives UBT with generated Hook source replacements and verifies the final desktop images against their target receipts. UBT compiles the generated host and verification units in their owning modules.
 
 `build-ue-target --mode normal` uses the same `Config/ModHeaderTool.json` generation settings as UHT. When the local MBT executable drives a Windows build, the tool pre-build step reuses that executable and builds MHT and MST. Run Setup again after switching to a branch with newer MBT sources so the next invocation uses the updated driver.
 

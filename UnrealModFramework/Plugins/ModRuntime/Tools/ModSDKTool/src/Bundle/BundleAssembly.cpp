@@ -6,11 +6,9 @@
 #include "Common/Hash/Hash.h"
 #include "ModSDKTool/src/Build/StageFiles.h"
 #include "ModSDKTool/src/Bundle/BundleInventory.h"
-#include "ModSDKTool/src/Bundle/ClientLayout.h"
 #include "ModSDKTool/src/Editor/PluginSources.h"
 #include "ModSDKTool/src/Manifest/ContractSchema.h"
 #include "ModSDKTool/src/Manifest/JsonDocument.h"
-#include "ModSDKTool/src/Manifest/Library.h"
 
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -56,25 +54,24 @@ void BundleAssembly::CopySdkNativeArtifacts(const SdkRequest& Request, const fs:
 		                     Mod::BuildTool::Path::ResolveGeneratedPath(Bundle / "Native" / "Include",
 		                                                                JsonDocument::Text(Header, "relativePath")));
 	}
-	for (const Library& Job : Request.Libraries)
-	{
-		if (Job.Role == "Client")
-		{
-			StageFiles::CopyFile(Mod::BuildTool::Path::PathFromUtf8(JsonDocument::Text(Job.Plan, "library")),
-			                     Bundle / "Native" / "Lib" /
-			                         Mod::BuildTool::Path::PathFromUtf8(ClientLayout::ClientRelativePath(Job)));
-		}
-	}
 }
 
 Json BundleAssembly::WriteBundleManifest(const SdkRequest& Request, const fs::path& Bundle, const std::string& Plugin)
 {
-	const Json Capabilities = {{"nativeLibrariesBuilt", true},     {"authorEditorBuilt", true},
-	                           {"typedBlueprintCallsBuilt", true}, {"hostFinalLinkVerified", false},
-	                           {"gameSdkRuntimeBuilt", false},     {"runtimeBindingVerified", false}};
+	const Json Capabilities = {{"sharedRuntimeSourceIncluded", true}, {"authorEditorBuilt", true},
+	                           {"typedBlueprintCallsBuilt", true},    {"hostFinalLinkVerified", false},
+	                           {"gameSdkRuntimeBuilt", false},        {"runtimeBindingVerified", false}};
+	const std::string Runtime = Plugin + "Runtime";
+	const std::string Client = "Source/" + Runtime + "/Private/" +
+	                           fs::path(Request.ClientSource.at("relativePath").get<std::string>()).filename().string();
+	Json Targets = Request.Targets;
+	for (Json& Target : Targets)
+	{
+		Target.erase("generatedManifest");
+	}
 	const Json Manifest = {
 	    {"format", "UMF.ModSdkBundle"},
-	    {"schemaVersion", 2},
+	    {"schemaVersion", 3},
 	    {"toolVersion", "0.1.0"},
 	    {"gameId", Request.Document.at("gameId")},
 	    {"sdkVersion", Request.Document.at("sdkVersion")},
@@ -84,6 +81,9 @@ Json BundleAssembly::WriteBundleManifest(const SdkRequest& Request, const fs::pa
 	    {"projectionHash", Request.Contract.at("projectionHash")},
 	    {"nativeABIHash", Request.Contract.at(ContractSchema::ContractIdentityKey(Request.Contract, "nativeABIHash"))},
 	    {"editor", Request.Document.at("editor")},
+	    {"sharedRuntime",
+	     {{"module", Runtime}, {"clientSource", Client}, {"clientSourceHash", Request.ClientSource.at("contentHash")}}},
+	    {"targets", Targets},
 	    {"capabilities", Capabilities},
 	    {"files", BundleInventory::Inventory(Bundle)}};
 	Mod::BuildTool::File::WriteFileAtomically(Bundle / "Manifest.json", Manifest.dump(2) + "\n");

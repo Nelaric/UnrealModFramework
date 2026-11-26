@@ -15,16 +15,12 @@ using Json = nlohmann::json;
 class APIGenerator
 {
 public:
-	APIGenerator(const fs::path& BuildInput, const fs::path& HostContexts);
+	explicit APIGenerator(const fs::path& BuildInput);
 	void Generate(const fs::path& OutputDirectory, const fs::path& Options, const fs::path& ClangLibrary,
 	              const fs::path& LifecycleSource, const fs::path& BlueprintSnapshot,
 	              const fs::path& ConfiguredSourceTool) &&;
 
 private:
-	fs::path ResolveAnalysisDatabase() const;
-
 	GenerationInput Input;
-	fs::path ContextFile;
-	Json ContextSet;
 };
 } // namespace Mod::HeaderTool

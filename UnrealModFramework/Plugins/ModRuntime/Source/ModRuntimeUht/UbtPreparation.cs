@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using EpicGames.Core;
 using EpicGames.UHT.Tables;
 using EpicGames.UHT.Utils;
@@ -64,18 +65,17 @@ internal static class UbtPreparation
 			blueprintExports.ValueKind == JsonValueKind.Array
 				? blueprintExports
 					.EnumerateArray()
-					.Select(entry => MbtHostBuild.Identifier(entry, "module"))
+					.Select(entry => Identifier(entry, "module"))
 					.ToHashSet(StringComparer.OrdinalIgnoreCase)
 				: new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		var owners = scope
 			.RootElement.EnumerateArray()
 			.Where(module =>
-				module.GetProperty("hasMarkers").GetBoolean()
-				|| blueprintOwners.Contains(MbtHostBuild.Identifier(module, "name"))
+				module.GetProperty("hasMarkers").GetBoolean() || blueprintOwners.Contains(Identifier(module, "name"))
 			)
 			.ToDictionary(
 				module => Path.GetFullPath(module.GetProperty("sourceDirectory").GetString()!),
-				module => MbtHostBuild.Identifier(module, "name"),
+				module => Identifier(module, "name"),
 				PathComparer
 			);
 		string database = Path.Combine(variantDirectory, "Ubt", "compile_commands.json");
@@ -397,7 +397,7 @@ internal static class UbtPreparation
 			string[] command = CommandLineArguments.Split(entry.GetProperty("command").GetString()!);
 			List<string> arguments = new() { command[0] };
 			string driver = Path.GetFileNameWithoutExtension(command[0]);
-			MbtHostBuild.Expand(command.Skip(1), directory, arguments, 0, driver != "cl" && driver != "clang-cl");
+			Expand(command.Skip(1), directory, arguments, 0, driver != "cl" && driver != "clang-cl");
 			if (pinDefinitions)
 			{
 				InstalledBuildInputs.PinDefinitions(
@@ -551,5 +551,60 @@ internal static class UbtPreparation
 			return $"{version.FileMajorPart}.{version.FileMinorPart}";
 		}
 		throw new UhtException($"ModRuntime MHT: UBT did not produce a compile action for \"{source}\".");
+	}
+
+	internal static void Expand(
+		IEnumerable<string> arguments,
+		string directory,
+		List<string> result,
+		int depth,
+		bool gnu = false
+	)
+	{
+		if (depth > 16)
+		{
+			throw new UhtException("ModRuntime MBT: response file nesting is too deep.");
+		}
+		foreach (string argument in arguments)
+		{
+			if (argument.StartsWith('@'))
+			{
+				string path = Path.GetFullPath(argument[1..].Trim('"'), directory);
+				string contents;
+				try
+				{
+					contents = File.ReadAllText(path);
+				}
+				catch (IOException exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+				{
+					throw new UhtException(
+						$"ModRuntime MBT: missing UBT response file \"{path}\". Refresh the supplied compilation database."
+					);
+				}
+				Expand(
+					gnu
+						? UbtPreparation.SplitGnuResponse(contents)
+						: CommandLineArguments.Split(contents.Replace('\r', ' ').Replace('\n', ' ')),
+					directory,
+					result,
+					depth + 1,
+					gnu
+				);
+			}
+			else
+			{
+				result.Add(argument);
+			}
+		}
+	}
+
+	internal static string Identifier(JsonElement value, string key)
+	{
+		string name = value.GetProperty(key).GetString()!;
+		if (!Regex.IsMatch(name, "\\A[A-Za-z_][A-Za-z0-9_]*\\z"))
+		{
+			throw new UhtException("ModRuntime MBT: invalid producer identifier: " + name);
+		}
+		return name;
 	}
 }
