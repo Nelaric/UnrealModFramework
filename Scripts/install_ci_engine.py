@@ -60,7 +60,8 @@ def sha256(path):
 class ReleaseParts(io.RawIOBase):
     """Verify each part on disk before exposing its bytes to the decompressor."""
 
-    def __init__(self, parts, assets, work, digest):
+    def __init__(self, parts, assets, work, digest, download=None):
+        self.download = download or fetch_asset
         self.parts = iter(parts)
         self.assets = assets
         self.path = work / "current.part"
@@ -91,7 +92,7 @@ class ReleaseParts(io.RawIOBase):
             asset = self.assets[part["name"]]
             if asset["size"] != part["bytes"]:
                 raise ValueError(f"Unexpected published size: {part['name']}")
-            fetch_asset(asset["id"], self.path)
+            self.download(asset["id"], self.path)
             if self.path.stat().st_size != part["bytes"] or sha256(self.path) != part["sha256"]:
                 raise ValueError(f"Package part SHA-256 mismatch: {part['name']}")
             self.part = self.path.open("rb")
@@ -175,20 +176,40 @@ def install(root, system, arch, target, revision, draft_id=None):
     tag = package_tag(system, arch, target, revision)
     if draft_id and os.environ.get("GITHUB_REPOSITORY") != REPO:
         raise ValueError("Draft verification runs in the private producer")
-    release = api(f"releases/{int(draft_id)}" if draft_id else f"releases/tags/{tag}")
+    download = fetch_asset
+    staged = os.environ.get("UE_CI_DRAFT_DIRECTORY")
+    if draft_id and staged:
+        directory = Path(staged)
+        release = json.loads((directory / "release.json").read_bytes())
+        if release["id"] != int(draft_id):
+            raise ValueError("Staged files belong to a different release")
+        names = {a["id"]: safe_name(a["name"]) for a in release["assets"]}
+
+        def download(asset_id, destination):
+            source = directory / names[asset_id]
+            if source.is_symlink() or source.parent != directory:
+                raise ValueError("Invalid local release asset")
+            source.replace(destination)
+    else:
+        release = api(f"releases/{int(draft_id)}" if draft_id else f"releases/tags/{tag}")
     if release["tag_name"] != tag or (release["draft"] and not draft_id):
         raise ValueError("The release does not match the requested published package")
     if not draft_id and (not release.get("immutable") or "verification.json" not in {a["name"] for a in release["assets"]}):
         raise ValueError("The package requires a verified immutable release")
     assets = {a["name"]: a for a in release["assets"]}
     root = root.absolute()
+    if os.name == "nt":
+        # UE and the bundled SDK contain valid relative member names beyond legacy MAX_PATH.
+        name = str(root)
+        if not name.startswith("\\\\?\\"):
+            root = Path("\\\\?\\UNC\\" + name[2:] if name.startswith("\\\\") else "\\\\?\\" + name)
     if root.exists():
         raise ValueError(f"Engine destination already exists: {root}")
     root.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=root.parent) as tmp:
         work = Path(tmp)
         meta = work / "manifest.json"
-        fetch_asset(assets["manifest.json"]["id"], meta)
+        download(assets["manifest.json"]["id"], meta)
         manifest = json.loads(meta.read_bytes())
         expected = {"format": "Nelaric.UEPackage.v1", "version": VERSION, "system": system,
                     "architecture": arch, "target": target, "configuration": "Development", "revision": revision}
@@ -198,7 +219,7 @@ def install(root, system, arch, target, revision, draft_id=None):
         if not parts or [p["name"] for p in parts] != [f"engine.tar.zst.{i:03d}" for i in range(len(parts))]:
             raise ValueError("Invalid package part sequence")
         indexed = work / "files.jsonl.zst"
-        fetch_asset(assets["files.jsonl.zst"]["id"], indexed)
+        download(assets["files.jsonl.zst"]["id"], indexed)
         if sha256(indexed) != manifest["inventorySha256"]:
             raise ValueError("Inventory SHA-256 mismatch")
         rows = inventory(indexed)
@@ -207,13 +228,13 @@ def install(root, system, arch, target, revision, draft_id=None):
         manifest_digest = sha256(meta)
         if not draft_id:
             verification = work / "verification.json"
-            fetch_asset(assets["verification.json"]["id"], verification)
+            download(assets["verification.json"]["id"], verification)
             verified = json.loads(verification.read_bytes())
             if verified.get("result") != "passed" or verified.get("manifestSha256") != manifest_digest:
                 raise ValueError("Clean-run verification does not match this package")
         output = work / "payload"
         output.mkdir()
-        with io.BufferedReader(ReleaseParts(parts, assets, work, manifest["archiveSha256"])) as source:
+        with io.BufferedReader(ReleaseParts(parts, assets, work, manifest["archiveSha256"], download)) as source:
             unpack(source, output, rows)
             while source.read(BLOCK):
                 pass

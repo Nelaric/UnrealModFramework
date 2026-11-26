@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import unittest
@@ -62,6 +63,15 @@ class PackageTests(unittest.TestCase):
         self.install()
         self.assertEqual((self.dest / self.name).read_bytes(), self.content)
 
+    @unittest.skipUnless(os.name == "nt", "Windows extended-length paths")
+    def test_extraction_beyond_legacy_windows_path_limit(self):
+        temp = Path(self.temp.name)
+        self.dest = temp.joinpath(*(["long-sdk-component-" + "a" * 45] * 4), "engine")
+        self.addCleanup(shutil.rmtree, Path("\\\\?\\" + str(temp)), True)
+        self.install()
+        result = Path("\\\\?\\" + str(self.dest / self.name))
+        self.assertEqual(result.read_bytes(), self.content)
+
     def test_altered_part_publishes_no_directory(self):
         self.assets["engine.tar.zst.000"] = b"x" * len(self.parts[0])
         with self.assertRaisesRegex(ValueError, "SHA-256"):
@@ -87,6 +97,22 @@ class PackageTests(unittest.TestCase):
     def test_rejects_unverified_mutable_release(self):
         with self.assertRaisesRegex(ValueError, "immutable"):
             self.install(immutable=False)
+
+    def test_staged_draft_uses_the_same_integrity_checks_without_a_token(self):
+        directory = self.dest.parent / "downloads"
+        directory.mkdir()
+        self.assets["manifest.json"] = json.dumps(self.manifest).encode()
+        assets = []
+        for asset_id, (name, data) in enumerate(self.assets.items()):
+            (directory / name).write_bytes(data)
+            assets.append({"id": asset_id, "name": name, "size": len(data)})
+        tag = installer.package_tag("windows", "x64", "Editor", self.revision)
+        (directory / "release.json").write_text(json.dumps({"tag_name": tag, "id": 1, "draft": True, "assets": assets}))
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": installer.REPO, "UE_CI_DRAFT_DIRECTORY": str(directory)}):
+            with patch.object(installer, "api", side_effect=AssertionError("unexpected API request")):
+                installer.install(self.dest, "windows", "x64", "Editor", self.revision, 1)
+        self.assertEqual((self.dest / self.name).read_bytes(), self.content)
+        self.assertFalse((directory / "engine.tar.zst.000").exists())
 
     def test_drafts_require_the_private_workflow(self):
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "Nelaric/UnrealModFramework"}):
