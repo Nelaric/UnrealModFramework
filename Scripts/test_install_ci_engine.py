@@ -68,6 +68,13 @@ class PackageTests(unittest.TestCase):
             self.install()
         self.assertFalse(self.dest.exists())
 
+    def test_rejects_extra_file_on_disk(self):
+        self.dest.mkdir()
+        (self.dest / "extra.txt").write_text("unlisted")
+        row = {"kind": "file", "bytes": len(self.content), "sha256": sha(self.content)}
+        with self.assertRaisesRegex(ValueError, "filesystem"):
+            installer.unpack(io.BytesIO(self.archive), self.dest, {self.name: row})
+
     def test_rejects_wrong_target(self):
         self.manifest["target"] = "Game"
         with self.assertRaisesRegex(ValueError, "identity"):

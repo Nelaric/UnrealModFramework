@@ -119,6 +119,7 @@ def inventory(path):
 def unpack(source, directory, rows):
     import zstandard
     seen = set()
+    parents = set()
     with zstandard.ZstdDecompressor().stream_reader(source, closefd=False) as zstream:
         with tarfile.open(fileobj=zstream, mode="r|") as archive:
             for member in archive:
@@ -133,17 +134,39 @@ def unpack(source, directory, rows):
                     raise ValueError(f"Unexpected archive entry: {name}")
                 if any(parent.as_posix() in rows for parent in PurePosixPath(name).parents):
                     raise ValueError(f"Package member traverses a file or symlink: {name}")
-                archive.extract(member, directory, filter="data")
-                if member.issym() and not (directory / name).is_symlink():
-                    raise ValueError(f"The filesystem did not preserve the symbolic link: {name}")
-                if not member.issym() and sha256(directory / name) != row["sha256"]:
-                    raise ValueError(f"File SHA-256 mismatch: {name}")
+                checked = tarfile.data_filter(member, directory)
+                path = directory / name
+                if path.parent not in parents:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    parents.add(path.parent)
+                if member.issym():
+                    path.symlink_to(checked.linkname)
+                else:
+                    hashed = hashlib.sha256()
+                    with archive.extractfile(member) as input_file, path.open("xb") as output:
+                        while block := input_file.read(BLOCK):
+                            output.write(block)
+                            hashed.update(block)
+                    if hashed.hexdigest() != row["sha256"]:
+                        raise ValueError(f"File SHA-256 mismatch: {name}")
+                    if "mode" in row and checked.mode != row["mode"]:
+                        raise ValueError(f"Unexpected package file permissions: {name}")
+                    path.chmod(checked.mode)
+                    os.utime(path, (member.mtime, member.mtime))
                 seen.add(name)
         # Finish the zstd frame, including the tar end padding.
         while zstream.read(BLOCK):
             pass
     if seen != rows.keys():
         raise ValueError(f"Archive omitted {len(rows.keys() - seen)} inventoried files")
+    actual = set()
+    for base, dirs, files in os.walk(directory, followlinks=False):
+        parent = Path(base)
+        links = [d for d in dirs if (parent / d).is_symlink()]
+        for leaf in files + links:
+            actual.add((parent / leaf).relative_to(directory).as_posix())
+    if actual != seen:
+        raise ValueError("Extracted filesystem does not match the inventory")
     if not (directory / "Engine/Build/Build.version").is_file():
         raise ValueError("Missing Engine/Build/Build.version")
 
