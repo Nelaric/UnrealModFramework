@@ -130,6 +130,8 @@ MHT 在公共头中声明签名和常量，在显式 `.cpp` 编译单元中生�
 
 Target 规则调用一次 `ExportMetadata.ConfigureTarget(this)` 即可安装 UE 5.6 构建钩子。构建脚本存在时，UBT 在 Windows 上执行 `Tools/Build.bat --target ModRuntimeUhtTools`，在 Linux 和 macOS 上执行 `sh Tools/Build.sh --target ModRuntimeUhtTools`。脚本复用 `Tools/build/.cmake` 执行增量 Release 构建，工具构建失败会中止 UE 构建。Windows 上由本地 MBT 驱动 UE 构建时，预构建步骤会复用该 MBT 并构建 MHT 和 MST。Linux 和 macOS 使用 GNU `g++`，macOS 通过 `CXX` 指定已安装的 GNU C++ 编译器。已备齐工具的 Unix 暂存工程在缺少 CMake 时可跳过工具重建。
 
+已随包提供预编译原生工具及其依赖的宿主可以调用 `ExportMetadata.ConfigureTarget(this, buildNativeTools: false)`，跳过工具编译并保留 MHT 输入跟踪与链接校验。
+
 后续预构建步骤调用 MBT 检查受监控目录和此前缺失的可选输入，发生变更时更新 UHT 依赖标记。Win64 x64 MSVC 独立编译路径的 PostBuildSteps 核对 UBT 目标回执、模块归属及最终 DLL 或 EXE 中对应归档的 PE 见证符号，并在宿主库旁发布 `<owner>.lib.link.json` 和 `<owner>.lib.linked.json`。独立客户端库有自己的构建回执。
 
 ## 构建语义与范围
