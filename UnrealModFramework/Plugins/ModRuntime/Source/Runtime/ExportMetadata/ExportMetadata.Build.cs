@@ -15,8 +15,10 @@ public class ExportMetadata : ModuleRules
 		PublicDependencyModuleNames.Add("Core");
 	}
 
-	/// <summary>Builds the native tools, tracks MHT inputs, and verifies the linked host archives.</summary>
-	public static void ConfigureTarget(TargetRules target)
+	/// <summary>Configures native tool builds, MHT input tracking, and linked host archive verification.</summary>
+	/// <param name="target">The host target rules.</param>
+	/// <param name="buildNativeTools">Whether to build the native tools in a pre-build step.</param>
+	public static void ConfigureTarget(TargetRules target, bool buildNativeTools = true)
 	{
 		if (HasArgument("-MhtBootstrap") || HasArgument("-Mode=GenerateClangDatabase"))
 		{
@@ -26,7 +28,7 @@ public class ExportMetadata : ModuleRules
 		string root = project.Directory.FullName;
 		string tools = Path.Combine(root, "Plugins", "ModRuntime", "Tools");
 		string buildScript = Path.Combine(tools, OperatingSystem.IsWindows() ? "Build.bat" : "Build.sh");
-		if (File.Exists(buildScript))
+		if (buildNativeTools && File.Exists(buildScript))
 		{
 			// CALL expands percent escapes a second time.
 			string command = OperatingSystem.IsWindows()

@@ -27,6 +27,6 @@ public class UnrealModFrameworkDevTarget : TargetRules
 
 		// UAT compiles target rules separately when detecting targets for staging.
 		var exportMetadata = typeof(UnrealModFrameworkDevTarget).Assembly.GetType("ExportMetadata");
-		exportMetadata?.GetMethod("ConfigureTarget")?.CreateDelegate<Action<TargetRules>>()(target);
+		exportMetadata?.GetMethod("ConfigureTarget")?.CreateDelegate<Action<TargetRules, bool>>()(target, true);
 	}
 }

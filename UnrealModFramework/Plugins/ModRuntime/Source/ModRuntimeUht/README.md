@@ -285,6 +285,10 @@ pre-build step reuses it and builds MHT and MST. Linux and macOS use GNU `g++` (
 macOS, set `CXX` to the installed GNU C++ compiler). A staged Unix project with tools
 already present can skip the native tool build when CMake is unavailable.
 
+Hosts that ship the prebuilt tools and their dependencies can call
+`ExportMetadata.ConfigureTarget(this, buildNativeTools: false)` to skip the native
+tool build while keeping MHT input tracking and link verification.
+
 The next pre-build step invokes MBT to update the UHT dependency stamp whenever a
 watched directory changes or a recorded optional file appears. On the independent
 Win64 x64 MSVC path, the post-build step verifies the archive's PE witness symbol in
