@@ -218,18 +218,30 @@ struct CompileInputs
 void RestoreDependencies(Json& Actions)
 {
 	std::map<int, const Json*> ById;
+	std::vector<int> Links;
 	for (const auto& Action : Actions)
 	{
-		ById.emplace(Action.at("Id").get<int>(), &Action);
+		const int Id = Action.at("Id").get<int>();
+		ById.emplace(Id, &Action);
+		if (Action.at("Type") == "Link")
+		{
+			Links.push_back(Id);
+		}
 	}
 	for (auto& Action : Actions)
 	{
 		// UE exports predecessor IDs and links imported actions by matching file paths.
 		auto Prerequisites = Action.value("PrerequisiteItems", std::vector<std::string>{});
 		std::set<std::string> Seen(Prerequisites.begin(), Prerequisites.end());
-		for (const auto& Predecessor : Action.at("PrerequisiteActions"))
+		auto Predecessors = Action.at("PrerequisiteActions").get<std::vector<int>>();
+		if (Action.at("Type") == "PostBuildStep")
 		{
-			const auto& Outputs = ById.at(Predecessor.get<int>())->at("ProducedItems");
+			// An up-to-date receipt removes the intervening WriteMetadata action from UBT's outdated graph.
+			Predecessors.insert(Predecessors.end(), Links.begin(), Links.end());
+		}
+		for (const int Predecessor : Predecessors)
+		{
+			const auto& Outputs = ById.at(Predecessor)->at("ProducedItems");
 			if (Outputs.empty())
 			{
 				throw std::runtime_error("A required UBT predecessor has no file outputs.");

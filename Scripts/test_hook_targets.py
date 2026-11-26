@@ -184,7 +184,12 @@ if options.get("Mode") == "Execute":
             command = f'"{program}" {arguments}' if os.name == "nt" else [program, *shlex.split(arguments)]
             subprocess.run(command, cwd=action["WorkingDirectory"], check=True)
         elif action["Type"] == "Link":
-            assert actions[0]["ProducedItems"][0] in action["PrerequisiteItems"]
+            assert action["PrerequisiteItems"] == actions[0]["ProducedItems"]
+        elif action["Type"] == "PostBuildStep":
+            for link in actions:
+                if link["Type"] == "Link":
+                    for output in link["ProducedItems"]:
+                        assert action["PrerequisiteItems"].count(output) == 1, (output, action)
 else:
     project = file_path(options["Project"]).parent
     shutil.copyfile(project / "CompileActions.json", file_path(options["WriteOutdatedActions"]))
@@ -677,9 +682,13 @@ struct UModExtensionSubsystem {
         "CommandVersion": "test",
     }
     graph = root / "CompileActions.json"
-    write_json(
-        graph, {"Actions": [action, {"Id": 1, "Type": "Link", "PrerequisiteActions": [0], "ProducedItems": []}]}
-    )
+    # An up-to-date target receipt can leave no WriteMetadata action between the links and the post-build script.
+    write_json(graph, {"Actions": [
+        action,
+        {"Id": 1, "Type": "PostBuildStep", "PrerequisiteActions": [], "ProducedItems": [str(root / "post.ran")]},
+        {"Id": 2, "Type": "Link", "PrerequisiteActions": [0], "ProducedItems": [str(root / "game.linked")]},
+        {"Id": 3, "Type": "Link", "PrerequisiteActions": [0], "ProducedItems": [str(root / "module.linked")]},
+    ]})
     build = [
         args.mbt,
         "build-ue-target",
