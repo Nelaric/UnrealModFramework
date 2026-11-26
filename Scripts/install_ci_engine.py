@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import time
 
 REPO = "Nelaric/UnrealEngine-CI"
 VERSION = "5.6.1"
@@ -40,15 +39,17 @@ def api(endpoint):
 
 
 def fetch_asset(asset_id, path):
-    url = f"repos/{REPO}/releases/assets/{int(asset_id)}"
-    for attempt in range(3):
-        with path.open("wb") as file:
-            response = subprocess.run(["gh", "api", "-H", "Accept: application/octet-stream", url], stdout=file)
-        if response.returncode == 0:
-            return
-        if attempt == 2:
-            response.check_returncode()
-        time.sleep(2 ** attempt)
+    url = f"https://api.github.com/repos/{REPO}/releases/assets/{int(asset_id)}"
+    token = os.environ.get("GH_TOKEN") or subprocess.check_output(["gh", "auth", "token"], text=True).strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.=-]+", token):
+        raise ValueError("Invalid GitHub installation token")
+    # curl drops the Authorization header when the GitHub asset redirects to a different host.
+    # Supplying the header on stdin keeps the token out of the process arguments.
+    config = f'header = "Authorization: Bearer {token}"\n'
+    subprocess.run(["curl", "--fail", "--silent", "--show-error", "--location", "--retry", "3",
+                    "--proto", "=https", "--proto-redir", "=https", "--config", "-",
+                    "--header", "Accept: application/octet-stream", "--output", str(path), url],
+                   input=config.encode(), check=True)
 
 
 def sha256(path):
