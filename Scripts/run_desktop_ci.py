@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 from check_automation_report import check_report
+from windows_editor_receipt import windows_editor_artifacts
 
 HOST = "UnrealModFrameworkDev"
 TEST_PREFIX = "Nelaric.UnrealModFramework.Host."
@@ -78,10 +79,13 @@ def main() -> None:
     suffix = ".exe" if ue_platform == "Win64" else ""
     mbt = tools / "ModBuildTool" / ("ModBuildTool" + suffix)
     mdt = tools / "ModSDKTool" / ("ModSDKTool" + suffix)
-    editor_platform, _ = editor_host(ue_platform, arch, args.target)
+    editor_platform, editor_arch = editor_host(ue_platform, arch, args.target)
     binaries = engine / "Binaries" / editor_platform
-    editor = binaries / {"Win64": "UnrealEditor-Cmd.exe", "Mac": "UnrealEditor.app/Contents/MacOS/UnrealEditor"
-                         }.get(ue_platform, "UnrealEditor")
+    if editor_platform == "Win64":
+        editor, editor_modules = windows_editor_artifacts(engine, editor_arch)
+    else:
+        editor = binaries / ("UnrealEditor.app/Contents/MacOS/UnrealEditor" if editor_platform == "Mac" else "UnrealEditor")
+        editor_modules = binaries / "UnrealEditor.modules"
     host = {"Win64": "win", "Mac": "mac"}.get(ue_platform, "linux")
     dotnet_dir = engine / "Binaries/ThirdParty/DotNet"
     runtimes = sorted(dotnet_dir.glob(f"*/{host}-{arch}/dotnet{suffix}"))
@@ -133,7 +137,7 @@ def main() -> None:
     if args.target == "Editor":
         run(mdt, "build-editor", "--package", results.parent / (results.name + "-plugin"), "--dotnet", dotnet,
             "--automation-tool", engine / "Binaries/DotNET/AutomationTool/AutomationTool.dll",
-            "--editor-modules", binaries / "UnrealEditor.modules", "--architecture", arch, "--mbt", mbt)
+            "--editor-modules", editor_modules, "--architecture", arch, "--mbt", mbt)
 
 
 if __name__ == "__main__":
