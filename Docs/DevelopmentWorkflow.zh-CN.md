@@ -29,9 +29,9 @@
 
 每项先编译四个原生 Mod 工具，验证可执行文件架构并测试自动化报告检查脚本，再由 MBT 编译对应目标。Game 作业烹饪、暂存并启动打包游戏；Editor 作业启动编辑器，另用 MDT 构建并校验独立制作插件。两种目标都验证生命值变化、C++ Hook 的 Pre、On、Post 阶段。Editor 还验证已编译蓝图的调用。作业保留宿主链接凭据，并要求本次 Unreal 报告中两个指定用例都通过。[CI 脚本](../Scripts/run_desktop_ci.py)
 
-Linux x64 直接在 runner 上拉取 Epic 官方镜像 `ghcr.io/epicgames/unreal-engine:dev-slim-5.6.1`。若作业令牌没有读取权限，请配置 Actions secrets `GHCR_USERNAME` 和 `GHCR_TOKEN`，使用已关联 Epic 的账号及只读包令牌。安装脚本解析镜像摘要并将引擎文件流式写入磁盘。[Epic 容器快速入门](https://dev.epicgames.com/documentation/en-us/unreal-engine/quick-start-guide-for-using-container-images-in-unreal-engine)
+每个作业使用自己的目标包，仓库变量 `UE_PACKAGE_RECIPE` 固定到制包仓库的完整提交 SHA。`Nelaric/UnrealEngine-CI` 从固定的 Epic 上游输入制包，按目标裁剪并记录每个文件，再用另一台原生 runner 校验解压结果。该 runner 还会编译和烹饪一个独立 C++ 工程，其反射插件依赖 GameplayAbilities。发布记录包含各文件的保留理由、摘要和裁剪前后大小。Game 包保留代码工程烹饪所需的 Editor 命令行程序及其依赖。
 
-其余五种环境需设置 Actions secret `UE_561_<KEY>_URL`（私有 HTTPS 下载地址）和仓库变量 `UE_561_<KEY>_SHA256`（压缩包摘要）。KEY 分别为 `WINDOWS_X64`、`WINDOWS_ARM64`、`MACOS_X64`、`MACOS_ARM64`、`LINUX_ARM64`。tar 包根目录应包含 `Engine/`，并提供可执行烹饪的 Editor（Editor 作业要求原生架构）、UBT、UAT、内置 .NET、工具链和 Development Game 库。磁盘还要容纳压缩包、解压后的引擎、中间文件与暂存游戏。官方 runner 镜像没有预装 UE。Windows ARM64 Editor 需要自定义移植版引擎，x64 模拟运行无法验证该目标。[GitHub runner 规格](https://docs.github.com/en/actions/reference/runners/github-hosted-runners) · [Epic 对 Windows ARM64 的说明](https://dev.epicgames.com/documentation/unreal-engine/windows-arm64-support-in-unreal-engine-5-8)
+在框架仓库设置变量 `UE_PACKAGES_APP_ID` 和 Actions 密钥 `UE_PACKAGES_APP_PRIVATE_KEY`。组织的 GitHub App 只需安装到私有制包仓库，并授予 Contents 只读权限。每个作业使用短期安装令牌下载对应的 Release。安装器核对目标、架构、验证记录、分卷及文件清单。[安装脚本](../Scripts/install_ci_engine.py)
 
 GitHub 不向 Fork PR 提供仓库密钥。公共质量检查和原生工具编译可在 Fork PR 中运行。需要验证引擎时，由维护者审查后在源仓库分支上运行相应版本。缺少引擎配置会使对应作业失败。汇总检查 `Desktop build and automation` 要求 12 项全部通过。
 

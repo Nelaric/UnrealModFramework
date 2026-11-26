@@ -21,7 +21,6 @@ jobs:
     runs-on: ${{ matrix.host.runner }}
     permissions:
       contents: read
-      packages: read
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -61,6 +60,7 @@ jobs:
       - name: Verify native tool binaries and automation report checks
         shell: bash
         run: |
+          python -m pip install --disable-pip-version-check zstandard==0.25.0
           python -m unittest discover -s Scripts -p 'test_*.py'
           tools=UnrealModFramework/Plugins/ModRuntime/Tools/build
           suffix=
@@ -69,20 +69,31 @@ jobs:
             "$tools/ModBuildTool/ModBuildTool$suffix" inspect-binary --file "$tools/$tool/$tool$suffix" \
               --platform ${{ matrix.host.platform }} --architecture ${{ matrix.host.arch }} --kind Executable
           done
-      - name: Install Epic's official Linux x64 UE 5.6.1 image
-        if: matrix.host.key == 'LINUX_X64'
+      - name: Check private package access
         shell: bash
         env:
-          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || github.token }}
           TRUSTED_SOURCE: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-        run: bash Scripts/install_ci_linux_engine.sh "$RUNNER_TEMP/ue"
-      - name: Install Unreal Engine 5.6.1
-        if: matrix.host.key != 'LINUX_X64'
+          APP_ID: ${{ vars.UE_PACKAGES_APP_ID }}
+          RECIPE: ${{ vars.UE_PACKAGE_RECIPE }}
+        run: |
+          [[ "$TRUSTED_SOURCE" == true ]] || { echo "::error::A maintainer must verify this revision from a trusted branch."; exit 1; }
+          [[ -n "$APP_ID" && "$RECIPE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Configure UE_PACKAGES_APP_ID and the pinned UE_PACKAGE_RECIPE."; exit 1; }
+      - uses: actions/create-github-app-token@v2
+        id: packages
+        with:
+          app-id: ${{ vars.UE_PACKAGES_APP_ID }}
+          private-key: ${{ secrets.UE_PACKAGES_APP_PRIVATE_KEY }}
+          owner: Nelaric
+          repositories: UnrealEngine-CI
+          permission-contents: read
+      - name: Install this target's verified private development package
+        shell: bash
         env:
-          UE_ARCHIVE_URL: ${{ secrets[format('UE_561_{0}_URL', matrix.host.key)] }}
-          UE_ARCHIVE_SHA256: ${{ vars[format('UE_561_{0}_SHA256', matrix.host.key)] }}
-        run: python Scripts/install_ci_engine.py "${{ runner.temp }}/ue" ${{ matrix.host.key }}
+          GH_TOKEN: ${{ steps.packages.outputs.token }}
+          RECIPE: ${{ vars.UE_PACKAGE_RECIPE }}
+        run: |
+          system=$(echo "${{ matrix.host.os }}" | tr '[:upper:]' '[:lower:]')
+          python Scripts/install_ci_engine.py "${{ runner.temp }}/ue" "$system" "${{ matrix.host.arch }}" "${{ matrix.target }}" "$RECIPE"
       - name: Build Development ${{ matrix.target }} and run its automation
         run: >-
           python -u Scripts/run_desktop_ci.py "${{ runner.temp }}/ue"

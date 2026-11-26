@@ -1,49 +1,215 @@
 # Copyright (c) 2026 Nelaric Contributors
-"""Install a pinned, access-controlled UE build on a disposable Actions runner."""
+"""Install one verified Unreal Engine package from the private producer."""
 
+import argparse
 import hashlib
+import io
+import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
-import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
-from urllib.parse import urlsplit
+import time
+
+REPO = "Nelaric/UnrealEngine-CI"
+VERSION = "5.6.1"
+BLOCK = 1024 * 1024
 
 
-def install(root: Path, key: str) -> None:
-    url = os.environ.pop("UE_ARCHIVE_URL", "")
-    digest = os.environ.get("UE_ARCHIVE_SHA256", "").lower()
-    print(f"Available space for {key}: {shutil.disk_usage(root.parent).free / 2**30:.1f} GiB", flush=True)
-    missing = [name for value, name in ((url, f"Actions secret UE_561_{key}_URL"),
-                                        (digest, f"Actions variable UE_561_{key}_SHA256")) if not value]
-    if missing:
-        raise ValueError("Missing " + " and ".join(missing) +
-                         ". Supply the private UE 5.6.1 archive URL and its SHA-256 for this host.")
-    if urlsplit(url).scheme != "https" or not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise ValueError("The engine archive requires HTTPS and a 64-character SHA-256 digest.")
-    # Only a verified archive may supply executable files. A temporary directory also
-    # keeps partial downloads and extractions out of the engine location on failure.
-    with tempfile.TemporaryDirectory(dir=root.parent) as temp:
-        archive = Path(temp, "engine.tar")
-        payload = Path(temp, "payload")
-        payload.mkdir()
-        status = subprocess.call(["curl", "--fail", "--silent", "--show-error", "--location", "--retry", "3",
-                                  "--proto", "=https", "--proto-redir", "=https", "--output", archive, url])
-        if status:
-            raise ValueError(f"Engine archive download failed (curl status {status}).")
-        with archive.open("rb") as stream:
-            if hashlib.file_digest(stream, "sha256").hexdigest() != digest:
-                raise ValueError("Engine archive SHA-256 mismatch.")
-        subprocess.run(["tar", "-xf", archive, "-C", payload], check=True)
-        if not (payload / "Engine/Build/Build.version").is_file():
-            raise ValueError("The archive must contain Engine/Build/Build.version at its root.")
-        payload.rename(root)
+def package_tag(system, architecture, target, revision):
+    if system not in ("windows", "macos", "linux") or architecture not in ("x64", "arm64"):
+        raise ValueError("Unknown package platform or architecture")
+    if target not in ("Game", "Editor") or not re.fullmatch("[0-9a-f]{40}", revision):
+        raise ValueError("Expected Game or Editor and a full producer commit SHA")
+    return f"ue-{VERSION}-{system}-{architecture}-{target.lower()}-{revision[:12]}"
+
+
+def safe_name(name):
+    if (not isinstance(name, str) or not name or "\\" in name or ":" in name or "\0" in name
+            or PurePosixPath(name).as_posix() != name or name.startswith("/")
+            or any(s in ("", ".", "..") for s in name.split("/"))):
+        raise ValueError(f"Invalid package path: {name!r}")
+    return name
+
+
+def api(endpoint):
+    return json.loads(subprocess.check_output(["gh", "api", f"repos/{REPO}/{endpoint}"]))
+
+
+def fetch_asset(asset_id, path):
+    url = f"repos/{REPO}/releases/assets/{int(asset_id)}"
+    for attempt in range(3):
+        with path.open("wb") as file:
+            response = subprocess.run(["gh", "api", "-H", "Accept: application/octet-stream", url], stdout=file)
+        if response.returncode == 0:
+            return
+        if attempt == 2:
+            response.check_returncode()
+        time.sleep(2 ** attempt)
+
+
+def sha256(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+class ReleaseParts(io.RawIOBase):
+    """Verify each part on disk before exposing its bytes to the decompressor."""
+
+    def __init__(self, parts, assets, work, digest):
+        self.parts = iter(parts)
+        self.assets = assets
+        self.path = work / "current.part"
+        self.digest = digest
+        self.combined = hashlib.sha256()
+        self.part = None
+        self.finished = False
+
+    def readable(self):
+        return True
+
+    def readinto(self, buf):
+        while not self.finished:
+            if self.part is not None:
+                count = self.part.readinto(buf)
+                if count:
+                    self.combined.update(memoryview(buf)[:count])
+                    return count
+                self.part.close()
+                self.part = None
+                self.path.unlink()
+            part = next(self.parts, None)
+            if part is None:
+                if self.combined.hexdigest() != self.digest:
+                    raise ValueError("Combined archive SHA-256 mismatch")
+                self.finished = True
+                break
+            asset = self.assets[part["name"]]
+            if asset["size"] != part["bytes"]:
+                raise ValueError(f"Unexpected published size: {part['name']}")
+            fetch_asset(asset["id"], self.path)
+            if self.path.stat().st_size != part["bytes"] or sha256(self.path) != part["sha256"]:
+                raise ValueError(f"Package part SHA-256 mismatch: {part['name']}")
+            self.part = self.path.open("rb")
+        return 0
+
+    def close(self):
+        if self.part is not None:
+            self.part.close()
+        super().close()
+
+
+def inventory(path):
+    import zstandard
+    rows = {}
+    with path.open("rb") as compressed, zstandard.ZstdDecompressor().stream_reader(compressed) as reader:
+        for line in io.TextIOWrapper(reader, encoding="utf-8"):
+            row = json.loads(line)
+            name = safe_name(row["path"])
+            if name in rows or not row.get("reason") or row["kind"] not in ("file", "symlink"):
+                raise ValueError(f"Invalid inventory entry: {name}")
+            rows[name] = row
+    return rows
+
+
+def unpack(source, directory, rows):
+    import zstandard
+    seen = set()
+    with zstandard.ZstdDecompressor().stream_reader(source, closefd=False) as zstream:
+        with tarfile.open(fileobj=zstream, mode="r|") as archive:
+            for member in archive:
+                name = safe_name(member.name)
+                row = rows.get(name)
+                if not row or name in seen:
+                    raise ValueError(f"Unlisted or duplicate archive member: {name}")
+                if member.issym():
+                    if row["kind"] != "symlink" or member.linkname != row["link"]:
+                        raise ValueError(f"Unexpected symbolic link: {name}")
+                elif not member.isfile() or row["kind"] != "file" or member.size != row["bytes"]:
+                    raise ValueError(f"Unexpected archive entry: {name}")
+                if any(parent.as_posix() in rows for parent in PurePosixPath(name).parents):
+                    raise ValueError(f"Package member traverses a file or symlink: {name}")
+                archive.extract(member, directory, filter="data")
+                if member.issym() and not (directory / name).is_symlink():
+                    raise ValueError(f"The filesystem did not preserve the symbolic link: {name}")
+                if not member.issym() and sha256(directory / name) != row["sha256"]:
+                    raise ValueError(f"File SHA-256 mismatch: {name}")
+                seen.add(name)
+        # Finish the zstd frame, including the tar end padding.
+        while zstream.read(BLOCK):
+            pass
+    if seen != rows.keys():
+        raise ValueError(f"Archive omitted {len(rows.keys() - seen)} inventoried files")
+    if not (directory / "Engine/Build/Build.version").is_file():
+        raise ValueError("Missing Engine/Build/Build.version")
+
+
+def install(root, system, arch, target, revision, draft_id=None):
+    tag = package_tag(system, arch, target, revision)
+    if draft_id and os.environ.get("GITHUB_REPOSITORY") != REPO:
+        raise ValueError("Draft verification runs in the private producer")
+    release = api(f"releases/{int(draft_id)}" if draft_id else f"releases/tags/{tag}")
+    if release["tag_name"] != tag or (release["draft"] and not draft_id):
+        raise ValueError("The release does not match the requested published package")
+    if not draft_id and (not release.get("immutable") or "verification.json" not in {a["name"] for a in release["assets"]}):
+        raise ValueError("The package requires a verified immutable release")
+    assets = {a["name"]: a for a in release["assets"]}
+    root = root.absolute()
+    if root.exists():
+        raise ValueError(f"Engine destination already exists: {root}")
+    root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=root.parent) as tmp:
+        work = Path(tmp)
+        meta = work / "manifest.json"
+        fetch_asset(assets["manifest.json"]["id"], meta)
+        manifest = json.loads(meta.read_bytes())
+        expected = {"format": "Nelaric.UEPackage.v1", "version": VERSION, "system": system,
+                    "architecture": arch, "target": target, "configuration": "Development", "revision": revision}
+        if any(manifest.get(k) != v for k, v in expected.items()):
+            raise ValueError("Package identity mismatch")
+        parts = manifest["parts"]
+        if not parts or [p["name"] for p in parts] != [f"engine.tar.zst.{i:03d}" for i in range(len(parts))]:
+            raise ValueError("Invalid package part sequence")
+        indexed = work / "files.jsonl.zst"
+        fetch_asset(assets["files.jsonl.zst"]["id"], indexed)
+        if sha256(indexed) != manifest["inventorySha256"]:
+            raise ValueError("Inventory SHA-256 mismatch")
+        rows = inventory(indexed)
+        if len(rows) != manifest["files"] or sum(r["bytes"] for r in rows.values()) != manifest["bytes"]:
+            raise ValueError("Incorrect inventory file count or byte total")
+        manifest_digest = sha256(meta)
+        if not draft_id:
+            verification = work / "verification.json"
+            fetch_asset(assets["verification.json"]["id"], verification)
+            verified = json.loads(verification.read_bytes())
+            if verified.get("result") != "passed" or verified.get("manifestSha256") != manifest_digest:
+                raise ValueError("Clean-run verification does not match this package")
+        output = work / "payload"
+        output.mkdir()
+        with io.BufferedReader(ReleaseParts(parts, assets, work, manifest["archiveSha256"])) as source:
+            unpack(source, output, rows)
+            while source.read(BLOCK):
+                pass
+        output.rename(root)
+    if "GITHUB_OUTPUT" in os.environ:
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as outputs:
+            outputs.write(f"manifest_sha={manifest_digest}\n")
+    print(f"Installed {tag}: {manifest['files']} files, {manifest['bytes']} bytes", flush=True)
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("destination", type=Path)
+    parser.add_argument("system")
+    parser.add_argument("architecture")
+    parser.add_argument("target")
+    parser.add_argument("revision")
+    parser.add_argument("--draft-id", type=int)
+    a = parser.parse_args()
     try:
-        install(Path(sys.argv[1]), sys.argv[2])
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        install(a.destination, a.system, a.architecture, a.target, a.revision, a.draft_id)
+    except (KeyError, ValueError, OSError, subprocess.SubprocessError) as error:
         sys.exit(f"::error::{error}")

@@ -38,7 +38,7 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Install pinned formatters
         run: |
-          python -m pip install clang-format==18.1.8
+          python -m pip install clang-format==18.1.8 zstandard==0.25.0
           dotnet tool restore
       - name: Check text conventions
         run: python Scripts/check_text.py

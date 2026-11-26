@@ -24,6 +24,9 @@ def run(*args: str | Path) -> None:
 
 def stage_game(engine: Path, dotnet: Path, editor: Path, project: Path, ue_platform: str,
                arch: str, stage: Path, receipt: dict) -> Path:
+    cooker_arch = "x64" if (ue_platform, arch) == ("Win64", "arm64") else arch
+    run(dotnet, engine / "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll", HOST + "Editor",
+        ue_platform, "Development", f"-Project={project}", f"-architecture={cooker_arch}", "-NoHotReload")
     run(dotnet, engine / "Binaries/DotNET/AutomationTool/AutomationTool.dll", "BuildCookRun",
         f"-project={project}", f"-target={HOST}", f"-platform={ue_platform}", f"-clientarchitecture={arch}",
         "-clientconfig=Development", "-nocompile", "-nocompileeditor", "-nop4", "-unattended", "-utf8output",
@@ -73,6 +76,8 @@ def main() -> None:
     host = {"Win64": "win", "Mac": "mac"}.get(ue_platform, "linux")
     dotnet_dir = engine / "Binaries/ThirdParty/DotNet"
     runtimes = sorted(dotnet_dir.glob(f"*/{host}-{arch}/dotnet{suffix}"))
+    if not runtimes and host == "mac":
+        runtimes = sorted(dotnet_dir.glob(f"*/osx-{arch}/dotnet"))
     if not runtimes and (host, arch) == ("win", "arm64"):
         runtimes = sorted(dotnet_dir.glob("*/win-x64/dotnet.exe"))
     if not runtimes:
