@@ -19,6 +19,9 @@ jobs:
   build:
     name: ${{ matrix.host.os }} ${{ matrix.host.arch }} · ${{ matrix.target }}
     runs-on: ${{ matrix.host.runner }}
+    permissions:
+      contents: read
+      packages: read
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -55,7 +58,27 @@ jobs:
             done
           fi
           sh UnrealModFramework/Plugins/ModRuntime/Tools/Build.sh --setup --generator Ninja --jobs 4
+      - name: Verify native tool binaries and automation report checks
+        shell: bash
+        run: |
+          python -m unittest discover -s Scripts -p 'test_*.py'
+          tools=UnrealModFramework/Plugins/ModRuntime/Tools/build
+          suffix=
+          if [[ "$RUNNER_OS" == Windows ]]; then suffix=.exe; fi
+          for tool in ModHeaderTool ModBuildTool ModSourceTool ModSDKTool; do
+            "$tools/ModBuildTool/ModBuildTool$suffix" inspect-binary --file "$tools/$tool/$tool$suffix" \
+              --platform ${{ matrix.host.platform }} --architecture ${{ matrix.host.arch }} --kind Executable
+          done
+      - name: Install Epic's official Linux x64 UE 5.6.1 image
+        if: matrix.host.key == 'LINUX_X64'
+        shell: bash
+        env:
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME || github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || github.token }}
+          TRUSTED_SOURCE: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: bash Scripts/install_ci_linux_engine.sh "$RUNNER_TEMP/ue"
       - name: Install Unreal Engine 5.6.1
+        if: matrix.host.key != 'LINUX_X64'
         env:
           UE_ARCHIVE_URL: ${{ secrets[format('UE_561_{0}_URL', matrix.host.key)] }}
           UE_ARCHIVE_SHA256: ${{ vars[format('UE_561_{0}_SHA256', matrix.host.key)] }}

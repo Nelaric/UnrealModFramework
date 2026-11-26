@@ -16,9 +16,11 @@ def install(root: Path, key: str) -> None:
     url = os.environ.pop("UE_ARCHIVE_URL", "")
     digest = os.environ.get("UE_ARCHIVE_SHA256", "").lower()
     print(f"Available space for {key}: {shutil.disk_usage(root.parent).free / 2**30:.1f} GiB", flush=True)
-    if not url or not digest:
-        raise ValueError(f"Missing Actions secret UE_561_{key}_URL or variable UE_561_{key}_SHA256. "
-                         "This job needs a licensed UE 5.6.1 installed build for this host.")
+    missing = [name for value, name in ((url, f"Actions secret UE_561_{key}_URL"),
+                                        (digest, f"Actions variable UE_561_{key}_SHA256")) if not value]
+    if missing:
+        raise ValueError("Missing " + " and ".join(missing) +
+                         ". Supply the private UE 5.6.1 archive URL and its SHA-256 for this host.")
     if urlsplit(url).scheme != "https" or not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise ValueError("The engine archive requires HTTPS and a 64-character SHA-256 digest.")
     # Only a verified archive may supply executable files. A temporary directory also
@@ -44,4 +46,4 @@ if __name__ == "__main__":
     try:
         install(Path(sys.argv[1]), sys.argv[2])
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
-        sys.exit(str(error))
+        sys.exit(f"::error::{error}")
