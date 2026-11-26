@@ -1,5 +1,6 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "EditorPackage.h"
+#include "Common/Files/File.h"
 
 #include "Common/Files/Executable.h"
 #include "Common/Files/Path.h"
@@ -118,6 +119,11 @@ PluginPackages EditorPackage::BuildSdkPackages(const SdkRequest& Request, const 
 	                         Request.Document.value("timeoutSeconds", 1800u)};
 	BuildProgress::ReportStage("BuildSdkPlugin", "Building an author-Editor SDK with normal UHT and UBT.");
 	BuildPlugin(Editor, Source / (Plugin + ".uplugin"), SdkPackage);
+	// BuildPlugin rewrites the descriptor and can discard plugin-specific metadata.
+	const auto DescriptorFile = SdkPackage / (Plugin + ".uplugin");
+	auto Descriptor = JsonDocument::ReadJson(DescriptorFile);
+	Descriptor["UMFSharedRuntimeModule"] = Plugin + "Runtime";
+	Mod::BuildTool::File::WriteFileAtomically(DescriptorFile, Descriptor.dump(2) + "\n");
 	VerifyEditorModule(Editor, SdkPackage, Plugin + "Runtime");
 	if (!Request.LifecycleArtifact.is_null())
 	{

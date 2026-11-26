@@ -4,10 +4,7 @@ English | [简体中文](README.zh-CN.md)
 
 # MHT client ABI generation
 
-MHT generates a C-compatible `ContextHandlesV1` boundary alongside its UE view
-backend. On Win64 x64 MSVC, MBT compiles the host and standalone client archives
-independently, and UBT links each host archive into its owning module; other
-toolchains compile the generated host units directly inside their owning UBT modules. [UHT integration](../../Source/ModRuntimeUht/README.md#complete-generation)
+MHT generates UE views and the C-compatible `ContextHandlesV1` boundary. UBT compiles each host implementation in its owner and the Client implementation in the shared SDK Runtime.
 
 ## Generated connection artifacts
 
@@ -22,11 +19,7 @@ Paths below are relative to the fixed MHT output root:
 | `Contract/<game>.sdkcontract.json` | Resolved `UMF.SdkContract` v2 descriptor for the adapter graph supported by ModSDKTool (MDT) |
 | `<game>.generated-artifacts.json` | v3 inventory with explicit host/client compilation units and required symbol bindings |
 
-The descriptor conforms to [client-abi.schema.json](Protocol/client-abi.schema.json).
-On the independent MBT path, the client library owner is `<game>ModClient`, with
-its own producer context, output library, registration anchor, and receipt. The
-Win64 adapter derives its recipe from the selected toolchain while stripping game
-include paths and forced UE definitions.
+MHT identifies the C implementation as `ClientSource` and declares its connection symbols under `<game>ModClient`. MDT places that implementation in the shared UE Runtime module. [Client ABI schema](Protocol/client-abi.schema.json)
 
 The `.modviews.h` and `.modcalls.h` headers are private UE `HostHeader` artifacts.
 Public `SdkHeader` artifacts include `.modabi.h` and, when applicable, the error
@@ -140,18 +133,9 @@ ExportId uniqueness is checked per library owner. Host table queries, client
 connection functions, and release functions are also required symbols. The host
 registration anchor retains the ABI object through final linking.
 
-The UHT adapter runs `generate <GenerationRequest.json>` with a
-`UMF.ModHeaderGenerationRequest` v1 document containing `buildInput` and
-`outputDirectory`. For independent compilation, `hostContexts` covers every host
-module and the standalone client. MHT publishes `UMF.GeneratedArtifacts` and UHT
-runs MBT for the declared libraries. For direct host compilation, UHT supplies
-`hostCompiler` as `UBT` and provides `sourceTool`. MHT publishes
-`UMF.UbtHostArtifacts` and UBT builds the host units. The request can also carry
-`metadataOptions`, `libclang`, `lifecycleSource`, and `blueprintSnapshot` paths.
-Relative paths are resolved against the request directory.
+UHT supplies `buildInput`, `outputDirectory`, `hostCompiler` set to `UBT`, and `sourceTool`. MHT publishes `UMF.GeneratedArtifacts` v4 with the owner, role and hash of the host, verification and Client sources.
 
-MDT consumes `.sdkcontract.json`, the Host and Client contexts, and the same v3
-`UMF.GeneratedArtifacts` manifest. It retains the existing object getter and float
+MDT consumes `.sdkcontract.json` and each target's v4 `UMF.GeneratedArtifacts` manifest. It retains the existing object getter and float
 method adapters while also emitting typed methods with scalar and public UE object
 inputs. When the SDK contract cannot represent the full API set, it records `Unsupported`.
 

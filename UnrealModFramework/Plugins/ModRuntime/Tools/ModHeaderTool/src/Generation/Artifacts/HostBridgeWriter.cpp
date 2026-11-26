@@ -294,9 +294,11 @@ void HostBridgeWriter::WriteHost(const GenerationModel& Model, const std::string
 		Host << "    return TModResult<TArray<Mod::API::FRegistration>>::Success(MoveTemp(Registrations));\n}\n}\n";
 		Verify << "}\n";
 		Host << "\n#if defined(UMF_MOD_HOST_LINK_WITNESS)\n"
-		        "extern \"C\" __declspec(dllexport) decltype(&UMF_ModHost_"
+		        "#if defined(_WIN32)\n#define UMF_HOST_WITNESS_API __declspec(dllexport)\n#else\n"
+		        "#define UMF_HOST_WITNESS_API __attribute__((visibility(\"default\"),used))\n#endif\n"
+		        "extern \"C\" UMF_HOST_WITNESS_API decltype(&UMF_ModHost_"
 		     << Module.Name << ") UMF_MOD_HOST_LINK_WITNESS(void)\n{\n    return &UMF_ModHost_" << Module.Name
-		     << ";\n}\n#endif\n";
+		     << ";\n}\n#undef UMF_HOST_WITNESS_API\n#endif\n";
 		Host << "\nextern \"C\" " << ExportMacro << " void UMF_ModHost_" << Module.Name
 		     << "(Mod::API::FRegistry& Registry, TModResult<TArray<Mod::API::FRegistration>>& Result)\n{\n"
 		     << "    if (UMF_ModHost_" << Module.Name << "_RetainABI() != 1)\n    {\n"

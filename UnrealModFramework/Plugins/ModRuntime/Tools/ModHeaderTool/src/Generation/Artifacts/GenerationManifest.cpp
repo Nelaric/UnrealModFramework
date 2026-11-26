@@ -71,45 +71,27 @@ OutputIndex GenerationManifest::DescribeOutputs(const Files& Files, const std::s
 		}
 		const auto Digest = Hash::HashBytes(Bytes);
 		Index.Hashes += Path + ":" + Digest + "\n";
-		Index.Generated.push_back(
-		    {{"path", Path},
-		     {"ownerModule", Owner.empty() ? Json(nullptr) : Json(Owner)},
-		     {"role", Implementation ? (Path.ends_with(".modverify.cpp") ? "CompileVerification" : "HostBinding")
-		              : Host         ? "HostHeader"
-		              : Path == LifecycleExport::LifecyclePath ? "SdkResource"
-		              : (Path.ends_with(".modabi.h") || Path.ends_with(".modextensionsabi.h") ||
-		                 Path == "SDK/Public/ModExtensionABI.h" || Path == ErrorHeader)
-		                  ? "SdkHeader"
-		              : Path.starts_with("SDK/")      ? "HostHeader"
-		              : Path.starts_with("Contract/") ? "Contract"
-		                                              : "Diagnostic"},
-		     {"contentHash", Digest}});
+		const std::string SourceRole = Path.starts_with("Client/")        ? "ClientSource"
+		                               : Path.ends_with(".modverify.cpp") ? "CompileVerification"
+		                                                                  : "HostBinding";
+		Index.Generated.push_back({{"path", Path},
+		                           {"ownerModule", Owner.empty() ? Json(nullptr) : Json(Owner)},
+		                           {"role", Implementation                           ? SourceRole
+		                                    : Host                                   ? "HostHeader"
+		                                    : Path == LifecycleExport::LifecyclePath ? "SdkResource"
+		                                    : (Path.ends_with(".modabi.h") || Path.ends_with(".modextensionsabi.h") ||
+		                                       Path == "SDK/Public/ModExtensionABI.h" || Path == ErrorHeader)
+		                                        ? "SdkHeader"
+		                                    : Path.starts_with("SDK/")      ? "HostHeader"
+		                                    : Path.starts_with("Contract/") ? "Contract"
+		                                                                    : "Diagnostic"},
+		                           {"contentHash", Digest}});
 		if (Implementation)
 		{
-			Index.CompilationUnits.push_back({{"ownerModule", Owner}, {"source", Path}});
+			Index.CompilationUnits.push_back({{"ownerModule", Owner}, {"source", Path}, {"role", SourceRole}});
 		}
 	}
 	return Index;
-}
-
-Json GenerationManifest::ReadHostContextHashes(const GenerationModel& Model)
-{
-	Json HostContexts = Json::object();
-	for (const auto& [Owner, File] : Model.Input.HostContexts)
-	{
-		const auto Context = Json::parse(TextFile::ReadTextFile(File));
-		if (Context.value("format", "") != "UMF.ModHostContext" || Context.value("schemaVersion", 0) != 2 ||
-		    Context.value("ownerModule", "") != Owner || Context.value("moduleAPIMode", "") != "Producer" ||
-		    Context.at("target").value("name", "") != Model.Input.Target ||
-		    Context.at("target").value("platform", "") != Model.Input.Platform ||
-		    Context.at("target").value("architecture", "") != Model.Input.Architecture ||
-		    Context.at("target").value("configuration", "") != Model.Input.Configuration)
-		{
-			throw std::runtime_error("MBT host context does not match this module and Target: " + Owner);
-		}
-		HostContexts[Owner] = Hash::HashBytes(Context.dump());
-	}
-	return HostContexts;
 }
 
 Json GenerationManifest::DescribeWatches(const GenerationModel& Model)
@@ -167,11 +149,10 @@ Json GenerationManifest::MakeManifest(const GenerationModel& Model, const Genera
 	const auto InputHash = Hash::HashBytes(Inputs.Dependencies.dump() + ContextHash);
 	const auto Outputs = DescribeOutputs(Batch.Files, Batch.ErrorHeader);
 	const auto GenerationId = Hash::HashBytes(InputHash + Batch.ContractHash + GeneratorVersion + Outputs.Hashes);
-	const auto HostContexts = ReadHostContextHashes(Model);
 	const auto ConfigWatches = DescribeWatches(Model);
-	return {{"schemaVersion", 3},
+	return {{"schemaVersion", 4},
 	        {"generatorVersion", GeneratorVersion},
-	        {"format", Model.Input.HostContexts.empty() ? "UMF.UbtHostArtifacts" : "UMF.GeneratedArtifacts"},
+	        {"format", "UMF.GeneratedArtifacts"},
 	        {"outputLayout", "Flat"},
 	        {"backend", "UObjectAPI." + Model.Input.Platform + ".v1"},
 	        {"gameId", Model.Input.GameId},
@@ -186,13 +167,11 @@ Json GenerationManifest::MakeManifest(const GenerationModel& Model, const Genera
 	        {"contractHash", Batch.ContractHash},
 	        {"projectionHash", Batch.ProjectionHash},
 	        {"nativeABIHash", Batch.NativeABI.at("nativeABIHash")},
-	        {"independentNativeABI", !Model.Input.HostContexts.empty()},
 	        {"clientABI", Batch.NativeABI},
 	        {"requiredSymbols", Batch.NativeABI.at("requiredSymbols")},
 	        {"unresolvedTypeCount", 0},
 	        {"generatedFiles", Outputs.Generated},
 	        {"compilationUnits", Outputs.CompilationUnits},
-	        {"hostBuildContexts", HostContexts},
 	        {"dependencies", Inputs.Dependencies},
 	        {"inputFiles", Inputs.Files},
 	        {"watchedDirectories", ConfigWatches}};

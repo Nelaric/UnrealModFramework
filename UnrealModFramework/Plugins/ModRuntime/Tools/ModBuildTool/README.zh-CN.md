@@ -4,9 +4,11 @@
 
 # ModBuildTool
 
-MBT 驱动 UBT 构建编译生成的 Hook 源码副本。在 Win64 x64 MSVC 独立编译路径中，MBT 还负责将生成的宿主连接代码编译为原生静态库，再由 UBT 链接至对应的二进制。
+MBT 驱动 UBT 使用生成的自动 Hook 源码副本，并依据目标回执核对桌面原生二进制。宿主与编译校验单元由 UBT 在所属模块编译。
 
 当前实现覆盖静态库构建、多符号校验、供 ModSDKTool（MDT）消费的公共产物清单，以及宿主库与成功链接记录的关联核对。[UHT 适配层](../../Source/ModRuntimeUht/README.zh-CN.md)为示例 UE 5.6 Win64 MSVC 目标调用 MHT 生成与 MBT 独立编译，并通过私有 External 模块规则将宿主库链接到所属模块；UE 5.6 的 PostBuildSteps 随后核对宿主库与实际链接产物并发布链接回执。MHT `scan` 报告不能作为 MBT 输入。`Built` 表示宿主库构建完成，`Linked` 表示其与可信链接记录及实际二进制字节的关联核对通过，二者均不证明游戏运行时行为。
+
+当前宿主 Target 均由 UBT 编译 MHT v4 生成的宿主单元。MBT 准备 Hook 编译动作，并通过 UBT 回执检查桌面目标最终二进制中的生成标记。各变体的 `host-link.json` 记录最终文件与回执的哈希。MDT 将生成的 Client 编入共享 UE Runtime。下文的独立归档命令适用于历史生产者输入。[当前生成格式](Protocol/generated-artifacts.schema.json) · [历史 v3 格式](Protocol/generated-artifacts-v3.schema.json)
 
 ## 构建和命令
 
@@ -153,7 +155,7 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，将生成的 JSON �
 
 ## UE 5.6 集成
 
-UHT 在标准 CodeGen 后运行 MHT。Win64 x64 MSVC 路径由 UHT 向 UBT 查询各导出模块的实际二进制，并在所属模块生成链接单元以接入 MBT 静态库。预构建步骤通过 `refresh-ue-watches` 跟踪依赖变化，最终链接后通过 `finalize-ue-target` 核对二进制并发布链接记录。其他工具链通过 UHT `CompileOutput` 在所属 UBT 模块中直接编译生成的宿主单元。[ModRuntime UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md)
+MBT 驱动 UBT 使用生成的自动 Hook 源码副本，并依据目标回执核对桌面原生二进制。宿主与编译校验单元由 UBT 在所属模块编译。
 
 `build-ue-target --mode normal` 与 UHT 使用同一份 `Config/ModHeaderTool.json` 生成配置。Windows 上由本地 MBT 驱动构建时，工具预构建步骤复用正在运行的 MBT，并构建 MHT 和 MST。切换到包含新 MBT 源码的分支后，重新执行 Setup 可更新下一次运行使用的 MBT。
 

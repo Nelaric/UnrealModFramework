@@ -219,6 +219,53 @@ def verify_empty_host_finalization(root, mbt):
     assert subprocess.run(args, capture_output=True).returncode != 0
 
 
+def verify_direct_host_finalization(root, args):
+    # Use actual cross-linked images. A stale generation must fail even when its text exists as data.
+    for platform, arch, triple, suffix in (
+        ("Win64", "x64", "x86_64-pc-windows-msvc", ".dll"),
+        ("Win64", "arm64", "aarch64-pc-windows-msvc", ".dll"),
+        ("Linux", "x64", "x86_64-unknown-linux-gnu", ".so"),
+        ("LinuxArm64", "arm64", "aarch64-unknown-linux-gnu", ".so"),
+        ("Mac", "x64", "x86_64-apple-macos12", ".dylib"),
+        ("Mac", "arm64", "arm64-apple-macos12", ".dylib"),
+    ):
+        directory = root / platform / arch
+        directory.mkdir(parents=True)
+        project = write_json(directory / "Game.uproject", {})
+        generation = "a" * 64
+        stale = "b" * 64
+        prefix = "UMF_HostBinding_Game_"
+        source = directory / "owner.c"
+        source.write_text(
+            "#ifdef _WIN32\n#define API __declspec(dllexport)\n#else\n"
+            '#define API __attribute__((visibility("default")))\n#endif\n'
+            f"API int {prefix}{generation}(void) {{ return 1; }}\n"
+            f'API const char *unrelated(void) {{ return "{prefix}{stale}"; }}\n')
+        image = directory / ("Owner" + suffix)
+        flags = {"Win64": ["-Wl,/noentry"], "Linux": ["-fPIC"], "LinuxArm64": ["-fPIC"], "Mac": ["-Wl,-platform_version,macos,12.0,12.0"]}[platform]
+        run([args.clang, "-target", triple, "-fuse-ld=lld", "-shared", "-nostdlib", *flags, source, "-o", image])
+        write_json(directory / "Game.modules", {"BuildId": "1", "Modules": {"Game": image.name}})
+        batch = {"format": "UMF.GeneratedArtifacts", "schemaVersion": 4, "status": "Complete", "unresolvedTypeCount": 0,
+                 "target": "Game", "platform": platform, "configuration": "Development", "architecture": arch,
+                 "contractHash": generation, "projectionHash": generation, "nativeABIHash": generation, "generationId": generation,
+                 "compilationUnits": [{"ownerModule": "Game", "role": "HostBinding", "source": "Host/Game/Game.modhost.cpp"}]}
+        manifest = directory / "Generated.json"
+        write_json(manifest, batch)
+        contexts = write_json(directory / "watch.json", {"format": "UMF.ModHostContextSet", "schemaVersion": 1,
+                              "project": project, "generatedManifest": str(manifest), "contexts": {}})
+        receipt = write_json(directory / "Game.target", {"Project": project, "TargetName": "Game", "Platform": platform,
+                             "Configuration": "Development", "Architecture": arch, "Version": {"BuildId": "1"},
+                             "BuildProducts": [{"Path": "$(ProjectDir)/Game.modules", "Type": "RequiredResource"},
+                                               {"Path": "$(ProjectDir)/" + image.name, "Type": "DynamicLibrary"}]})
+        command = [args.mbt, "finalize-ue-target", "--contexts", contexts, "--ue-target-receipt", receipt]
+        result = json.loads(run(command, capture_output=True).stdout)
+        assert result["binaries"][0]["linkWitness"] == prefix + generation
+        batch["generationId"] = stale
+        write_json(manifest, batch)
+        assert subprocess.run(command, capture_output=True).returncode != 0
+        print(f'{platform}/{arch}: current host binding verified, stale symbol rejected')
+
+
 def verify_long_project_path(root, mbt, engine):
     prefix = "\\\\?\\" if os.name == "nt" else ""
     with tempfile.TemporaryDirectory(dir=prefix + str(root)) as directory:
@@ -743,6 +790,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="umf hook targets ") as directory:
         verify_module_selection(Path(directory) / "discovery", args.mht, args.mbt)
         verify_empty_host_finalization(Path(directory) / "empty", args.mbt)
+        verify_direct_host_finalization(Path(directory) / "host", args)
         args.engine = prepare_fake_ubt(Path(directory))
         verify_long_project_path(Path(directory), args.mbt, args.engine)
         verify_msvc_source_analysis(Path(directory) / "msvc-source-analysis", args)

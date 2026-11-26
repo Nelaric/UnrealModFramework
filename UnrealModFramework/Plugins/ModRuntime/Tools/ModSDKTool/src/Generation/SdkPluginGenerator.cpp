@@ -11,7 +11,6 @@
 #include "ModSDKTool/src/Generation/TypedMethodWriter.h"
 #include "ModSDKTool/src/Generation/WrapperErrors.h"
 #include "ModSDKTool/src/Manifest/JsonDocument.h"
-#include "ModSDKTool/src/Manifest/Library.h"
 
 #include <algorithm>
 #include <cctype>
@@ -179,7 +178,8 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 		Source << "#include \"Containers/StringConv.h\"\n";
 	}
 	const std::string Game = JsonDocument::Text(Request.Contract, "gameId");
-	const bool bConnectHost = !BlueprintProviders.empty() || !ServiceTypes.empty() || !PayloadViews.empty();
+	const bool bConnectHost = !Request.Contract.at("apis").empty() || !BlueprintProviders.empty() ||
+	                          !ServiceTypes.empty() || !PayloadViews.empty();
 	std::set<std::string> Includes;
 	if (bConnectHost)
 	{
@@ -320,17 +320,6 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	                           "// Copyright (c) 2026 Nelaric Contributors\n#include \"Modules/ModuleManager.h\"\n\n"
 	                           "IMPLEMENT_MODULE(FDefaultModuleImpl, " +
 	                               Module + ");\n");
-	std::map<std::string, std::vector<const Library*>> Profiles;
-	for (const Library& Job : Request.Libraries)
-	{
-		if (Job.Role == "Client")
-		{
-			const Json& Target = Job.Plan.at("target");
-			Profiles[JsonDocument::Text(Target, "platform") + "/" + JsonDocument::Text(Target, "architecture") + "/" +
-			         JsonDocument::Text(Target, "configuration") + "/" + JsonDocument::Text(Target, "type")]
-			    .push_back(&Job);
-		}
-	}
 	std::ostringstream Build;
 	Build << "// Copyright (c) 2026 Nelaric Contributors\nusing System.IO;\nusing UnrealBuildTool;\n\n"
 	      << "public class " << Module << " : ModuleRules\n{\n\tpublic " << Module
@@ -349,35 +338,8 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	Build << " });\n"
 	      << "\t\tPrivateIncludePaths.Add(Path.Combine(PluginDirectory, \"Source\", \"ThirdParty\", \"ModClient\", "
 	         "\"Include\"));\n";
-	bool bFirst = true;
-	for (const auto& [Profile, Jobs] : Profiles)
-	{
-		const Json& Target = Jobs.front()->Plan.at("target");
-		Build << "\t\t" << (bFirst ? "if" : "else if") << " (Target.Platform == UnrealTargetPlatform."
-		      << JsonDocument::Text(Target, "platform") << " && Target.Architecture.ToString() == "
-		      << CppLiteral::Literal(JsonDocument::Text(Target, "architecture"))
-		      << " && Target.Configuration == UnrealTargetConfiguration." << JsonDocument::Text(Target, "configuration")
-		      << " && Target.Type == TargetType." << JsonDocument::Text(Target, "type") << ")\n\t\t{\n";
-		bFirst = false;
-		for (const Library* Job : Jobs)
-		{
-			const std::string Name =
-			    JsonDocument::Text(Job->Plan, "ownerModule") +
-			    Mod::BuildTool::Path::PathToUtf8(
-			        Mod::BuildTool::Path::PathFromUtf8(JsonDocument::Text(Job->Plan, "library")).extension());
-			Build << "\t\t\tPublicAdditionalLibraries.Add(Path.Combine(PluginDirectory, \"Source\", \"ThirdParty\", "
-			         "\"ModClient\", \"Lib\", "
-			      << CppLiteral::Literal(JsonDocument::Text(Target, "platform")) << ", "
-			      << CppLiteral::Literal(JsonDocument::Text(Target, "architecture")) << ", "
-			      << CppLiteral::Literal(JsonDocument::Text(Target, "configuration")) << ", "
-			      << CppLiteral::Literal(JsonDocument::Text(Target, "type")) << ", " << CppLiteral::Literal(Name)
-			      << "));\n";
-		}
-		Build << "\t\t}\n";
-	}
-	Build << "\t\telse\n\t\t{\n\t\t\tthrow new BuildException(\"No matching generated ModClient library for this "
-	         "target.\");\n"
-	      << "\t\t}\n\t}\n}\n";
+	Build << "\t\tPrivateIncludePaths.Add(Path.Combine(PluginDirectory, \"Source\", \"ThirdParty\", "
+	         "\"ModClient\", \"Include\", \"SDK\", \"Public\"));\n\t}\n}\n";
 	GeneratedFile::WriteSource(ModuleRoot / (Module + ".Build.cs"), Build.str());
 	Json Modules = Json::array({{{"Name", Module}, {"Type", "Runtime"}, {"LoadingPhase", "Default"}}});
 	if (!bGameHost && !Request.LifecycleArtifact.is_null())
@@ -500,6 +462,7 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 	                   {"IsBetaVersion", true},
 	                   {"Installed", false},
 	                   {"EnabledByDefault", true},
+	                   {"UMFSharedRuntimeModule", Module},
 	                   {"Modules", Modules}};
 	if (bGameHost)
 	{

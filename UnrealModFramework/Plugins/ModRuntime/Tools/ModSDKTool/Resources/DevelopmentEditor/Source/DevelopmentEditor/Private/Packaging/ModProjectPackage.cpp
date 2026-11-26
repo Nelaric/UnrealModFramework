@@ -192,6 +192,28 @@ bool StageModule(const FString& Source, const FString& Destination, const FStrin
 	return true;
 }
 
+bool IsSharedSdk(const IPlugin& Plugin)
+{
+	const FPluginDescriptor& Descriptor = Plugin.GetDescriptor();
+	FString Runtime;
+	if (Descriptor.CachedJson.IsValid() &&
+	    Descriptor.CachedJson->TryGetStringField(TEXT("UMFSharedRuntimeModule"), Runtime))
+	{
+		return Descriptor.Modules.ContainsByPredicate([&Runtime](const FModuleDescriptor& Module)
+		                                              { return Module.Name == FName(*Runtime); });
+	}
+	// Older author SDKs already ship their contract and the same public UE module name.
+	const FString ContractPath = FPaths::Combine(Plugin.GetBaseDir(), TEXT("Contract/SdkContract.json"));
+	FString Text, Format;
+	TSharedPtr<FJsonObject> Contract;
+	return FFileHelper::LoadFileToString(Text, *ContractPath) &&
+	       FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Contract) && Contract.IsValid() &&
+	       Contract->TryGetStringField(TEXT("format"), Format) && Format == TEXT("UMF.SdkContract") &&
+	       Descriptor.Modules.ContainsByPredicate(
+	           [&Plugin](const FModuleDescriptor& Module)
+	           { return Module.Name == FName(*(Plugin.GetName() + TEXT("Runtime"))); });
+}
+
 bool StageModules(const FProjectDescriptor& Project, const FHostTarget& Host, const FString& PluginDirectory,
                   FPluginDescriptor& OutPlugin)
 {
@@ -231,7 +253,7 @@ bool StageModules(const FProjectDescriptor& Project, const FHostTarget& Host, co
 		{
 			continue;
 		}
-		if (Host.Plugins.Contains(FName(*Reference.Name)))
+		if (Host.Plugins.Contains(FName(*Reference.Name)) || IsSharedSdk(*Plugin))
 		{
 			OutPlugin.Plugins.Add(Reference);
 			continue;

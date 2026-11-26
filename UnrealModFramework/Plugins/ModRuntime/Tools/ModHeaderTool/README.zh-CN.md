@@ -4,7 +4,7 @@
 
 # MHT 客户端 ABI 生成
 
-MHT 在生成 UE 视图后端的同时，生成纯 C 兼容的 `ContextHandlesV1` 边界。在 Win64 x64 MSVC 上，MBT 分别独立编译宿主与客户端静态库，再由 UBT 将宿主库链接到所属模块；其他工具链则由 UBT 在所属模块内直接编译生成的宿主单元。[UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md#完整生成模式)
+MHT 生成 UE 视图与 `ContextHandlesV1` C ABI。UBT 在各宿主模块内编译 Host 实现，在共享 SDK Runtime 中编译 Client 实现。
 
 ## 连接产物
 
@@ -19,7 +19,7 @@ MHT 在生成 UE 视图后端的同时，生成纯 C 兼容的 `ContextHandlesV1
 | `Contract/<game>.sdkcontract.json` | 供 ModSDKTool（MDT）在受支持的适配图中使用的已解析 `UMF.SdkContract` v2 |
 | `<game>.generated-artifacts.json` | v3 完整清单，显式列出 Host/Client 编译单元及必需符号绑定 |
 
-在 MBT 独立编译路径中，客户端库所属模块为 `<game>ModClient`，具有自己的生产者上下文、输出库路径、注册锚点与回执。Win64 适配层从实际选中的工具链配方派生客户端参数，并移除游戏包含目录和强制 UE 定义。[客户端 ABI Schema](Protocol/client-abi.schema.json)
+MHT 将 C 实现声明为 `ClientSource`，连接描述中的符号归属为 `<game>ModClient`。MDT 将实现放入共享 SDK Runtime 模块。[客户端 ABI Schema](Protocol/client-abi.schema.json)
 
 `.modviews.h` 和 `.modcalls.h` 属于宿主私有的 `HostHeader` 产物；公共 `SdkHeader` 产物包含 `.modabi.h`，并按契约发布错误码目录及独立扩展 ABI 头。MDT 仅复制具备公共角色的已校验产物。
 
@@ -74,8 +74,8 @@ UE SDK 调用者直接传入类型化的 UObject 指针。`ContextHandlesV1` 则
 
 每个宿主模块生成四个编译单元——桥接、ABI 入口、校验与 UE 视图实现，独立客户端另有一个单元；清单的 `compilationUnits` 逐项列出所有源文件。`requiredSymbols` 同时记录宿主和客户端入口，关联相同的 ExportId、签名哈希与投影哈希，并按库所属模块检查 ExportId 唯一性。查询、连接、断开与释放函数同样是必需符号，宿主注册锚点可确保 ABI 对象参与最终链接。
 
-UHT 适配层使用 `UMF.ModHeaderGenerationRequest` v1 文档执行 `generate <GenerationRequest.json>`，请求包含 `buildInput` 和 `outputDirectory`。独立编译路径通过 `hostContexts` 提供宿主模块和独立客户端的上下文，MHT 发布 `UMF.GeneratedArtifacts`，UHT 调用 MBT 构建库。直接编译路径设置 `hostCompiler` 为 `UBT` 并提供 `sourceTool`，MHT 发布 `UMF.UbtHostArtifacts`，由 UBT 构建宿主单元。请求还可提供 `metadataOptions`、`libclang`、`lifecycleSource`、`blueprintSnapshot` 路径。相对路径从请求文件所在目录解析。
+UHT 将 `buildInput`、`outputDirectory`、`hostCompiler`（`UBT`）和 `sourceTool` 写入生成请求。MHT 发布 `UMF.GeneratedArtifacts` v4，列出 `HostBinding`、`CompileVerification` 和 `ClientSource` 的文件、归属和哈希。
 
-MDT 消费 `.sdkcontract.json`、Host/Client 上下文及同批的 v3 `UMF.GeneratedArtifacts` 清单。它保留原有的对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。当 SDK 契约无法表示完整 API 集时，标记为 `Unsupported`。
+MDT 消费 `.sdkcontract.json` 和各目标的 v4 `UMF.GeneratedArtifacts` 生成清单。它保留原有的对象 Getter 和 float 方法适配器，并按签名生成支持标量和公开 UE 对象入参的类型化方法。当 SDK 契约无法表示完整 API 集时，标记为 `Unsupported`。
 
 在 Win64 x64 MSVC 平台上，UBT 适配层自动准备输入，MBT 则在目标链接后核对实际产物。生成的 SDK 支持通过活跃的 `UModInstance` 获取已授权的宿主蓝图 World 提供者，LocalPlayer 等其他作用域由游戏接入层交付。独立原生回调通过运行时在 World 准备期间接入。详见 [UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md) 与[独立扩展打包](../ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)。

@@ -44,7 +44,7 @@ $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuil
 
 Change `--target` to `UnrealModFrameworkDev` for a Development Game build. When an export snapshot needs Editor binaries, the build bootstraps the configured Editor target automatically. To test in the Editor, open the development project once the build finishes. [Development host project](UnrealModFramework/UnrealModFrameworkDev.uproject) · [Linux command and target architectures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#automatic-hook-builds)
 
-On Win64 x64 MSVC, MBT compiles the generated host code into static archives; other toolchains compile that code directly in the owning UBT module. CircleCI builds the UE 5.6.1 Linux x64 Development Game and Editor targets and runs the `ChangeHealthDispatch` automation test in the Editor job. [Build and test coverage](Docs/DevelopmentWorkflow.md#linux-build-scope)
+UBT compiles generated host code in its owning module on every toolchain. The game's shared SDK Runtime module compiles the Client implementation. CircleCI builds the UE 5.6.1 Linux x64 Development Game and Editor targets and runs the `ChangeHealthDispatch` automation test in the Editor job. [Build and test coverage](Docs/DevelopmentWorkflow.md#linux-build-scope)
 
 ## Get ModRuntime from a development branch
 
@@ -59,7 +59,7 @@ The script exports the plugin source, the four tool executables, `libclang`, and
 
 ## Export APIs, Hooks, and Events
 
-1. Call `ExportMetadata.ConfigureTarget(this)` once in each participating Game or Editor target. Exporting modules depend on `ModAPI` through their normal UE build rules. This dependency also exposes the export macros. [Host module and link setup](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#independent-host-compilation-and-linking)
+1. Call `ExportMetadata.ConfigureTarget(this)` once in each participating Game or Editor target. Exporting modules depend on `ModAPI` through their normal UE build rules. This dependency also exposes the export macros. [Host module and link setup](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#host-compilation-and-linking)
 2. Set `mode` to `generate` in `Config/ModHeaderTool.json` and specify the game ID, type identities, and `metadataEditorTarget`. For Blueprint exports, list each saved asset, its stable `typeId`, and its owning module under `blueprintExports`. [Sample host configuration](UnrealModFramework/Config/ModHeaderTool.json)
 3. MHT discovers project modules under `Source`. Use `Plugins` in the optional `<project>.modexport` beside the `.uproject` to select plugins. Set `ExcludeModules` at the top level for all selected modules or inside a plugin entry for that plugin alone. [Module selection](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#module-selection)
 4. Declare exports in C++ or in the Blueprint editor's **蓝图Mod导出** panel, and build the target through MBT when using automatic C++ Hooks. [Host declarations and supported signatures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
@@ -92,7 +92,7 @@ MHT validates active declarations against the selected target. `HostCommitPayloa
 
 ## Build and load a mod
 
-1. Point the SDK build request at the generated manifest and producer contexts from the independent Win64 x64 MSVC host build, run `ModSDKTool build --request SdkBuildRequest.json` to publish the bundle, and install the game SDK and authoring plugin under the author project's `Plugins/` directory. For the sample, install `UMFDevSDK` and `ModDevelopmentSDKEditor` under `ExampleMods/TestMod/Plugins/`. [SDK requests and output](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.md)
+1. List the v4 target manifests in the MDT v3 request and run `ModSDKTool build --request SdkBuildRequest.json`. Install the Host plugin in the game providing the shared Runtime and the authoring plugins in each Mod project. [SDK request and bundle](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.md)
 2. In the author project's Level Editor toolbar, choose **Mod → 打包 Mod…**, supply the target game's base release and matching Cook settings, and package either an enabled content plugin or the current C++ project. Packaging a C++ project requires the Pak backend and a matching Win64 x64 modular host receipt; to test the packaged sample game, build `UnrealModFrameworkDevModular` with a UE source build that supports modular Game targets. [Packaging and PIE setup](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.md)
 3. Configure the release identity, container backend, and any native code permissions under `[ModLoader]` in the host's `Config/DefaultGame.ini`. Place the `.mod` archive in `Mods/` beside the running game executable—or, for Windows PIE, place an Editor-compatible archive in the host project's `Binaries/Win64/Mods/`. [Loader configuration](Docs/CodingStandards/Modules.md#mod-loader)
 

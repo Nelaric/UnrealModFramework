@@ -8,7 +8,7 @@
 
 开发宿主现已接入 C++ 与蓝图导出、游戏 SDK 及独立制作插件构建、`.mod` 打包与加载，以及 World 作用域的模组扩展。其中，World 集成覆盖 Hook/Event、内容槽、Patch、跨模组服务、多人玩法计划核对及存档迁移；游戏通过实际业务调用点和显式注册来决定这些能力在何处生效。
 
-UBT/UHT 提供 Target 上下文，由 MHT 生成契约与宿主连接代码。在 Win64 x64 MSVC 上，MBT 独立编译宿主静态库，并在 UBT 链接后核对 PE 产物；其他工具链则由 UBT 在所属模块内直接编译生成的宿主连接代码。启用自动 C++ Hook 的目标构建由 MBT 驱动 UBT 编译生成的源码副本。MDT 以独立编译路径的生成清单与库上下文为输入发布作者 SDK，也可单独构建制作插件。[UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md) · [MDT 指南](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
+UBT/UHT 提供 Target 上下文，MHT 生成契约与连接代码，UBT 在所属模块内编译宿主。MBT 驱动自动 Hook 源替换并核对桌面最终链接。MDT 消费各目标的生成清单，提供游戏和独立作者工程的共享 SDK Runtime。[UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md) · [MDT 指南](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
 
 下文保留完整的发布目标；当前代码覆盖、样例入口及待验收范围参见[游戏端详细设计](UnrealModFramework_游戏端详细设计.md#当前实现与限制)。Shipping 构建、各容器后端及更多平台将分别开展验收。
 
@@ -152,7 +152,7 @@ C++ 的动态多播 Delegate 仍可作为反射事件源，但其广播顺序未
 
 SDK 以同批 Bundle 为交付单位，包含公开头文件、适配源码或等价编译输入、SDK 清单、匹配 Editor 的 DLL 与链接输入、`.uplugin`/`.Build.cs`/`.modules` 及所需预编译元数据，以及契约、Cook Profile 和能力报告。在 Windows 平台上，隐式链接使用导入库，显式加载仍需正确的 ABI 与调用声明（参见[Microsoft DLL 链接说明](https://learn.microsoft.com/en-us/cpp/build/linking-an-executable-to-a-dll?view=msvc-170)）；DLL 并非可再次编译成编辑器插件的源码。
 
-在 Win64 x64 MSVC 上，宿主静态库由 MBT 编译、UBT 链接；其他工具链由 UBT 直接编译宿主连接代码。公开 SDK 的 UE 模块与游戏 Editor 适配仍按各自的原生 Target 构建。MBT Finalize 核对本次目标的产物，完整 SDK 发布需要各目标匹配的 Game/Editor 产物。Editor 插件须匹配目标 Editor 的 BuildId，另需分发 Native Bridge DLL 时须单独构建并验收该 C ABI。独立作者工程可使用公共 SDK 浏览并编译契约，执行真实业务时由 Provider 或 Preview Host 提供实例。[构建与生成清单](UnrealModFramework_游戏端详细设计.md#10-契约生成与构建流水线) · [UE 二进制版本](https://dev.epicgames.com/documentation/en-us/unreal-engine/how-to-version-binaries-in-unreal-engine?application_version=5.6)
+游戏与作者插件使用同名的 Runtime，各自通过 UBT 编译。游戏发行验证将生成身份与最终目标回执、模块二进制及实际 ABI 调用关联。作者 Editor 插件匹配其目标 Editor 的 BuildId。[构建与生成清单](UnrealModFramework_游戏端详细设计.md#10-契约生成与构建流水线) · [UE 二进制版本](https://dev.epicgames.com/documentation/en-us/unreal-engine/how-to-version-binaries-in-unreal-engine?application_version=5.6)
 
 ### 4.5 双执行路径与 C ABI 边界
 

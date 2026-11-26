@@ -18,6 +18,10 @@ namespace fs = std::filesystem;
 void BinaryInspector::ValidateHostBinary(const fs::path& Path, std::string_view Platform, std::string_view Architecture,
                                          std::string_view Kind, std::string_view LinkWitness)
 {
+	if (Platform == "LinuxArm64")
+	{
+		Platform = "Linux";
+	}
 	if ((Platform != "Win64" && Platform != "Linux" && Platform != "Mac") ||
 	    (Architecture != "x64" && Architecture != "arm64") || (Kind != "Executable" && Kind != "DynamicLibrary"))
 	{
@@ -63,6 +67,10 @@ void BinaryInspector::ValidateHostBinary(const fs::path& Path, std::string_view 
 		{
 			throw std::runtime_error("Linked ELF image kind or architecture mismatch.");
 		}
+		if (!LinkWitness.empty())
+		{
+			ImageReader::RequireElfSymbol(Stream, Header, fs::file_size(Path), LinkWitness);
+		}
 		if (ImageReader::IsElfExecutable(Stream, Header, fs::file_size(Path)) != (Kind == "Executable"))
 		{
 			throw std::runtime_error("Linked ELF image is not the requested executable/shared-library kind.");
@@ -77,6 +85,10 @@ void BinaryInspector::ValidateHostBinary(const fs::path& Path, std::string_view 
 		    (Kind == "Executable" ? Type != 2 : Type != 6 && Type != 8))
 		{
 			throw std::runtime_error("Linked Mach-O image kind or architecture mismatch; fat images are unsupported.");
+		}
+		if (!LinkWitness.empty())
+		{
+			ImageReader::RequireMachSymbol(Stream, Header, fs::file_size(Path), LinkWitness);
 		}
 	}
 }

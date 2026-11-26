@@ -22,10 +22,9 @@ public:
 	static Json MakeManifest(const GenerationModel& Model, const GeneratedBatch& Batch);
 
 private:
-	static constexpr const char* GeneratorVersion = "0.5.0-verified-host";
+	static constexpr const char* GeneratorVersion = "0.6.0-ubt-host";
 	static InputIndex DescribeInputs(const GenerationModel& Model);
 	static OutputIndex DescribeOutputs(const Files& Files, const std::string& ErrorHeader);
-	static Json ReadHostContextHashes(const GenerationModel& Model);
 	static Json DescribeWatches(const GenerationModel& Model);
 };
 } // namespace Mod::HeaderTool

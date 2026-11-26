@@ -33,12 +33,11 @@ void Generation::Generate(const fs::path& RequestFile)
 		}
 		return Value.empty() ? fs::path{} : Root / Path::PathFromUtf8(Value);
 	};
-	const auto Producer = Request.value("hostCompiler", std::string("MBT"));
-	if ((Producer != "UBT" && Producer != "MBT") || (Producer == "UBT" && Request.contains("hostContexts")))
+	if (Request.value("hostCompiler", std::string("UBT")) != "UBT" || Request.contains("hostContexts"))
 	{
-		throw std::runtime_error("Specify independent MBT contexts or UBT host compilation.");
+		throw std::runtime_error("Host archives are obsolete. Regenerate the UBT target inputs.");
 	}
-	APIGenerator(ReadPath("buildInput", true), ReadPath("hostContexts", Producer == "MBT"))
+	APIGenerator(ReadPath("buildInput", true))
 	    .Generate(ReadPath("outputDirectory", true), ReadPath("metadataOptions", false), ReadPath("libclang", false),
 	              ReadPath("lifecycleSource", false), ReadPath("blueprintSnapshot", false),
 	              ReadPath("sourceTool", false));

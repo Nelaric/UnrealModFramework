@@ -14,8 +14,6 @@ add_executable(ModSDKTool
     src/Application.h
     src/Build/BuildProgress.cpp
     src/Build/BuildProgress.h
-    src/Build/NativeBuild.cpp
-    src/Build/NativeBuild.h
     src/Build/PathRelations.cpp
     src/Build/PathRelations.h
     src/Build/SdkBuild.cpp
@@ -36,8 +34,6 @@ add_executable(ModSDKTool
     src/Bundle/BundlePublisher.h
     src/Bundle/BundleReuse.cpp
     src/Bundle/BundleReuse.h
-    src/Bundle/ClientLayout.cpp
-    src/Bundle/ClientLayout.h
     src/Bundle/SdkBundle.cpp
     src/Bundle/SdkBundle.h
     src/Cli/CommandDiagnostics.cpp
@@ -87,14 +83,12 @@ add_executable(ModSDKTool
     src/Manifest/ContractValidator.h
     src/Manifest/JsonDocument.cpp
     src/Manifest/JsonDocument.h
-    src/Manifest/Library.cpp
-    src/Manifest/Library.h
-    src/Manifest/LibraryCoverage.cpp
-    src/Manifest/LibraryCoverage.h
     src/Manifest/PortableNames.cpp
     src/Manifest/PortableNames.h
     src/Manifest/SdkInputs.cpp
     src/Manifest/SdkInputs.h
+    src/Manifest/TargetArtifacts.cpp
+    src/Manifest/TargetArtifacts.h
     src/Manifest/SdkPlan.cpp
     src/Manifest/SdkPlan.h
     src/Process/Handle.cpp
