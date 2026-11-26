@@ -2,6 +2,8 @@
 /** @file Project.h */
 #pragma once
 
+#include "Common/Files/ExportModules.h"
+
 #include <filesystem>
 #include <vector>
 
@@ -20,6 +22,8 @@ struct Project
 	fs::path ConfigFile;
 	/// Whether the optional configuration exists.
 	bool bHasConfig = false;
+	/// Project and opted-in plugin modules, indexed by their UE rules name.
+	Tools::ExportModules Selection;
 	/// Existing, canonical scan roots.
 	std::vector<fs::path> Directories;
 };

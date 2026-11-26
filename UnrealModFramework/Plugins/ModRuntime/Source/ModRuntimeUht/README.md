@@ -62,7 +62,7 @@ under the project. `scan` mode validates marker syntax and parameters.
 
 ## Complete generation
 
-Set `mode` to `generate` and list the export modules in `generation`. UBT records the
+Set `mode` to `generate` and configure the game ID and type identities in `generation`. UBT records the
 actual platform, configuration, and architecture in the UHT manifest. The adapter
 expands the target compiler's response files before the regular action graph is
 written, and each variant stores its `BuildInput.json` and pinned
@@ -104,11 +104,6 @@ automatically from Setup. [Checked-in configuration](../../../../Config/ModHeade
   "generation": {
     "gameId": "UnrealModFrameworkDev",
     "typeIdentities": "Config/ModAPITypes.json",
-    "modules": [{
-      "name": "ExportTest",
-      "sourceDirectory": "Source/ExportTest",
-      "translationUnits": ["Source/ExportTest/GameCharacter.cpp", "Source/ExportTest/GameLocalPlayerAPI.cpp"]
-    }],
     "analysisArguments": ["-Wno-invalid-constexpr"]
   }
 }
@@ -138,11 +133,31 @@ A target- or variant-level `buildInput` selects a caller-managed input whose
 compilation database and response files must match the active target. Clang also
 requires the headers produced by standard UHT CodeGen.
 
+### Module selection
+
+Place an optional `<project>.modexport` next to the `.uproject`. With the file absent or empty (`{}`), MHT discovers modules recursively under the project's `Source` using their `*.Build.cs` rules. This example includes the Combat and Audio plugins, excludes GameEditor globally, and excludes CombatEditor within Combat.
+
+```json
+{
+  "ExcludeModules": ["GameEditor"],
+  "Plugins": [
+    { "Name": "Combat", "ExcludeModules": ["CombatEditor"] },
+    "Audio"
+  ]
+}
+```
+
+A string in `Plugins` can name a plugin under the project's `Plugins` tree or give a path to a `.uplugin` descriptor. To set exclusions for one plugin, use an object with `Name` for a plugin name or `Path` for its descriptor. Relative paths start at the project directory.
+
+Top-level `ExcludeModules` applies to the project and every selected plugin. An `ExcludeModules` list inside a plugin entry applies only to that plugin. Both lists match UE module names case-insensitively. When multiple entries resolve to the same plugin, their local exclusions are combined. UE determines which plugins participate in the target build.
+
+The standalone scan and automatic generation share this selection. For a module with export markers or configured Blueprint exports, UHT takes its C++ translation units from the active target's compilation database. Adding a module or a `.cpp` to the target makes it discoverable on the next build. `ModHeaderTool discover <project.uproject>` prints the selected modules and whether they contain markers. Caller-managed `buildInput` files continue to specify their exact inputs.
+
 ### Host Blueprint API exports
 
 Configure `blueprintExports` in the project's `Config/ModHeaderTool.json`. Each entry
 supplies the saved Blueprint object path as `asset`, a stable `typeId`, and a
-participating Runtime `module`. The development project includes an example entry for
+Runtime `module` within the selected scope. UBT attaches the generated compilation units through UHT, so choose an owner with a UE reflection header. The development project includes an example entry for
 `BP_ModBlueprintAPIExportTest`. Set `PublicName` on the Blueprint API declaration
 before publishing; existing declarations with empty names or versions default to their
 current declaration name and `1.0.0`.
@@ -226,13 +241,7 @@ are separate platform integrations.
 
 ## Independent host compilation and linking
 
-Each exporting module's rules call `ExportMetadata.ConfigureHost(this, Target)`.
-On the independent Win64 x64 MSVC path, a companion External rules class such as
-`ExportTestHost` calls
-`ExportMetadata.ConfigureHostLibrary(this, Target, "ExportTest")`, and the owning
-module privately depends on that External module. Setup is configured per owning
-module, while individual API authors continue to write export macros and ordinary
-functions.
+Configure each host target once. An exporting module uses a regular UE dependency on `ModAPI`, which supplies the runtime symbols and exposes the `ExportMetadata` headers. UHT attaches the generated code or link unit to the owning module. A calling module uses its usual dependencies on the API it consumes.
 
 The rules write a stable target descriptor in the project under
 `Intermediate/ModTools/ModHeaderTool/HostTargets/<Target>/<Platform>/<Configuration>/<Architecture>`.
@@ -240,8 +249,7 @@ The rules write a stable target descriptor in the project under
 its response files. The adapter pins both the expanded commands and their source
 database by hash, preserving module producer definitions and ABI settings while
 replacing source, object, and dependency outputs and appending generated include paths.
-Independent archive compilation requires Win64 x64 MSVC with PCH, unity builds, and
-LTO disabled.
+MBT compiles each generated translation unit separately on Win64 x64 MSVC. Its archive recipe requires PCH and LTO to be disabled.
 
 MHT emits declarations in public headers and all implementations in explicit `.cpp`
 compilation units. MBT compiles those units independently and publishes
@@ -258,18 +266,7 @@ publishes the C ABI header and, for structured error catalogs, the separate
 manifest's `hostBuildContexts` map pins each actual producer context, and an unchanged
 MBT fingerprint reuses the cached library.
 
-The private External module uses UE 5.6 `PublicPreBuildLibraries` to declare a library
-that may not exist before the first UHT invocation, without creating an empty
-placeholder. UHT must finish MBT compilation successfully before UBT reaches final
-linking, and the library does not propagate through an owning DLL's private dependency.
-After native publication, the adapter refreshes UE's cached `FileItem` information for
-the library, receipt, and generated files. Because Internal UHT and UBT share that
-cache, refreshing it lets the current build detect the new archive and relink
-immediately. Once MBT builds the archive, the adapter runs
-`ModSourceTool generate-host-link` to write `<owner>.modlink.h` under
-`Intermediate/ModTools/ModSourceTool/<Target>/<Platform>/<Configuration>/<Architecture>`
-in the owning project or plugin. UBT force-includes this header in the owning module
-so the linker retains `UMF_ModHost_<owner>` and its generated registrar. At game
+UBT reports the owning executable or DLL for each module. After MBT builds its archive, the adapter emits a UHT compile unit that includes the MSVC archive directive and the retention header produced by `ModSourceTool generate-host-link`. The header identifies the archive by content so changing the library triggers a relink. At game
 instance startup, `UModAPIHostSubsystem` runs the generated registrations. MHT marks
 exported `ULocalPlayerSubsystem` types in the Player scope so the runtime can resolve
 the existing service from an explicitly chosen player. MBT also compiles SDK view

@@ -104,7 +104,7 @@ The `UMF.ModHostLinkedArtifacts` / `Linked` output includes public files, contra
 
 ## UE 5.6 integration
 
-UHT runs MHT after standard CodeGen. For Win64 x64 MSVC, `ExportMetadata.ConfigureHost` writes the Target descriptor and adds a private External module dependency. That module uses `PublicPreBuildLibraries` to link the archive produced by MBT. The pre-build `refresh-ue-watches` step tracks dependency changes, and `finalize-ue-target` verifies the linked image and publishes link records after the build. Other toolchains use UHT `CompileOutput` to compile the generated host units directly in the owning UBT module. [ModRuntime UHT integration](../../Source/ModRuntimeUht/README.md)
+UHT runs MHT after standard CodeGen. For Win64 x64 MSVC, UHT obtains each export owner’s binary from UBT and generates a compile unit in that module to link its MBT archive. The pre-build `refresh-ue-watches` step tracks dependency changes, and `finalize-ue-target` verifies the linked image and publishes link records after the build. Other toolchains use UHT `CompileOutput` to compile the generated host units directly in the owning UBT module. [ModRuntime UHT integration](../../Source/ModRuntimeUht/README.md)
 
 `build-ue-target --mode normal` uses the same `Config/ModHeaderTool.json` generation settings as UHT. When the local MBT executable drives a Windows build, the tool pre-build step reuses that executable and builds MHT and MST. Run Setup again after switching to a branch with newer MBT sources so the next invocation uses the updated driver.
 

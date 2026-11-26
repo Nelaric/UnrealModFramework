@@ -41,8 +41,8 @@
         "type": "object",
         "required": ["root", "kind", "files"],
         "properties": {
-          "root": { "type": "string", "minLength": 1, "description": "Absolute directory path." },
-          "kind": { "enum": ["Source", "Config"] },
+          "root": { "type": "string", "minLength": 1, "description": "Absolute directory or ExportModules project descriptor path." },
+          "kind": { "enum": ["Source", "Config", "ExportModules"] },
           "files": {
             "type": "array",
             "uniqueItems": true,

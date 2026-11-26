@@ -33,11 +33,11 @@ class WatchedFiles
 		}
 	};
 
-	static bool IsExcludedDirectory(const fs::path& Path);
-
 	static bool IsSourceFile(const fs::path& Path);
 
 public:
+	static bool IsExcludedDirectory(const fs::path& Path);
+
 	static std::vector<fs::path> CollectSourceFiles(std::vector<fs::path> Pending);
 
 	static std::vector<fs::path> CollectConfigFiles(const fs::path& Root);

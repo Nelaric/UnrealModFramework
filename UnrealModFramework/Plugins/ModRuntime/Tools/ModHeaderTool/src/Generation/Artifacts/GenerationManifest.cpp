@@ -124,16 +124,31 @@ Json GenerationManifest::DescribeWatches(const GenerationModel& Model)
 		}
 		ConfigWatches.push_back({{"root", Path::PathToUtf8(Root)}, {"kind", "Config"}, {"files", Names}});
 	}
+	std::set<fs::path> Roots;
+	if (Model.Input.bAutoDiscoverModules)
+	{
+		for (const auto& [Name, Root] : Model.Input.Project.Selection.Modules)
+		{
+			Roots.insert(Root);
+		}
+		ConfigWatches.push_back({{"root", Path::PathToUtf8(Model.Input.Project.File)},
+		                         {"kind", "ExportModules"},
+		                         {"files", Model.Input.Project.Selection.RulesFiles()}});
+	}
 	for (const auto& Module : Model.Input.Modules)
 	{
+		Roots.insert(Module.Root);
+	}
+	for (const auto& Root : Roots)
+	{
 		Project Scoped = Model.Input.Project;
-		Scoped.Directories = {Module.Root};
+		Scoped.Directories = {Root};
 		std::set<std::string> Names;
 		for (const auto& File : ProjectSources::CollectSourceFiles(Scoped))
 		{
 			Names.insert(Path::PathToUtf8(File));
 		}
-		ConfigWatches.push_back({{"root", Path::PathToUtf8(Module.Root)}, {"kind", "Source"}, {"files", Names}});
+		ConfigWatches.push_back({{"root", Path::PathToUtf8(Root)}, {"kind", "Source"}, {"files", Names}});
 	}
 	return ConfigWatches;
 }

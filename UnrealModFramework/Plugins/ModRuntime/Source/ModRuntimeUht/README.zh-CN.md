@@ -25,7 +25,7 @@ C# 适配层负责启动独立的 MHT 与 MBT 进程，传递真实编译配方�
 
 ## 完整生成模式
 
-将 `mode` 设为 `generate`，并在 `generation` 中列出导出模块。UBT 会把目标平台、配置和架构写入 UHT 清单，MHT 据此使用该目标的实际编译参数。以下开发宿主配置使用 Setup 提供的工具与 libclang，由适配层自动查找。[仓库中的配置文件](../../../../Config/ModHeaderTool.json)
+将 `mode` 设为 `generate`，并在 `generation` 中填写游戏 ID 与类型身份。UBT 会把目标平台、配置和架构写入 UHT 清单，MHT 据此使用该目标的实际编译参数。以下开发宿主配置使用 Setup 提供的工具与 libclang，由适配层自动查找。[仓库中的配置文件](../../../../Config/ModHeaderTool.json)
 
 ```json
 {
@@ -40,11 +40,6 @@ C# 适配层负责启动独立的 MHT 与 MBT 进程，传递真实编译配方�
   "generation": {
     "gameId": "UnrealModFrameworkDev",
     "typeIdentities": "Config/ModAPITypes.json",
-    "modules": [{
-      "name": "ExportTest",
-      "sourceDirectory": "Source/ExportTest",
-      "translationUnits": ["Source/ExportTest/GameCharacter.cpp", "Source/ExportTest/GameLocalPlayerAPI.cpp"]
-    }],
     "analysisArguments": ["-Wno-invalid-constexpr"]
   }
 }
@@ -61,11 +56,31 @@ ModSourceTool（MST）按以下顺序查找：环境变量 `UMF_MOD_SOURCE_TOOL_
 
 工程的生成根目录为 `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`。每次生成会更新当前变体的 `SDK`、`Host`、`Client`、`Contract`、`Diagnostics` 和 `<gameId>.generated-artifacts.json`；内容未变更的文件保留时间戳，完整清单在所有文件替换完成后原子提交。独立编译路径还会将导出插件所属模块的生成文件按相同相对路径同步发布到插件目录，工程目录则保留共享契约、客户端 ABI 和完整清单。
 
-正常构建时，适配层会使用当前 Target 和目标编译器运行 UBT 的 `GenerateClangDatabase`，并在正式编译动作生成前展开导出模块的响应文件。对应变体的 `HostTargets` 目录保存 `BuildInput.json` 和 `Ubt/compile_commands.json`；UBT 复用 Makefile 时，适配层直接读取已保存的编译参数。Target 或变体中显式配置的 `buildInput` 由调用方维护，其编译数据库及响应文件须与当前 Target 匹配。Clang 还依赖标准 UHT CodeGen 生成的头文件。
+正常构建时，适配层会使用当前 Target 和目标编译器运行 UBT 的 `GenerateClangDatabase`，并在正式编译动作生成前展开导出模块的响应文件。对应变体的 `HostTargets` 目录保存 `BuildInput.json` 和 `Ubt/compile_commands.json`；生成时会根据当前 Target 的编译动作刷新输入。Target 或变体中显式配置的 `buildInput` 由调用方维护，其编译数据库及响应文件须与当前 Target 匹配。Clang 还依赖标准 UHT CodeGen 生成的头文件。
+
+### 模块选择
+
+可在 `.uproject` 同目录放置 `<项目名>.modexport`。文件缺省或内容为 `{}` 时，MHT 通过 `*.Build.cs` 递归发现工程 `Source` 下的模块。下例纳入 Combat 和 Audio 两个插件，在工程范围排除 GameEditor，在 Combat 内排除 CombatEditor。
+
+```json
+{
+  "ExcludeModules": ["GameEditor"],
+  "Plugins": [
+    { "Name": "Combat", "ExcludeModules": ["CombatEditor"] },
+    "Audio"
+  ]
+}
+```
+
+`Plugins` 的字符串条目可以是工程 `Plugins` 目录树中的插件名，也可以是具体的 `.uplugin` 路径。要给插件设置排除项，可用对象条目，通过 `Name` 指定插件名，或通过 `Path` 指定描述文件。相对路径以工程目录为起点。
+
+顶层 `ExcludeModules` 适用于工程和所有已选插件。插件条目中的 `ExcludeModules` 只对该插件生效，两级规则都按 UE 模块名匹配并忽略大小写。同一插件通过名称和路径重复选中时，其局部排除项合并。插件是否参与当前 Target 的构建仍由 UE 决定。
+
+独立扫描和自动生成使用同一份选择规则。对于含导出标记或配置了蓝图导出的模块，UHT 从当前 Target 的编译数据库提取实际参与编译的 C++ 翻译单元。新增模块或 `.cpp` 会在下次构建时自动发现。`ModHeaderTool discover <项目.uproject>` 可查看所选模块及其是否包含导出标记。调用方自行提供的 `buildInput` 仍可固定精确输入。
 
 ### 从宿主蓝图导出 API
 
-在工程的 `Config/ModHeaderTool.json` 中配置 `blueprintExports`。每项需提供已保存蓝图的资产对象路径 `asset`、发布后保持稳定的 `typeId` 以及参与生成的 Runtime 模块 `module`（工程中已包含 `BP_ModBlueprintAPIExportTest` 的配置示例）。发布新 API 前，请在 **蓝图Mod导出** 面板中设置 `PublicName`；已有声明若公开名或版本为空，则分别采用当前声明名和 `1.0.0`。
+在工程的 `Config/ModHeaderTool.json` 中配置 `blueprintExports`。每项需提供已保存蓝图的资产对象路径 `asset`、发布后保持稳定的 `typeId` 以及扫描范围内的 Runtime 模块 `module`。请选用含 UE 反射头的模块，UBT 通过 UHT 将生成单元编入该模块。工程内的 `BP_ModBlueprintAPIExportTest` 提供了配置示例。发布新 API 前，请在 **蓝图Mod导出** 面板中设置 `PublicName`；已有声明若公开名或版本为空，则分别采用当前声明名和 `1.0.0`。
 
 生成时，`ModExportBlueprints` commandlet 会编译已保存的资产，从 Kismet 生成的 `UFunction` 提取签名，并将快照交给 MHT。当前支持 `World`、`GameThread`、`ReturnError` 规格的实例 API，参数为按值传递的布尔或数值标量，结果为一个标量输出或 `void`。配置中的资产包会自动加入宿主 Cook；首次需要准备 Editor 时可使用 `-MhtBootstrap`。
 
@@ -118,13 +133,13 @@ MHT 和 MST 通过 Clang 定位标记的成员函数并生成源码副本。MBT 
 
 ## 独立宿主编译与链接
 
-各导出模块的构建规则调用 `ExportMetadata.ConfigureHost(this, Target)`。Win64 x64 MSVC 独立编译路径需要配套的 External 规则类（例如 `ExportTestHost`），调用 `ExportMetadata.ConfigureHostLibrary(this, Target, "ExportTest")`，由所属模块私有依赖该 External 模块。
+每个宿主 Target 配置一次。导出模块按 UE 常规方式依赖 `ModAPI`。该模块提供宿主运行时符号，并公开 `ExportMetadata` 的导出宏头文件。UHT 将生成代码或链接单元加入所属模块，调用方按实际使用的接口配置模块依赖。
 
-构建规则会在工程的 `Intermediate/ModTools/ModHeaderTool/HostTargets/<Target>/<Platform>/<Configuration>/<Architecture>` 下写入稳定的目标描述。`MbtHostBuild` 从真实 UBT 编译数据库中读取 MSVC 动作并展开响应文件，按哈希锁定展开后的配方与原始数据库：保留模块生产者宏和 ABI 设置，仅替换源码、对象和依赖输出，并追加生成头目录。当前自动适配要求 Win64 x64 MSVC 且关闭 PCH、Unity 和 LTO；缺失配置时直接失败，不猜测工具链。
+构建规则会在工程的 `Intermediate/ModTools/ModHeaderTool/HostTargets/<Target>/<Platform>/<Configuration>/<Architecture>` 下写入稳定的目标描述。`MbtHostBuild` 从真实 UBT 编译数据库中读取 MSVC 动作并展开响应文件，按哈希锁定展开后的配方与原始数据库：保留模块生产者宏和 ABI 设置，仅替换源码、对象和依赖输出，并追加生成头目录。在 Win64 x64 MSVC 上，MBT 单独编译各生成单元，归档配方要求关闭 PCH 和 LTO。
 
 MHT 在公共头中声明签名和常量，在显式 `.cpp` 编译单元中生成实现。MBT 独立编译这些单元，并在所属工程或插件的 `Intermediate/ModTools/ModBuildTool/<Target>/<Platform>/<Configuration>/<Architecture>` 下发布 `<owner>.lib` 和 `.mbt.json` 回执。另有独立的 `<game>ModClient` 生产者上下文，移除 UE/游戏包含路径与强制定义并保留真实工具链参数，由 MBT 独立编译客户端 ABI 库并写入工程的 `Intermediate/ModTools/ModBuildTool` 对应变体目录。v3 清单为单宿主示例列出了全部五个 Host/Client 单元，并将两类入口绑定到 ExportId。ModSDKTool（MDT）发布 C ABI 公共头，并为结构化错误码目录发布独立的 `<game>.moderrors.h`。清单中的 `hostBuildContexts` 锁定每个真实生产者上下文；输入指纹一致时，MBT 会直接复用已有库。详见 [MHT 连接协议](../../Tools/ModHeaderTool/README.zh-CN.md)。
 
-私有 External 模块使用 UE 5.6 的 `PublicPreBuildLibraries` 预先登记宿主库路径（首次 UHT 调用前库文件可以不存在，无需创建空占位文件）。MBT 构建成功后，适配层调用 `ModSourceTool generate-host-link`，在所属工程或插件的 `Intermediate/ModTools/ModSourceTool/<Target>/<Platform>/<Configuration>/<Architecture>` 生成 `<owner>.modlink.h`。UBT 将该头文件强制包含到所属模块的编译中，使链接器保留 `UMF_ModHost_<owner>` 及生成的注册器。`UModAPIHostSubsystem` 在 GameInstance 初始化时运行生成的注册入口。MHT 为 Player 作用域中导出的 `ULocalPlayerSubsystem` 类型生成提供者标记，运行时据此从指定玩家取得已有实例。SDK 视图方法、构造函数和 TypeId 辅助函数也由 MBT 编译。
+UBT 提供每个所属模块的实际 EXE 或 DLL 路径。MBT 生成静态库后，UHT 在所属模块中生成一个链接单元，包含 MSVC 库路径和 MST 生成的符号保留指令。链接头记录静态库内容哈希，库发生变化时会触发重新链接。`UModAPIHostSubsystem` 在 GameInstance 初始化时运行生成的注册入口。MHT 为 Player 作用域中导出的 `ULocalPlayerSubsystem` 类型生成提供者标记，运行时据此从指定玩家取得已有实例。SDK 视图方法、构造函数和 TypeId 辅助函数也由 MBT 编译。
 
 原生产物发布后，适配层会刷新宿主库、回执和生成文件的 UE `FileItem` 缓存。由于 Internal UHT 与 UBT 共享该缓存，刷新后当前构建才能识别新库并立即重新链接。
 

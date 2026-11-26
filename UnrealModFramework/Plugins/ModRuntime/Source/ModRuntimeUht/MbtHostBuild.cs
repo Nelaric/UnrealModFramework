@@ -21,7 +21,8 @@ internal sealed class MbtHostBuild
 	private string Tool = "";
 	private string SourceTool = "";
 	private readonly List<string> Contexts = new();
-	private readonly Dictionary<string, string> LinkHeaders = new();
+	private readonly Dictionary<string, (string Header, string Library, string Archiver, bool Modular)> HostArchives =
+		new();
 	private readonly List<string> Libraries = new();
 	private readonly List<string> Inputs = new();
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -35,7 +36,8 @@ internal sealed class MbtHostBuild
 		string variant,
 		string buildInput,
 		JsonElement input,
-		JsonElement config
+		JsonElement config,
+		int timeout
 	)
 	{
 		MbtHostBuild result = new();
@@ -66,45 +68,69 @@ internal sealed class MbtHostBuild
 		string analysisDatabase = Path.Combine(variant, "compile_commands.json");
 		List<object> analysisCommands = new();
 		Dictionary<string, string> contextPaths = new();
+		string descriptorPath = Path.Combine(variant, "Target.json");
+		using JsonDocument descriptor = JsonDocument.Parse(File.ReadAllText(descriptorPath));
+		JsonElement target = descriptor.RootElement.GetProperty("target");
+		JsonElement graph = UbtPreparation.ReadTargetGraph(
+			factory.Session.Logger,
+			factory.Session.EngineDirectory!,
+			factory.Session.ProjectFile!,
+			target,
+			descriptor.RootElement.GetProperty("toolchain"),
+			timeout
+		);
+		string targetVariant = Path.Combine(
+			target.GetProperty("name").GetString()!,
+			target.GetProperty("platform").GetString()!,
+			target.GetProperty("configuration").GetString()!,
+			target.GetProperty("architecture").GetString()!
+		);
 		foreach (JsonElement module in input.GetProperty("modules").EnumerateArray())
 		{
 			string owner = Identifier(module, "name");
-			string descriptorPath = Path.Combine(variant, owner + ".target.json");
-			using JsonDocument descriptorDocument = JsonDocument.Parse(File.ReadAllText(descriptorPath));
-			JsonElement descriptor = descriptorDocument.RootElement;
+			string root = Path.GetFullPath(module.GetProperty("sourceDirectory").GetString()!, projectRoot);
 			if (
-				descriptor.GetProperty("format").GetString() != "UMF.UeHostTarget"
-				|| descriptor.GetProperty("schemaVersion").GetInt32() != 1
-				|| descriptor.GetProperty("ownerModule").GetString() != owner
-				|| !SamePath(descriptor.GetProperty("project").GetString()!, factory.Session.ProjectFile!)
-				|| !SamePath(
-					descriptor.GetProperty("sourceDirectory").GetString()!,
-					Path.GetFullPath(module.GetProperty("sourceDirectory").GetString()!, projectRoot)
-				)
-				|| !SamePath(descriptor.GetProperty("generatedDirectory").GetString()!, generated)
+				!graph.GetProperty("Modules").TryGetProperty(owner, out JsonElement ubtModule)
+				|| !SamePath(root, ubtModule.GetProperty("Directory").GetString()!)
 			)
 			{
-				throw new UhtException("ModRuntime MBT: owner descriptor does not match the MHT input: " + owner);
+				throw new UhtException("ModRuntime MBT: source directory differs from UBT for " + owner);
 			}
-			foreach (string key in new[] { "platform", "configuration", "architecture" })
+			JsonElement binary = graph
+				.GetProperty("Binaries")
+				.EnumerateArray()
+				.Single(item => item.GetProperty("Modules").EnumerateArray().Any(name => name.GetString() == owner));
+			string binaryPath = binary.GetProperty("File").GetString()!;
+			var owningBinary = new
 			{
-				if (descriptor.GetProperty("target").GetProperty(key).GetString() != input.GetProperty(key).GetString())
+				id = Path.GetFileName(binaryPath),
+				path = binaryPath,
+				kind = binary.GetProperty("Type").GetString() switch
 				{
-					throw new UhtException("ModRuntime MBT: target descriptor mismatch: " + key);
+					"Executable" => "Executable",
+					"DynamicLinkLibrary" => "DynamicLibrary",
+					_ => throw new UhtException("Unsupported UBT binary for " + owner),
+				},
+			};
+			string tools = Path.Combine(projectRoot, "Intermediate", "ModTools");
+			for (
+				DirectoryInfo? directory = new(root);
+				directory != null && !SamePath(directory.FullName, projectRoot);
+				directory = directory.Parent
+			)
+			{
+				if (directory.EnumerateFiles("*.uplugin").Any())
+				{
+					tools = Path.Combine(directory.FullName, "Intermediate", "ModTools");
+					result.PluginGeneratedDirectories.Add(
+						owner,
+						Path.Combine(tools, "ModHeaderTool", "Generated", targetVariant)
+					);
+					break;
 				}
 			}
-			if (
-				descriptor.GetProperty("target").GetProperty("name").GetString() != factory.Session.Manifest!.TargetName
-			)
-			{
-				throw new UhtException("ModRuntime MBT: target name mismatch.");
-			}
-			string ownerGenerated = descriptor.GetProperty("ownerGeneratedDirectory").GetString()!;
-			if (!SamePath(ownerGenerated, generated))
-			{
-				result.PluginGeneratedDirectories.Add(owner, ownerGenerated);
-			}
-			result.LinkHeaders.Add(owner, descriptor.GetProperty("hostLinkHeader").GetString()!);
+			string library = Path.Combine(tools, "ModBuildTool", targetVariant, owner + ".lib");
+			string linkHeader = Path.Combine(tools, "ModSourceTool", targetVariant, owner + ".modlink.h");
 			HashSet<string> dependencies = new(StringComparer.OrdinalIgnoreCase)
 			{
 				descriptorPath,
@@ -154,8 +180,9 @@ internal sealed class MbtHostBuild
 					source,
 					dependencies,
 					owner,
-					descriptor.GetProperty("target").GetProperty("linkType").GetString()!
+					target.GetProperty("linkType").GetString()!
 				);
+				arguments.Add("/I" + root);
 				arguments.Add("/I" + Path.Combine(generated, "SDK", "Public"));
 				arguments.Add("/I" + Path.Combine(generated, "Host", owner));
 				if (
@@ -180,7 +207,7 @@ internal sealed class MbtHostBuild
 			{
 				throw new UhtException("ModRuntime MBT: matching MSVC lib.exe is unavailable.");
 			}
-			string library = descriptor.GetProperty("outputLibrary").GetString()!;
+			result.HostArchives.Add(owner, (linkHeader, library, archiver, owningBinary.kind == "DynamicLibrary"));
 			string temporary = Path.GetDirectoryName(library)!;
 			string windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
 			string contextPath = library + ".context.json";
@@ -194,10 +221,10 @@ internal sealed class MbtHostBuild
 						ownerModule = owner,
 						moduleAPIMode = "Producer",
 						registrationAnchor = "UMF_ModHost_" + owner,
-						target = descriptor.GetProperty("target"),
+						target,
 						workingDirectory = working,
 						outputLibrary = library,
-						owningBinary = descriptor.GetProperty("owningBinary"),
+						owningBinary,
 						linkVerification = "PeExportV1",
 						compiler = new
 						{
@@ -294,8 +321,9 @@ internal sealed class MbtHostBuild
 		string variant = Path.GetDirectoryName(ContextSet)!;
 		string hookMap = Path.Combine(Path.GetDirectoryName(manifest)!, "Diagnostics", "HookSources.json");
 		using JsonDocument? hooks = File.Exists(hookMap) ? JsonDocument.Parse(File.ReadAllText(hookMap)) : null;
-		foreach ((string owner, string header) in LinkHeaders)
+		foreach ((string owner, var archive) in HostArchives)
 		{
+			string header = archive.Header;
 			List<string> arguments = new() { "generate-host-link", owner, header };
 			if (hooks != null)
 			{
@@ -310,6 +338,46 @@ internal sealed class MbtHostBuild
 			MhtProcess.Run(factory.Session.Logger, SourceTool, arguments, projectRoot, timeout);
 			FileItem.ResetCachedInfo(header);
 			factory.AddExternalDependency(header);
+			string link = Path.Combine(Path.GetDirectoryName(manifest)!, "Link", owner + ".h");
+			string libraryHash = Digest(File.ReadAllBytes(archive.Library));
+			string archivePath = archive.Library.Replace('\\', '/');
+			string linkHeader = header.Replace('\\', '/');
+			StringBuilder directives = new(
+				$"// Archive {libraryHash}\n#pragma comment(lib, \"{archivePath}\")\n#include \"{linkHeader}\"\n"
+			);
+			if (archive.Modular)
+			{
+				// UBT creates the DLL import library from the owner's objects before linking the DLL.
+				// Forward the archive's actual decorated exports into that same import-library action.
+				string dumpbin = Path.Combine(Path.GetDirectoryName(archive.Archiver)!, "dumpbin.exe");
+				using MemoryStream exports = new();
+				MhtProcess.Run(
+					factory.Session.Logger,
+					dumpbin,
+					new[] { "/nologo", "/directives", archive.Library },
+					projectRoot,
+					timeout,
+					standardOutput: exports
+				);
+				foreach (
+					string directive in Encoding
+						.UTF8.GetString(exports.ToArray())
+						.Split('\n')
+						.Select(line => line.Trim())
+						.Where(line => line.StartsWith("/EXPORT:", StringComparison.OrdinalIgnoreCase))
+						.Distinct(StringComparer.Ordinal)
+						.Order(StringComparer.Ordinal)
+				)
+				{
+					directives
+						.Append("#pragma comment(linker, \"")
+						.Append(directive.Replace("\\", "\\\\").Replace("\"", "\\\""))
+						.Append("\")\n");
+				}
+			}
+			Write(link, directives.ToString());
+			FileItem.ResetCachedInfo(link);
+			factory.AddExternalDependency(link);
 		}
 		factory.AddExternalDependency(SourceTool);
 		foreach (string library in Libraries)

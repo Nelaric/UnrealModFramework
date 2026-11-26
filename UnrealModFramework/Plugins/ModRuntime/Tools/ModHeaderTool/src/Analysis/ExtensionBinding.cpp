@@ -336,7 +336,7 @@ void BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& So
 	Entry.Name = Clang.String(Clang.clang_getCursorSpelling(Member));
 	Entry.Owner = Owner;
 	Entry.Module = Module->Name;
-	Entry.Header = Path::PathToUtf8(Macro.File.lexically_relative(Module->Root));
+	Entry.Header = Module->HeaderInclude(Macro.File);
 	if (Entry.Owner.empty() || Entry.Name.empty() ||
 	    Entry.Owner.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:") !=
 	        std::string::npos ||

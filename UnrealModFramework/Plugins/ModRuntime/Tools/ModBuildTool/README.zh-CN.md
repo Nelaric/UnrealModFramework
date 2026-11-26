@@ -153,7 +153,7 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，将生成的 JSON �
 
 ## UE 5.6 集成
 
-UHT 在标准 CodeGen 后运行 MHT。Win64 x64 MSVC 路径中，`ExportMetadata.ConfigureHost` 写入 Target 描述并添加私有 External 模块依赖，该模块使用 `PublicPreBuildLibraries` 链接 MBT 生成的宿主库。预构建步骤通过 `refresh-ue-watches` 跟踪依赖变化，最终链接后通过 `finalize-ue-target` 核对二进制并发布链接记录。其他工具链通过 UHT `CompileOutput` 在所属 UBT 模块中直接编译生成的宿主单元。[ModRuntime UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md)
+UHT 在标准 CodeGen 后运行 MHT。Win64 x64 MSVC 路径由 UHT 向 UBT 查询各导出模块的实际二进制，并在所属模块生成链接单元以接入 MBT 静态库。预构建步骤通过 `refresh-ue-watches` 跟踪依赖变化，最终链接后通过 `finalize-ue-target` 核对二进制并发布链接记录。其他工具链通过 UHT `CompileOutput` 在所属 UBT 模块中直接编译生成的宿主单元。[ModRuntime UHT 接入](../../Source/ModRuntimeUht/README.zh-CN.md)
 
 `build-ue-target --mode normal` 与 UHT 使用同一份 `Config/ModHeaderTool.json` 生成配置。Windows 上由本地 MBT 驱动构建时，工具预构建步骤复用正在运行的 MBT，并构建 MHT 和 MST。切换到包含新 MBT 源码的分支后，重新执行 Setup 可更新下一次运行使用的 MBT。
 

@@ -43,12 +43,18 @@ Project ProjectReader::LoadProject(const fs::path& Input)
 	Project.File = fs::canonical(ProjectFile);
 	Project.Root = Project.File.parent_path();
 	Project.ConfigFile = Project.File;
-	Project.ConfigFile.replace_extension(".modexpot");
-	ProjectDirectories::AddDirectory(Project, Project.Root / "Plugins", false);
-	ProjectDirectories::AddDirectory(Project, Project.Root / "Source", false);
-	Project.bHasConfig = fs::exists(Project.ConfigFile);
-	if (Project.bHasConfig)
+	Project.ConfigFile.replace_extension(".modexport");
+	Project.Selection = Tools::ExportModules::Discover(Project.File);
+	for (const auto& [Name, Directory] : Project.Selection.Modules)
 	{
+		Project.Directories.push_back(Directory);
+	}
+	Project.bHasConfig = fs::exists(Project.ConfigFile);
+	const auto Legacy = fs::path(Project.File).replace_extension(".modexpot");
+	if (!Project.bHasConfig && fs::is_regular_file(Legacy))
+	{
+		Project.ConfigFile = Legacy;
+		Project.bHasConfig = true;
 		ProjectDirectories::LoadDirectories(Project);
 	}
 	return Project;

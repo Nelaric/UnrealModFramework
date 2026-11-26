@@ -12,16 +12,6 @@
   "generation": {
     "gameId": "UnrealModFrameworkDev",
     "typeIdentities": "Config/ModAPITypes.json",
-    "modules": [
-      {
-        "name": "ExportTest",
-        "sourceDirectory": "Source/ExportTest",
-        "translationUnits": [
-          "Source/ExportTest/GameCharacter.cpp",
-          "Source/ExportTest/GameLocalPlayerAPI.cpp"
-        ]
-      }
-    ],
     "analysisArguments": ["-Wno-invalid-constexpr"]
   }
 }

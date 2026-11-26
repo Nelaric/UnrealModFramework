@@ -31,6 +31,117 @@ def run(arguments, **kwargs):
     return subprocess.run(arguments, check=True, **kwargs)
 
 
+def write_hook_options(root, project):
+    groups = (
+        "APIScopes APIThreads APIPermissions APIFailureRules EventSourceScopes EventPublishRules "
+        "HookStages HookOperations ExtensionAuthorities"
+    ).split()
+    choices = {group: [] for group in groups}
+    choices.update(
+        HookStages=["Pre", "On", "Post"],
+        HookOperations=["ModifyInputs", "Cancel", "Replace"],
+        ExtensionAuthorities=["Any", "Server"],
+    )
+    return write_json(
+        root / "Options.json",
+        {
+            "SchemaVersion": 5,
+            "Project": project,
+            "Options": choices,
+            "ConfigRoots": [],
+            "InputFiles": [],
+            "Inputs": {},
+            "FunctionRedirects": [],
+        },
+    )
+
+
+def verify_module_selection(root, mht, mbt):
+    root.mkdir()
+    project = write_json(root / "Game.uproject", {})
+    options = write_hook_options(root, project)
+    plugin = root / "Plugins/Features/Combat"
+    plugin.mkdir(parents=True)
+    write_json(plugin / "Combat.uplugin", {})
+    audio = root / "Plugins/Audio"
+    audio.mkdir()
+    write_json(audio / "Audio.uplugin", {})
+    marked = {"CombatAPI", "AudioAPI", "GameEditor"}
+    for tree, name in (
+        (root / "Source", "Game"),
+        (root / "Source/Editor", "GameEditor"),
+        (plugin / "Source/Runtime", "CombatAPI"),
+        (plugin / "Source/Editor", "CombatEditor"),
+        (audio / "Source/Runtime", "AudioAPI"),
+        (audio / "Source/Editor", "AudioEditor"),
+    ):
+        directory = tree / name
+        directory.mkdir(parents=True)
+        (directory / f"{name}.Build.cs").touch()
+        source = "MOD_EXPORT_HOOK()\n" if name in marked else f"// {name}\n"
+        (directory / "Unit.cpp").write_text(source, encoding="utf-8")
+    descriptor = root / "Game.modexport"
+
+    def check(expected):
+        modules = json.loads(run([mht, "discover", project], capture_output=True).stdout)
+        assert [item["name"] for item in modules] == sorted(expected), modules
+        assert {item["name"] for item in modules if item["hasMarkers"]} == marked.intersection(expected)
+        report = json.loads(run([mht, "scan", project, options], capture_output=True).stdout)
+        assert sorted(Path(path).name for path in report["Directories"]) == sorted(expected), report
+        assert report["ScannedFileCount"] == len(expected)
+        assert {Path(entry["File"]).parent.name for entry in report["Exports"]} == marked.intersection(expected)
+        return report
+
+    check(["Game", "GameEditor"])
+    write_json(descriptor, {"Plugins": ["Combat"], "ExcludeModules": ["GameEditor", "combateditor"]})
+    check(["Game", "CombatAPI"])
+    write_json(descriptor, {"Plugins": ["Plugins/Features/Combat/Combat.uplugin"], "ExcludeModules": ["Game"]})
+    check(["GameEditor", "CombatAPI", "CombatEditor"])
+    selection = {
+        "ExcludeModules": ["GameEditor", "AudioEditor"],
+        "Plugins": [{"Name": "combat", "ExcludeModules": ["combateditor", "Game", "AudioAPI"]}, "Audio"],
+    }
+    write_json(descriptor, selection)
+    report = check(["Game", "CombatAPI", "AudioAPI"])
+    watches = write_json(root / "watches.json", {
+        "status": "Complete", "watchedDirectories": report["WatchedDirectories"], "inputFiles": [],
+    })
+    refresh = [mbt, "refresh-ue-watches", "--contexts", watches]
+    stamp = root / ".mht-watch.stamp"
+    run(refresh, capture_output=True)
+    assert not stamp.exists()
+    selection["Plugins"][0]["ExcludeModules"].remove("combateditor")
+    write_json(descriptor, selection)
+    run(refresh, capture_output=True)
+    assert stamp.is_file()
+    check(["Game", "CombatAPI", "CombatEditor", "AudioAPI"])
+    write_json(descriptor, {"Plugins": [
+        {"Name": "Combat", "ExcludeModules": ["CombatEditor", "AudioEditor"]},
+        {"Path": "Plugins/Audio/Audio.uplugin", "ExcludeModules": ["audioapi", "GameEditor", "CombatAPI"]},
+    ]})
+    check(["Game", "GameEditor", "CombatAPI", "AudioEditor"])
+    write_json(descriptor, {"Plugins": [
+        {"Path": "Plugins/Features/Combat/Combat.uplugin", "ExcludeModules": ["CombatAPI"]},
+        "Combat",
+        {"Name": "Combat", "ExcludeModules": ["CombatEditor"]},
+    ]})
+    check(["Game", "GameEditor"])
+    write_json(descriptor, {"ExcludeModules": ["Game", "GameEditor"]})
+    check([])
+    write_json(descriptor, {"Plugins": ["MissingPlugin"]})
+    invalid = subprocess.run([mht, "discover", project], capture_output=True, text=True)
+    assert invalid.returncode and "MissingPlugin" in invalid.stderr
+    for entry in (
+        {"ExcludeModules": ["CombatEditor"]},
+        {"Name": "Combat", "Path": "Plugins/Features/Combat/Combat.uplugin"},
+        {"Name": "Combat", "ExcludeModules": "CombatEditor"},
+        {"Path": "Plugins/Features/Combat"},
+    ):
+        write_json(descriptor, {"Plugins": [entry]})
+        invalid = subprocess.run([mht, "discover", project], capture_output=True, text=True)
+        assert invalid.returncode and "Plugins[0]" in invalid.stderr, invalid.stderr
+
+
 def prepare_fake_ubt(root):
     engine = root / "Fake Engine"
     (engine / "Source").mkdir(parents=True)
@@ -81,6 +192,31 @@ else:
         encoding="utf-8",
     )
     return engine
+
+
+def verify_empty_host_finalization(root, mbt):
+    root.mkdir()
+    project = write_json(root / "Game.uproject", {})
+    manifest = root / "Game.generated-artifacts.json"
+    batch = {
+        "format": "UMF.UbtHostArtifacts", "status": "Complete", "gameId": "Game", "target": "Game",
+        "platform": "Win64", "configuration": "Development", "architecture": "x64", "hostBuildContexts": {},
+        "compilationUnits": [{"ownerModule": "GameModClient", "source": "Client/GameModClient.modclient.cpp"}],
+    }
+    write_json(manifest, batch)
+    contexts = write_json(root / "contexts.json", {
+        "format": "UMF.ModHostContextSet", "schemaVersion": 1, "project": project,
+        "generatedManifest": str(manifest), "contexts": {},
+    })
+    receipt = write_json(root / "Game.target", {
+        "Project": project, "TargetName": "Game", "Platform": "Win64", "Configuration": "Development",
+        "Architecture": "x64",
+    })
+    args = [mbt, "finalize-ue-target", "--contexts", contexts, "--ue-target-receipt", receipt]
+    assert json.loads(run(args, capture_output=True).stdout) == []
+    batch["compilationUnits"].append({"ownerModule": "Game", "source": "Host/Game/Game.modhost.cpp"})
+    write_json(manifest, batch)
+    assert subprocess.run(args, capture_output=True).returncode != 0
 
 
 def verify_long_project_path(root, mbt, engine):
@@ -312,6 +448,7 @@ def verify_hook_stages(header, source, flags, args, project, options, request, g
 def verify(root, args, platform, arch, triple, apple_platform=None):
     module = root / "Source/Game"
     module.mkdir(parents=True)
+    (module / "Game.Build.cs").touch()
     project = write_json(root / "Game.uproject", {})
     source = module / "GameCharacter.cpp"
     header = module / "GameCharacter.h"
@@ -325,28 +462,7 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
         "{ return Health += Delta; }\n",
         encoding="utf-8",
     )
-    groups = (
-        "APIScopes APIThreads APIPermissions APIFailureRules EventSourceScopes EventPublishRules "
-        "HookStages HookOperations ExtensionAuthorities"
-    ).split()
-    choices = {group: [] for group in groups}
-    choices.update(
-        HookStages=["Pre", "On", "Post"],
-        HookOperations=["ModifyInputs", "Cancel", "Replace"],
-        ExtensionAuthorities=["Any", "Server"],
-    )
-    options = write_json(
-        root / "Options.json",
-        {
-            "SchemaVersion": 5,
-            "Project": project,
-            "Options": choices,
-            "ConfigRoots": [],
-            "InputFiles": [],
-            "Inputs": {},
-            "FunctionRedirects": [],
-        },
-    )
+    options = write_hook_options(root, project)
     flags = [
         f"--target={triple}",
         "-I" + EXPORT_HEADERS.as_posix(),
@@ -625,6 +741,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="umf hook targets ") as directory:
+        verify_module_selection(Path(directory) / "discovery", args.mht, args.mbt)
+        verify_empty_host_finalization(Path(directory) / "empty", args.mbt)
         args.engine = prepare_fake_ubt(Path(directory))
         verify_long_project_path(Path(directory), args.mbt, args.engine)
         verify_msvc_source_analysis(Path(directory) / "msvc-source-analysis", args)

@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "BuildInputs.h"
 
+#include "Common/Files/ExportModules.h"
+
 #include "Common/Files/Executable.h"
 #include "Common/Files/Path.h"
 #include "Common/Files/WatchedFiles.h"
@@ -35,13 +37,21 @@ fs::path BuildInputs::ChangedWatchedDirectory(const Json& Directories)
 {
 	for (const Json& Watch : Directories)
 	{
-		ContextDocument::RequireChoice(Watch, "kind", {"Config", "Source"});
+		ContextDocument::RequireChoice(Watch, "kind", {"Config", "Source", "ExportModules"});
 		const fs::path Root = Path::PathFromUtf8(ContextDocument::Text(Watch, "root"));
 		if (!Root.is_absolute())
 		{
 			throw std::runtime_error("Watched directory roots must be absolute.");
 		}
 		const bool bSource = Watch.at("kind") == "Source";
+		if (Watch.at("kind") == "ExportModules")
+		{
+			if (Watch.at("files") != Json(Tools::ExportModules::Discover(Root).RulesFiles()))
+			{
+				return Root;
+			}
+			continue;
+		}
 		if (bSource && !fs::is_directory(Root))
 		{
 			return Root;

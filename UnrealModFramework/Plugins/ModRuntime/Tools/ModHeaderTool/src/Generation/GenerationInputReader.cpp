@@ -72,8 +72,9 @@ GenerationInput GenerationInputReader::LoadGenerationInput(const fs::path& File)
 	{
 		TypeMap = Document["types"];
 	}
-	if (!Document.contains("modules") || !Document["modules"].is_array() || Document["modules"].empty() ||
-	    !TypeMap.is_object())
+	Result.bAutoDiscoverModules = Document.value("autoDiscoverModules", false);
+	if (!Document.contains("modules") || !Document["modules"].is_array() ||
+	    (Document["modules"].empty() && !Result.bAutoDiscoverModules) || !TypeMap.is_object())
 	{
 		throw std::runtime_error("Build input requires nonempty 'modules' and an explicit 'types' identity map.");
 	}

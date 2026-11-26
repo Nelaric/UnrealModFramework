@@ -16,7 +16,7 @@ indent_style = tab
 indent_size = 4
 tab_width = 4
 
-[*.{py,json,yml,yaml,ini,uproject,uplugin,cmake,sh}]
+[*.{py,json,yml,yaml,ini,uproject,uplugin,modexport,cmake,sh}]
 end_of_line = lf
 
 [CMakeLists.txt]

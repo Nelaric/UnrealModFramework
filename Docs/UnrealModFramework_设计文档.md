@@ -72,7 +72,7 @@ UBT/UHT 提供 Target 上下文，由 MHT 生成契约与宿主连接代码。�
 
 表中的插件路径均相对于 `UnrealModFramework/`。Host/Client 的生成文件和库按 Target、平台、配置与架构分别保存在工程或插件的 `Intermediate/ModTools/` 目录下。
 
-Setup 负责准备构建主机上的 `libclang`、配套 Clang 资源头文件和四个独立工具。正式构建使用真实的 UBT 编译数据库，在标准 UHT CodeGen 后由 MHT 解析活动 C++ 声明与蓝图快照；当缺少导出快照所需的工程二进制时，适配层会自动引导已配置的 Development Editor。在 Win64 x64 MSVC 上，MBT 按清单编译宿主与客户端单元，UBT 通过私有 External 模块依赖及 MST 生成的链接头链接宿主库；其他工具链则由 UHT 登记生成的编译单元，交给 UBT 编译。[Setup 与宿主构建](../README.zh-CN.md#快速开始)
+Setup 负责准备构建主机上的 `libclang`、配套 Clang 资源头文件和四个独立工具。正式构建使用真实的 UBT 编译数据库，在标准 UHT CodeGen 后由 MHT 解析活动 C++ 声明与蓝图快照；当缺少导出快照所需的工程二进制时，适配层会自动引导已配置的 Development Editor。在 Win64 x64 MSVC 上，MBT 按清单编译宿主与客户端单元，UBT 通过所属模块的 UHT 链接单元及 MST 生成的链接头链接宿主库；其他工具链则由 UHT 登记生成的编译单元，交给 UBT 编译。[Setup 与宿主构建](../README.zh-CN.md#快速开始)
 
 MDT 调用 UAT `BuildPlugin` 编译内嵌的制作插件和游戏专属 SDK 插件，并核对 Editor BuildId、原生库及文件清单。模组作者可将制作插件和游戏 SDK 安装到独立工程的 `Plugins/` 目录。若游戏的 Cook 或 Runtime 需要 SDK 反射类型，游戏端需先安装同批次的宿主 SDK 插件。跨目标的 SDK 发布与原生包交付须单独验收。[SDK 输入与交付](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
 
