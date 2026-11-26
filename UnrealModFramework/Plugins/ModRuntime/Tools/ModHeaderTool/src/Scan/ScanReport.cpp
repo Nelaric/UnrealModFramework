@@ -35,9 +35,22 @@ void ScanReport::WriteScanReport(const ScanResult& Result)
 		throw std::runtime_error("Cannot write a successful report for a scan containing errors.");
 	}
 	Json Directories = Json::array();
+	Json Watches = Json::array({{{"root", Path::PathToUtf8(Result.Project.File)},
+	                             {"kind", "ExportModules"},
+	                             {"files", Result.Project.Selection.RulesFiles()}}});
 	for (const fs::path& Directory : Result.Project.Directories)
 	{
 		Directories.push_back(Path::PathToUtf8(Directory));
+		Json Files = Json::array();
+		for (const auto& File : Result.SourceFiles)
+		{
+			const auto Relative = File.lexically_relative(Directory);
+			if (!Relative.empty() && *Relative.begin() != "..")
+			{
+				Files.push_back(Path::PathToUtf8(File));
+			}
+		}
+		Watches.push_back({{"root", Path::PathToUtf8(Directory)}, {"kind", "Source"}, {"files", Files}});
 	}
 	Json Exports = Json::array();
 	for (const ExportMacro& Macro : Result.Exports)
@@ -78,6 +91,7 @@ void ScanReport::WriteScanReport(const ScanResult& Result)
 	    {"ProjectRoot", Path::PathToUtf8(Result.Project.Root)},
 	    {"Config", Result.Project.bHasConfig ? Json(Path::PathToUtf8(Result.Project.ConfigFile)) : Json(nullptr)},
 	    {"Directories", Directories},
+	    {"WatchedDirectories", Watches},
 	    {"ScannedFileCount", Result.SourceFiles.size()},
 	    {"PreprocessorEvaluated", false},
 	    {"ParametersValidated", true},

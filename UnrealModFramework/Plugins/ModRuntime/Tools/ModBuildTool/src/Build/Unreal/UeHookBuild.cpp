@@ -1,6 +1,8 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "UeHookBuild.h"
 
+#include "Common/Files/ExportModules.h"
+
 #include "Common/Files/BuildLock.h"
 #include "Common/Files/Executable.h"
 #include "Common/Files/File.h"
@@ -235,6 +237,12 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	const BuildLock Lock(Work / ".build", ".lock");
 	std::vector<std::string> Export{Path::PathToUtf8(Ubt)};
 	Export.insert(Export.end(), TargetArguments.begin(), TargetArguments.end());
+	std::string Modules;
+	for (const auto& [Name, Directory] : Tools::ExportModules::Discover(Project).Modules)
+	{
+		Modules += (Modules.empty() ? "" : "+") + Name;
+	}
+	Export.push_back("-ModExportModules=" + Modules);
 	Export.emplace_back("-NoHotReloadFromIDE");
 	if (Target.Mode == "bootstrap")
 	{

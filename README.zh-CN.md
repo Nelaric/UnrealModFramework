@@ -59,9 +59,10 @@ $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuil
 
 ## 接入游戏侧导出
 
-1. 添加 `ExportMetadata` 模块依赖，在宿主的 Game 和 Editor Target 规则中调用 `ExportMetadata.ConfigureTarget(this)`，并在每个导出模块的构建规则中调用 `ExportMetadata.ConfigureHost(this, Target)`。Win64 x64 MSVC 还需要配套的 `<模块名>Host` External 模块。[宿主模块与链接配置](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#独立宿主编译与链接)
-2. 在 `Config/ModHeaderTool.json` 中将 `mode` 设为 `generate`，填写游戏 ID、导出模块、类型身份与 `metadataEditorTarget`。如需导出蓝图，请在 `blueprintExports` 中为每个已保存资产指定对象路径、稳定的 `typeId` 及所属模块。[开发宿主配置示例](UnrealModFramework/Config/ModHeaderTool.json)
-3. 在 C++ 中或通过蓝图编辑器的 **蓝图Mod导出** 面板声明导出；使用自动 C++ Hook 时，请通过 MBT 构建目标。[宿主声明与签名范围](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
+1. 在每个参与导出的 Game 或 Editor Target 中调用一次 `ExportMetadata.ConfigureTarget(this)`。导出模块按 UE 常规方式依赖 `ModAPI`，即可使用导出宏和宿主接口。[宿主模块与链接配置](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#独立宿主编译与链接)
+2. 在 `Config/ModHeaderTool.json` 中将 `mode` 设为 `generate`，填写游戏 ID、类型身份与 `metadataEditorTarget`。如需导出蓝图，请在 `blueprintExports` 中为每个已保存资产指定对象路径、稳定的 `typeId` 及所属模块。[开发宿主配置示例](UnrealModFramework/Config/ModHeaderTool.json)
+3. MHT 自动发现工程 `Source` 下的模块。在 `.uproject` 同目录的可选 `<项目名>.modexport` 中，用 `Plugins` 纳入插件。`ExcludeModules` 可以写在顶层，也可以写在某个插件条目中，单独排除该插件的模块。[模块选择示例](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#模块选择)
+4. 在 C++ 中或通过蓝图编辑器的 **蓝图Mod导出** 面板声明导出；使用自动 C++ Hook 时，请通过 MBT 构建目标。[宿主声明与签名范围](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
 
 ### 导出 C++ Hook
 

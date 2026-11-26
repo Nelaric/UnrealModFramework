@@ -162,7 +162,27 @@ ResolvedType& TypeResolution::ResolveRecord(GenerationModel& Model, ClangLibrary
 	    fs::canonical(CursorSource::ReadLocation(Clang, Clang.clang_getCursorLocation(Record), true).File);
 	const auto* Module = OwnerModule(Model.Input, File);
 	const auto Engine = !Module && !ExportModule.empty() ? FindEngineHeader(Model.Input, File) : EngineHeader{};
-	if ((!Module && Engine.Include.empty()) || (File.extension() != ".h" && File.extension() != ".hpp"))
+	std::string Include = Module ? Module->HeaderInclude(File) : Engine.Include;
+	if (Include.empty() && Model.Input.bAutoDiscoverModules && !ExportModule.empty())
+	{
+		// An exported signature may use a public UObject from an ordinary UE dependency.
+		// Resolve its included header without scanning that module's own declarations.
+		for (auto Directory = File.parent_path(); Directory != Directory.root_path();
+		     Directory = Directory.parent_path())
+		{
+			if ((Directory.filename() == "Public" || Directory.filename() == "Classes") &&
+			    std::ranges::any_of(fs::directory_iterator(Directory.parent_path()),
+			                        [](const fs::directory_entry& Entry) {
+				                        return Entry.is_regular_file() &&
+				                               Path::PathToUtf8(Entry.path().filename()).ends_with(".Build.cs");
+			                        }))
+			{
+				Include = Path::PathToUtf8(File.lexically_relative(Directory));
+				break;
+			}
+		}
+	}
+	if (Include.empty() || (File.extension() != ".h" && File.extension() != ".hpp"))
 	{
 		CursorSource::Fail(Macro,
 		                   "exported object types require a participating module or a public engine header: " + Name);
@@ -175,7 +195,7 @@ ResolvedType& TypeResolution::ResolveRecord(GenerationModel& Model, ClangLibrary
 	ResolvedType Type;
 	Type.Identity = Identity != Model.Input.Types.end() ? Identity->second : TypeIdentity{Name, "ue." + Name, "World"};
 	Type.Module = Module ? Module->Name : ExportModule;
-	Type.HeaderInclude = Module ? Path::PathToUtf8(File.lexically_relative(Module->Root)) : Engine.Include;
+	Type.HeaderInclude = std::move(Include);
 	Type.Symbol = "T_" + Hash::HashBytes(Type.Identity.Id).substr(0, 16);
 	Type.MethodNames = std::move(Evidence.MethodNames);
 	Type.bAllowWorldless = !Engine.Include.empty();
@@ -257,8 +277,10 @@ APIType TypeResolution::ResolveType(GenerationModel& Model, ClangLibrary& Clang,
 			Result.EngineInclude = Engine.Include;
 			const auto Owner = std::find_if(Model.Input.Modules.begin(), Model.Input.Modules.end(),
 			                                [&](const auto& Module) { return Module.Name == API.Module; });
-			const auto Relative = File.lexically_relative(Owner->Root);
-			Result.HostInclude = !Engine.Include.empty() ? Engine.Include : Path::PathToUtf8(Relative);
+			const auto* DeclaringModule = OwnerModule(Model.Input, File);
+			Result.HostInclude = !Engine.Include.empty() ? Engine.Include
+			                                             : (DeclaringModule ? DeclaringModule->HeaderInclude(File)
+			                                                                : Owner->HeaderInclude(File));
 			if (Result.HostInclude.empty())
 			{
 				CursorSource::Fail(API.Macro, "cannot include the declaration of input class '" + Result.Object +

@@ -5,9 +5,13 @@
 #include "ModHeaderTool/src/Cli/ScanCommand.h"
 #include "ModHeaderTool/src/Files/Path.h"
 #include "ModHeaderTool/src/Generation/Generation.h"
+#include "ModHeaderTool/src/Project/ProjectReader.h"
+#include "ModHeaderTool/src/Scan/MacroScanner.h"
+#include "Common/Files/WatchedFiles.h"
 
 #include <algorithm>
 #include <iostream>
+#include <nlohmann/json.hpp>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -27,7 +31,8 @@ int CommandLine::RunCommandLine(const std::vector<std::string>& Arguments)
 	const bool bScan = Command == "scan";
 	const bool bCheckOptions = Command == "check-options";
 	const bool bGenerate = Command == "generate";
-	if (!bScan && !bCheckOptions && !bGenerate)
+	const bool bDiscover = Command == "discover";
+	if (!bScan && !bCheckOptions && !bGenerate && !bDiscover)
 	{
 		throw std::runtime_error("Unknown command '" + Command + "'. Use --help for usage.");
 	}
@@ -36,7 +41,7 @@ int CommandLine::RunCommandLine(const std::vector<std::string>& Arguments)
 		PrintHelp(std::cout);
 		return std::cout ? 0 : 1;
 	}
-	if (Arguments.size() != (bGenerate ? 3u : 4u) ||
+	if (Arguments.size() != (bGenerate || bDiscover ? 3u : 4u) ||
 	    std::any_of(Arguments.begin() + 2, Arguments.end(),
 	                [](const std::string& Argument) { return Argument.empty() || Argument.starts_with("--"); }))
 	{
@@ -48,6 +53,20 @@ int CommandLine::RunCommandLine(const std::vector<std::string>& Arguments)
 		return 0;
 	}
 	const auto Project = Path::PathFromUtf8(Arguments[2]);
+	if (bDiscover)
+	{
+		const auto Scope = ProjectReader::LoadProject(Project);
+		auto Modules = nlohmann::json::array();
+		for (const auto& [Name, Root] : Scope.Selection.Modules)
+		{
+			const auto Files = Tools::WatchedFiles::CollectSourceFiles({Root});
+			const bool Exports =
+			    std::ranges::any_of(Files, [](const auto& File) { return !MacroScanner::ScanFile(File).empty(); });
+			Modules.push_back({{"name", Name}, {"sourceDirectory", Path::PathToUtf8(Root)}, {"hasMarkers", Exports}});
+		}
+		std::cout << Modules.dump(2) << '\n';
+		return std::cout ? 0 : 1;
+	}
 	const auto Snapshot = Path::PathFromUtf8(Arguments[3]);
 	return bScan ? ScanCommand::RunScan(Project, Snapshot) : OptionsCheck::CheckOptions(Project, Snapshot);
 }
@@ -58,6 +77,7 @@ void CommandLine::PrintHelp(std::ostream& Output)
 
 Usage:
   ModHeaderTool scan <file.uproject|directory> <metadata-options.json>
+  ModHeaderTool discover <file.uproject|directory>
   ModHeaderTool generate <GenerationRequest.json>
   ModHeaderTool check-options <file.uproject|directory> <metadata-options.json>
   ModHeaderTool --help
@@ -78,8 +98,11 @@ and returns void. A Blueprint export snapshot adds scalar API, Hook, and Event
 declarations extracted by the Editor commandlet.
 
 When a project directory is supplied, it must contain exactly one .uproject.
-Scans Plugins, Source, and Directories from the optional <project>.modexpot JSON.
-Relative configured directories resolve from the project directory.
+discover lists modules under Source and their export marker presence. In the optional
+<project>.modexport JSON, a Plugins entry can be a plugin name, a .uplugin path,
+or an object with Name or Path and its own ExcludeModules. A plugin's exclusions
+apply only to its Source. Top-level ExcludeModules applies to all selected modules.
+Relative paths start at the project directory.
 scan writes its JSON report to stdout.
 MOD_EXPORT_HOOK() exports Pre, On and Post. NoPre, NoOn and NoPost each omit that stage.
 CompatibleNames = ("FormerName") retains former Hook IDs with the same stage policy.

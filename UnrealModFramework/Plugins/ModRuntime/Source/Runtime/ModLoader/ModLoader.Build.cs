@@ -7,6 +7,7 @@ public class ModLoader : ModuleRules
 		: base(Target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+		ExportMetadata.ConfigureRuntime(this, Target);
 		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine" });
 		PrivateDependencyModuleNames.AddRange(new[] { "AssetRegistry", "HAL", "Json", "PakFile", "RenderCore" });
 		if (Target.bBuildEditor)

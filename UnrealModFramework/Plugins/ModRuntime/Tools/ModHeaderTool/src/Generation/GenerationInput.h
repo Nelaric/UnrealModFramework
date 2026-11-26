@@ -26,6 +26,7 @@ struct GenerationInput
 	std::string Platform;
 	std::string Configuration;
 	std::string Architecture;
+	bool bAutoDiscoverModules = false;
 	std::vector<ModuleInput> Modules;
 	std::map<std::string, TypeIdentity> Types;
 	std::vector<std::string> AnalysisArguments;

@@ -9,6 +9,8 @@ add_library(ModToolSupport STATIC
     Files/BuildLock.h
     Files/Executable.cpp
     Files/Executable.h
+    Files/ExportModules.cpp
+    Files/ExportModules.h
     Files/File.cpp
     Files/File.h
     Files/Path.cpp
@@ -44,6 +46,7 @@ add_library(ModToolSupport STATIC
 )
 
 target_include_directories(ModToolSupport PUBLIC ..)
+target_include_directories(ModToolSupport SYSTEM PRIVATE ../ThirdParty/nlohmann/include)
 target_compile_features(ModToolSupport PUBLIC cxx_std_20)
 set_target_properties(ModToolSupport PROPERTIES CXX_EXTENSIONS NO)
 

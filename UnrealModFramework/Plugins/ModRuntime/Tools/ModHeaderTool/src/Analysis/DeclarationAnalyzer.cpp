@@ -90,15 +90,27 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 	Model.Dependencies.insert(Options.File);
 	Model.Dependencies.insert(Options.Inputs.begin(), Options.Inputs.end());
 	Model.Dependencies.insert(Model.Input.Project.ConfigFile);
+	Model.Dependencies.insert(fs::path(Model.Input.Project.File).replace_extension(".modexport"));
+	Model.Dependencies.insert(Model.Input.Project.Selection.PluginDescriptors.begin(),
+	                          Model.Input.Project.Selection.PluginDescriptors.end());
 	Model.ConfigRoots = Options.ConfigRoots;
 	std::map<std::string, fs::path> SourcePaths;
-	for (const auto& File : ProjectSources::CollectSourceFiles(Model.Input.Project))
+	Project Modules = Model.Input.Project;
+	if (!Model.Input.bAutoDiscoverModules)
 	{
+		Modules.Directories.clear();
+		for (const auto& Module : Model.Input.Modules)
+		{
+			Modules.Directories.push_back(Module.Root);
+		}
+	}
+	for (const auto& File : ProjectSources::CollectSourceFiles(Modules))
+	{
+		Model.Dependencies.insert(File);
 		if (!TypeResolution::OwnerModule(Model.Input, File))
 		{
 			continue;
 		}
-		Model.Dependencies.insert(File);
 		SourcePaths.emplace(CursorSource::Key(File), File);
 	}
 	ClangLibrary Clang(ClangPath);
@@ -233,6 +245,10 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 
 			for (const auto& [SourceKey, Expansions] : Traversal.ExportExpansions)
 			{
+				if (TypeResolution::OwnerModule(Model.Input, SourcePaths.at(SourceKey)) != &Module)
+				{
+					continue;
+				}
 				CXFile File = nullptr;
 				Clang.clang_getExpansionLocation(Clang.clang_getCursorLocation(Expansions.front()), &File, nullptr,
 				                                 nullptr, nullptr);

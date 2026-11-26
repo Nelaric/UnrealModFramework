@@ -285,6 +285,8 @@ void WriteExtensions(const GenerationModel& Model, std::map<std::string, std::st
 		}
 		const std::string Prefix = "Host/" + Module.Name + "/" + Module.Name;
 		const std::string HeaderName = Module.Name + ".modextensions.h";
+		Files["SDK/Public/" + HeaderName] =
+		    GeneratedSource::Prologue(HeaderName) + "#include \"../../" + Prefix + ".modextensions.h\"\n";
 		std::string Output = GeneratedSource::Prologue(HeaderName) + "#include \"ModExtensionSubsystem.h\"\n";
 		for (const auto& Include : Includes)
 		{

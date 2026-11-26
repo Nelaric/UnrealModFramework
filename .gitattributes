@@ -29,6 +29,7 @@ UnrealModFramework/Plugins/ModRuntime/Tools/LibClangPackages.txt text eol=lf
 *.bat text eol=crlf
 *.ini text eol=lf
 *.uproject text eol=lf
+*.modexport text eol=lf
 *.uplugin text eol=lf
 
 # Documentation hosting templates use LF.
