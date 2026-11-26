@@ -174,10 +174,14 @@ def unpack(source, directory, rows):
 
 def install(root, system, arch, target, revision, draft_id=None):
     tag = package_tag(system, arch, target, revision)
-    if draft_id and os.environ.get("GITHUB_REPOSITORY") != REPO:
-        raise ValueError("Draft verification runs in the private producer")
-    download = fetch_asset
     staged = os.environ.get("UE_CI_DRAFT_DIRECTORY")
+    repository = os.environ.get("GITHUB_REPOSITORY")
+    hosted_trial = (repository == "Nelaric/UnrealModFramework-CI-Trial" and staged
+                    and os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+                    and os.environ.get("GITHUB_REF") == "refs/heads/main")
+    if draft_id and repository != REPO and not hosted_trial:
+        raise ValueError("Draft verification requires the private producer or its trusted hosted trial")
+    download = fetch_asset
     if draft_id and staged:
         directory = Path(staged)
         release = json.loads((directory / "release.json").read_bytes())
