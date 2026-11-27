@@ -205,7 +205,6 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	}
 	Export.push_back("-ModExportModules=" + Modules);
 	Export.push_back("-Log=" + Path::PathToUtf8(Work / "UbtBuild.log"));
-	Export.emplace_back("-Timing");
 	Export.emplace_back("-NoHotReloadFromIDE");
 	if (Target.Mode == "bootstrap")
 	{
@@ -243,6 +242,12 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	if (!Graph.at("Actions").empty())
 	{
 		File::WriteFileAtomically(ActionsFile, Graph.dump(2));
+		// Use UBT's executor timings. Compiler timing flags can require extra SDK utilities.
+#ifdef _WIN32
+		Environment["ISBUILDMACHINE"] = "1";
+#else
+		Environment["IsBuildMachine"] = "1";
+#endif
 		std::vector<std::string> Execute{Path::PathToUtf8(Ubt), "-Mode=Execute",
 		                                 "-Actions=" + Path::PathToUtf8(ActionsFile),
 		                                 "-Log=" + Path::PathToUtf8(Work / "UbtExecute.log"), "-NoUBA"};
