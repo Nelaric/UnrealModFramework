@@ -184,7 +184,12 @@ if options.get("Mode") == "Execute":
             assert not action["bCanExecuteRemotely"] and not action["bCanExecuteInUBA"]
             assert " HookSource=" in action["CommandVersion"]
             program, arguments = action["CommandPath"], action["CommandArguments"]
-            command = f'"{program}" {arguments}' if os.name == "nt" else [program, *shlex.split(arguments)]
+            if Path(program).stem == "cl-filter":
+                _, delimiter, child = arguments.partition(" -- ")
+                assert delimiter, arguments
+                command = child
+            else:
+                command = f'"{program}" {arguments}' if os.name == "nt" else [program, *shlex.split(arguments)]
             subprocess.run(command, cwd=action["WorkingDirectory"], check=True)
         elif action["Type"] == "Link":
             assert action["PrerequisiteItems"] == actions[0]["ProducedItems"]
@@ -760,6 +765,9 @@ struct UModExtensionSubsystem {
         "PrerequisiteActions": [],
         "CommandVersion": "test",
     }
+    if os.name == "nt" and platform == "Win64" and arch == "x64":
+        action["CommandPath"] = str(root / "cl-filter.exe")
+        action["CommandArguments"] = f'-dependencies=fixture.txt -- "{args.clang}" ' + action["CommandArguments"]
     graph = root / "CompileActions.json"
     # An up-to-date target receipt can leave no WriteMetadata action between the links and the post-build script.
     write_json(graph, {"Actions": [
