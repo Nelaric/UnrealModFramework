@@ -2,56 +2,87 @@
 
 English | [简体中文](DevelopmentWorkflow.zh-CN.md)
 
-# Development and CI Workflow
+# Development and Release Validation
 
-This page explains contribution checks, Linux builds, and documentation publishing. Start with the [contribution guide](../CONTRIBUTING.md) when preparing a change.
+Development uses UE 5.6.1 Development SDKs from immutable, independently verified private UMFCI releases. The [engine lock](../.github/engine-lock.json) records the installer commit, UE revision, target profiles, recipes, manifest SHA-256 values, .NET SDK and platform toolchains. An empty release entry blocks that target. The installer verifies the release and streams the archive, checking every file and the 5 GB installation limit.
 
-## From a change to `main`
-
-1. Make a focused change on a branch or fork, and run the relevant [local checks](CodingStandards/BuildAndReview.md#local-checks).
-2. Open a pull request to `main` using the [PR template](../.github/pull_request_template.md), and link any related issue when applicable.
-3. Resolve any check failures and complete maintainer review before merging. Maintainers should configure branch protection to require the applicable checks.
-4. Once [API Pages is enabled](Hosting/README.md), merging to `main` publishes the generated API documentation.
-
-## Checks on a pull request
-
-The Quality workflow checks PR and commit naming, formatting, text conventions, and API documentation. It also runs unit tests for the CircleCI handoff and uses standalone Linux fixtures to verify automatic Hook compilation and linking across COFF, ELF, and Mach-O targets, as well as MST cross-file exception analysis with GCC and Clang compilation databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`. [Quality workflow](../.github/workflows/quality.yml)
-
-The [trusted PR build workflow](../.github/workflows/fork-pr-linux.yml) is enabled by setting the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` after completing the [CircleCI setup](CircleCI.md). Until that variable is enabled, its jobs are skipped. The existing CircleCI push pipeline remains separate.
-
-The PR workflow validates the submitted commit, triggers CircleCI, and displays parallel Game and Editor jobs followed by a result summary. Each job reports its own status (`ci/linux-game-build` or `ci/linux-editor-build`), while `ci/fork-pr-linux-build` summarizes both. The summary links to the CircleCI logs, and the Actions jobs mirror checkout and compile output without exposing authentication output. Contributors do not need a CircleCI account.
-
-For fork PRs, changes to CI workflows, automation scripts, Unreal descriptors and build scripts, CMake files, or executable helper scripts must be handled by a maintainer in a source-repository branch. The policy checks both old and new paths for renamed files. Source-repository PRs can modify these files and still run the trusted workflow. Native mod ABI changes also require maintainer review.
-
-## Linux build scope
-
-The push and trusted PR configurations build `UnrealModFramework/UnrealModFrameworkDev.uproject` for Linux x64 Development with Unreal Engine 5.6.1.
-
-| CircleCI job | Tasks |
+| Editor producer | Game consumers |
 | --- | --- |
-| `build_game_linux` | Compiles `UnrealModFrameworkDev` and its enabled runtime modules. |
-| `build_editor_linux` | Compiles `UnrealModFrameworkDevEditor`, runs the C++ and Blueprint Hook dispatch automation test `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`, then builds and verifies the independent authoring plugin with `ModSDKTool build-editor`. |
+| Windows x86_64 | Windows x86_64 and ARM64 |
+| Linux x86_64 | Linux x86_64 and ARM64 |
+| macOS x86_64 | macOS x86_64 |
+| macOS ARM64 | macOS ARM64 |
 
-Each job builds in an isolated writable staging directory and runs the UE container without network access after pulling the private engine image. `ModBuildTool build-ue-target` drives UBT with the generated Hook source copies, and UBT compiles the generated host bindings directly inside their owning module. The Editor job checks both the editor process exit code and the test success marker, retaining the verified authoring plugin in the job's staging directory. Server, Shipping, and other platform or engine combinations require additional validation. [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
+The four Editor jobs run independently. Each Game group can start when its Editor job succeeds. Development Game jobs compile and link the monolithic target through UBT and verify its host-link receipt. Editor jobs run the normal target and verify the discovered and completed `Nelaric.*` tests in the headless automation report. The job logs record SDK installation, native tool preparation, metadata, reflection and generation, compile and link, and automation timings. The 5–10 minute cold critical path is a target for the full matrix.
 
-Each independent framework capability requires behavior-focused automated tests as specified in the [review standard](CodingStandards/BuildAndReview.md#automation-tests), without a numeric coverage threshold. For an existing Unreal automation run, `Scripts/check_automation_report.py` validates the exported report, log, and editor exit code:
+## Build locally
 
-```text
-python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
-```
-
-## Run the call benchmark
-
-From the repository root, run the [benchmark driver](../Test/Performance/run_benchmark.py) with a UE 5.6 installation and an explicit report path so the checked-in measurement is preserved.
+Run [Setup](../README.md#build-the-development-host) once to build the native tools and prepare libclang. Run the same MBT stages that CI uses. This example uses a legal full Windows UE 5.6.1 installation for the Editor. Supply the independently verified Game SDK to the Game command when it is available.
 
 ```powershell
-python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/ue-call-benchmark.local.md'
+$mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
+$project = "UnrealModFramework/UnrealModFrameworkDev.uproject"
+$engine = "<full UE 5.6.1 or Editor SDK>"
+$gameSdk = "<Win64 Game SDK or full UE 5.6.1>"
+$bundle = "UnrealModFramework/Intermediate/ModTools/Metadata"
+$commit = git rev-parse HEAD
+$revision = (Get-Content .github/engine-lock.json -Raw | ConvertFrom-Json).upstreamCommit
+$platform = @("--project", $project, "--platform", "Win64", "--architecture", "x64")
+$identity = @("--commit", $commit, "--engine-commit", $revision)
+$inputs = @("--configuration", "Development", "--metadata", $bundle)
+
+& $mbt prepare-metadata --engine $engine --target UnrealModFrameworkDevEditor @platform @identity --output $bundle
+& $mbt build-ue-target --engine $engine --target UnrealModFrameworkDevEditor @platform @identity @inputs --mode normal
+& $mbt test-ue-target --engine $engine --target UnrealModFrameworkDevEditor @platform --report ".tools/automation"
+& $mbt build-ue-target --engine $gameSdk --target UnrealModFrameworkDev @platform @identity @inputs --mode normal
 ```
 
-The standalone benchmark runs 200 cases with 1,000 samples per available path. Win64 x64 measures host C++, host Blueprint, and the C++ and Blueprint paths inside a mounted `BenchmarkMod`. Use an engine source build capable of producing a modular Development Game, or pass the matching modular runtime via `--modular-runtime`. Other supported platforms run only the host paths. Unavailable paths are marked as `未测试` in the report. The summary reports the mean of available case means for each column and reflects the tested machine and fixtures; see the [checked-in results](../Test/Performance/ue-call-benchmark.md).
+Use a new report directory for each automation run. For UMFCI SDKs, set `UE_USE_SYSTEM_DOTNET=1` and `DOTNET_ROOT` to the locked native .NET SDK. The Windows SDK toolchain can be selected with `UMF_MSVC_VERSION` and `UMF_WINDOWS_SDK_VERSION`. The GitHub installer resolves and checks these versions before invoking MBT. Linux ARM64 uses UBT platform `LinuxArm64` and architecture `arm64`. Windows ARM64 uses `Win64` and `arm64`. Both use Game SDKs.
 
-## If a check fails
+`prepare-metadata` reuses a current bundle. For a missing or stale bundle it builds the native Development Editor with the bootstrap rules and invokes the export commandlet. `validate-metadata` checks an existing bundle for one target without invoking UBT. Normal MBT builds validate the bundle before UBT and generate native inputs independently for each target. CI gives MBT the same reviewed commit on every job. A local checkout with edited sources also fingerprints the current project files.
 
-Open the failed Actions job to read its summary and follow the link to its CircleCI logs. Regular push builds are also listed in the [CircleCI project](https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework). If a PR build is skipped, maintainers should verify the enable variable, webhook setup, and secret as described in [CircleCI setup](CircleCI.md). When asking for review assistance, include the failed run link and the diagnosis you have already tried.
+The four bundle files live under `Metadata/`. Paths use `Project/` and `Engine/` roots. Options and Blueprint declarations carry reflected names, roles and scalar-field shapes. Target-side configuration projections must match the producer's inputs. Incompatible redirects, architecture-specific config layers, changed Blueprint packages, source drift and payload corruption fail validation. The target derives C++ declarations, layout, compiler arguments, Hook objects and ABI from its own compile database. When a Blueprint uses a reflected struct, the target checks the field shape against its loaded reflected type. Bundle files are generated, and `Intermediate/` is ignored by Git.
 
-Workflow definitions live in [Quality](../.github/workflows/quality.yml), [trusted PR builds](../.github/workflows/fork-pr-linux.yml), [API Pages](../.github/workflows/pages.yml), [CircleCI push builds](../.circleci/config.yml), and [CircleCI PR builds](../.circleci/pr-build.yml).
+## Required checks
+
+Fork PRs run [Development](../.github/workflows/development.yml) with read-only permissions. The public aggregate `Development public` requires naming, text and formatting, API documentation, four native-tool checks, and synthetic COFF, ELF and Mach-O Hook links. Pages publishes independently. [API Pages](../.github/workflows/pages.yml)
+
+The maintainer reviews the exact PR head and manually dispatches the engine workflow from an authorized **private** repository. Approve only a commit whose build scripts, dependencies and UE code are suitable for that environment. Configure a zero-spend Actions budget and set `UMF_ZERO_SPEND=true` in the private caller. Give `UMFCI_READ_TOKEN` read access to the private SDK releases and installer repository. Give the separate `UMF_STATUS_TOKEN` Commit statuses write access to UnrealModFramework. Only the final aggregation step receives the status token.
+
+The private caller pins a reviewed revision of the reusable workflow.
+
+```yaml
+name: Reviewed Development
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request: { type: number, required: true }
+      commit: { type: string, required: true }
+jobs:
+  development:
+    uses: Nelaric/UnrealModFramework/.github/workflows/development.yml@<reviewed-workflow-commit>
+    with:
+      pull_request: ${{ inputs.pull_request }}
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+      UMF_STATUS_TOKEN: ${{ secrets.UMF_STATUS_TOKEN }}
+```
+
+The reusable workflow matches the supplied SHA to the open PR's head and runs standard GitHub-hosted runners. A complete run reports `ci/development` on that SHA. The bundle passes between jobs only as a short-lived artifact of the private caller. Keep engine files, build products, logs containing restricted UE data and caches within authorized storage. A missing SDK, unavailable free runners or incomplete jobs cannot produce a success status.
+
+Use the [versioned ruleset](../.github/rulesets/protect-main.json) after an authorized run has passed the entire matrix and the public aggregate is available. Keep the live required checks until then. Retire the old CircleCI trigger and webhook in the account once the new checks are enforcing the gate.
+
+## Release Validation
+
+Use [Release Validation](../.github/workflows/release-validation.yml) from a private manual caller with the exact reviewed Release Candidate SHA. Its Win64 x64 `umf-release` runner provides a full Editor and an already built matching modular Game engine via `UMF_FULL_UE` and `UMF_MODULAR_UE`. This can be an authorized workstation with no paid runner. The same entry point can run directly on that workstation.
+
+```text
+python -m Test.SharedRuntime.release_validation --engine <full-editor> --modular-engine <full-modular-game> --work <new-directory> --commit <full-sha>
+```
+
+The release flow stages the integration assets under their existing package names, builds the modular Game, runs MDT plan/build/inspect, builds the author projects, and cooks, stages and packages the host and Mods. It derives the release version from the candidate commit and hashes the actual cooked `AssetRegistry.bin`. The staged game runs the SharedRuntime/resource replacement and Mod unload verification, followed by the performance benchmark. Preserve the reports in the authorized workspace. [SharedRuntime procedure](../Test/SharedRuntime/README.md)
+
+## Phase 1 verification
+
+The current lock has independently verified Windows x86_64, Windows ARM64, Linux x86_64 and Linux ARM64 Game releases. The remaining six entries await qualified releases. The full Windows UE 5.6.1 Editor and the verified Windows x86_64 Game SDK provide local coverage while those entries are unavailable. The four-producer critical path, both ARM64 Game jobs and the full Release Validation run require their real runner and SDK environments.

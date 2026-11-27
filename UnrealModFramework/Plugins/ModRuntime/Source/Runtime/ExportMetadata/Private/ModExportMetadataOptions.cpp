@@ -2,6 +2,7 @@
 #include "ModExportMetadataOptions.h"
 
 #include "Misc/ConfigCacheIni.h"
+#include "Misc/ConfigContext.h"
 
 namespace Mod::ExportMetadata
 {
@@ -32,18 +33,18 @@ TArray<FString> FOptions::Load(const EOptionKind Kind)
 {
 	TArray<FString> Choices;
 	const TCHAR* Key = GetConfigKey(Kind);
-	if (!GConfig || !Key)
+	if (!Key)
 	{
 		return Choices;
 	}
-	FString GameModIni;
-	if (!FConfigCacheIni::LoadGlobalIniFile(GameModIni, TEXT("GameMod"), nullptr, false, true))
+	FConfigFile GameMod;
+	if (!FConfigContext::ReadIntoLocalFile(GameMod).Load(TEXT("GameMod")))
 	{
 		return Choices;
 	}
 
 	TArray<FString> RawChoices;
-	GConfig->GetArray(TEXT("ModExportMetadata"), Key, RawChoices, GameModIni);
+	GameMod.GetArray(TEXT("ModExportMetadata"), Key, RawChoices);
 	for (FString& Choice : RawChoices)
 	{
 		Choice.TrimStartAndEndInline();

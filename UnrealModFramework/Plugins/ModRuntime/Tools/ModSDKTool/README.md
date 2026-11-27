@@ -44,7 +44,7 @@ CMake embeds the files listed in `Resources/DevelopmentEditor/Files.cmake` into
 MDT. Both `build-editor` and `build` write these files, the plugin descriptor,
 and the packaging configuration into a temporary workspace. MDT then invokes UAT
 and verifies the Editor BuildId and binaries before publishing the plugin
-alongside the native tools. See the [CircleCI invocation](../../../../../.circleci/build-editor-plugin.sh) for a reference script.
+alongside the native tools. See the [Release Validation driver](../../../../../Test/SharedRuntime/release_validation.py) for a reference script.
 
 Before opening `ExampleMods/TestMod`, install both the generated
 `ModDevelopmentSDKEditor` and the game's `UMFDevSDK` under

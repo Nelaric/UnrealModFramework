@@ -9,7 +9,6 @@ import platform
 import re
 import shutil
 import signal
-import struct
 import subprocess
 import sys
 import tempfile
@@ -116,51 +115,6 @@ def windows_remove_readonly_link():
     return remove
 
 
-def link_or_copy(source, destination):
-    try:
-        os.link(source, destination)
-    except OSError:
-        shutil.copy2(source, destination)
-    return destination
-
-
-def pe_exports(binary):
-    data = binary.read_bytes()
-
-    def unpack(fmt, offset):
-        return struct.unpack_from("<" + fmt, data, offset)
-
-    pe = unpack("I", 0x3C)[0]
-    if data[pe:pe + 4] != b"PE\0\0" or unpack("H", pe + 24)[0] != 0x20B:
-        raise RuntimeError(f"Expected a PE32+ DLL: {binary}")
-    count, _, _, _, optional_size = unpack("HIIIH", pe + 6)
-    sections = [unpack("IIII12xI", pe + 24 + optional_size + index * 40 + 8) for index in range(count)]
-
-    def file_offset(rva):
-        for virtual_size, address, raw_size, offset, _ in sections:
-            if address <= rva < address + max(virtual_size, raw_size):
-                return offset + rva - address
-        raise RuntimeError(f"Invalid PE address in {binary}")
-
-    directory, size = unpack("II", pe + 24 + 112)
-    if not directory:
-        return
-    _, name_count, functions, names, ordinals = unpack("IIIII", file_offset(directory) + 20)
-    function_table = file_offset(functions)
-    name_table = file_offset(names)
-    ordinal_table = file_offset(ordinals)
-    for index in range(name_count):
-        name = file_offset(unpack("I", name_table + index * 4)[0])
-        ordinal = unpack("H", ordinal_table + index * 2)[0]
-        rva = unpack("I", function_table + ordinal * 4)[0]
-        is_data = not (directory <= rva < directory + size) and not any(
-            address <= rva < address + max(virtual_size, raw_size)
-            and flags & 0x20000000
-            for virtual_size, address, raw_size, _, flags in sections
-        )
-        yield data[name:data.index(b"\0", name)].decode("ascii"), is_data
-
-
 class Unreal:
     def __init__(self, root, work, short_work, runtime_engine=None):
         self.engine = (root / "Engine" if (root / "Engine").is_dir() else root).resolve()
@@ -171,7 +125,6 @@ class Unreal:
         self.with_mod = self.platform == "Win64" and platform.machine().lower() in {"amd64", "x86_64"}
         self.game_engine = self.engine
         self.modular_runtime = runtime_engine
-        self.staged_runtime = None
         self.cook_platform = "Windows" if self.platform == "Win64" else self.platform
         editor = {
             "Win64": "Win64/UnrealEditor.exe",
@@ -197,108 +150,27 @@ class Unreal:
         self.env["UE-ZenSharedDataCacheHost"] = "None"
 
     def prepare_game_engine(self):
-        if not self.with_mod or not (self.engine / "Build/InstalledBuild.txt").is_file():
+        if not self.with_mod:
             return
-        if self.modular_runtime is None and (self.engine / "Binaries/Win64/UnrealGame.modules").is_file():
-            return
-        runtime = self.modular_runtime
-        if runtime is None:
-            releases = REPO / "Dist/NativeTestMod"
-            runtime = next(iter(sorted(releases.glob("*/Windows/Engine"))), None)
-        if runtime and (runtime / "Engine").is_dir():
+        runtime = self.modular_runtime or self.engine
+        if (runtime / "Engine").is_dir():
             runtime = runtime / "Engine"
-        if not runtime or not (runtime / "Binaries/Win64/UnrealGame.modules").is_file():
-            raise RuntimeError("Win64 mods require a modular Game engine. Supply a source build with --engine "
-                               "or matching modular engine binaries with --modular-runtime.")
-        binaries = runtime / "Binaries/Win64"
-        version = read_json(binaries / "UnrealGame.version")
+        if not (runtime / "Binaries/Win64/UnrealGame.modules").is_file():
+            if self.modular_runtime is None and not (runtime / "Build/InstalledBuild.txt").is_file():
+                return
+            raise RuntimeError("Provide a complete, prebuilt Win64 modular Game engine through --modular-runtime.")
+        for name in ("UnrealBuildTool", "AutomationTool"):
+            if not (runtime / f"Binaries/DotNET/{name}/{name}.dll").is_file():
+                raise RuntimeError(f"The modular engine is missing {name}.")
+        binary_version = read_json(runtime / "Binaries/Win64/UnrealGame.version")
         editor_version = read_json(self.engine / "Build/Build.version")
         identity = ("MajorVersion", "MinorVersion", "PatchVersion", "Changelist", "CompatibleChangelist", "BranchName")
-        if any(version[key] != editor_version[key] for key in identity):
+        if any(binary_version[key] != editor_version[key] for key in identity):
             raise RuntimeError("The modular Game runtime must match the installed UE build")
-        manifest = read_json(binaries / "UnrealGame.modules")
-        if version["BuildId"] != manifest["BuildId"]:
+        manifest = read_json(runtime / "Binaries/Win64/UnrealGame.modules")
+        if binary_version["BuildId"] != manifest["BuildId"]:
             raise RuntimeError("The modular runtime version and module manifest disagree")
-        self.staged_runtime = runtime
-        self.game_engine = self.short_work / "E/Engine"
-        print("[benchmark] stage modular Game engine", flush=True)
-        self.stage_engine_files(runtime)
-        self.make_import_libraries()
-
-    def stage_engine_files(self, runtime):
-        engine = self.game_engine
-        engine.mkdir(parents=True)
-        # Keep build products and the installed engine's files on separate paths.
-        ignored = {"Binaries": "ThirdParty", "Plugins": "Marketplace"}
-        for name in ("Binaries", "Build", "Config", "Plugins", "Source"):
-            omit = ("Intermediate", "Saved", "*.pdb", "*.obj")
-            if name in ignored:
-                omit += (ignored[name],)
-            shutil.copytree(self.engine / name, engine / name, copy_function=link_or_copy,
-                            ignore=shutil.ignore_patterns(*omit))
-        for metadata in ("Intermediate/Build/BuildRules", "Intermediate/ScriptModules"):
-            shutil.copytree(self.engine / metadata, engine / metadata)
-        self.copy_game_build_inputs()
-        for name in ("Binaries/ThirdParty", "Content", "Shaders", "DerivedDataCache", "Extras", "Platforms", "Programs"):
-            target = self.engine / name
-            if target.is_dir():
-                self.run(f"link-engine-{Path(name).name}", ["cmd.exe", "/d", "/c", "mklink", "/J", engine / name, target])
-        for path in runtime.rglob("UnrealGame*"):
-            if not path.is_file() or path.suffix.lower() not in {".dll", ".exe", ".modules", ".version"}:
-                continue
-            destination = engine / path.relative_to(runtime)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.unlink(missing_ok=True)
-            link_or_copy(path, destination)
-        build_version = engine / "Build/Build.version"
-        build_version.unlink()
-        write_json(build_version, read_json(runtime / "Binaries/Win64/UnrealGame.version"))
-
-    def copy_game_build_inputs(self):
-        generated = Path("Intermediate/Build/Win64/UnrealGame/Inc")
-        locations = [self.engine / generated, *self.engine.glob(f"Plugins/**/{generated.as_posix()}")]
-        for location in locations:
-            if location.is_dir():
-                shutil.copytree(location, self.game_engine / location.relative_to(self.engine),
-                                copy_function=link_or_copy, dirs_exist_ok=True)
-        debug_views = "Intermediate/Build/Win64/x64/UnrealGame/Development/*/*.natvis"
-        for source in [*self.engine.glob(debug_views), *self.engine.glob(f"Plugins/**/{debug_views}")]:
-            destination = self.game_engine / source.relative_to(self.engine)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-
-    def make_import_libraries(self):
-        vswhere = Path(os.environ["ProgramFiles(x86)"]) / "Microsoft Visual Studio/Installer/vswhere.exe"
-        output = subprocess.check_output([vswhere, "-latest", "-products", "*", "-requires",
-                                          "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-                                          "-find", "VC/Tools/MSVC/*/bin/Hostx64/x64/lib.exe"],
-                                         text=True, creationflags=NO_WINDOW)
-        librarian = next((Path(line) for line in output.splitlines() if Path(line).is_file()), None)
-        if not librarian:
-            raise RuntimeError("MSVC lib.exe is required for the modular runtime import libraries")
-        engine = self.game_engine
-        manifests = [engine / "Binaries/Win64/UnrealGame.modules", *engine.glob("Plugins/**/UnrealGame.modules")]
-        module_roots = {}
-        for manifest in manifests:
-            root = manifest.parents[2]
-            intermediate = root / "Intermediate/Build/Win64/x64/UnrealGame/Development"
-            for module, filename in read_json(manifest)["Modules"].items():
-                module_roots[module] = manifest.parent / filename, intermediate / module
-
-        def make_library(entry):
-            dll, output_dir = entry
-            definition = output_dir / (dll.stem + ".def")
-            output_dir.mkdir(parents=True, exist_ok=True)
-            symbols = "\n".join(f"  {name}{' DATA' if is_data else ''}" for name, is_data in pe_exports(dll))
-            definition.write_text(f"LIBRARY {dll.name}\nEXPORTS\n{symbols}\n", encoding="ascii")
-            status = subprocess.run([librarian, "/nologo", "/machine:x64", f"/def:{definition}",
-                                     f"/out:{definition.with_suffix('.lib')}"], capture_output=True, text=True,
-                                    creationflags=NO_WINDOW)
-            if status.returncode:
-                raise RuntimeError(f"Could not generate {definition.with_suffix('.lib')}\n{status.stdout}\n{status.stderr}")
-
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            list(pool.map(make_library, module_roots.values()))
+        self.game_engine = runtime
 
     def run(self, stage, command, timeout=3600):
         print(f"[benchmark] {stage}", flush=True)
@@ -339,7 +211,7 @@ class Unreal:
         ubt = engine / self.ubt.relative_to(self.engine)
         self.run(
             stage, [self.dotnet, ubt, target, self.platform, "Development",
-                    f"-Project={project}", "-NoHotReload", "-NoHotReloadFromIDE", "-WaitMutex", "-NoUBA",
+                    f"-Project={project}", "-NoHotReload", "-NoHotReloadFromIDE", "-WaitMutex", "-NoUBA", "-NoEngineChanges",
                     f"-Log={self.work / (stage + '-ubt.log')}", *flags],
         )
 
@@ -355,7 +227,7 @@ class Unreal:
         shutil.copytree(PROJECT / "Config", self.host.parent / "Config")
         shutil.copy2(PROJECT / self.host.name, self.host)
         self.isolate_build(self.host)
-        characters = REPO / "UnrealModFramework/Content/Characters/Mannequins"
+        characters = REPO / "Test/ReleaseFixtures/Content/Characters/Mannequins"
         shutil.copytree(characters, self.host.parent / "Content/Characters/Mannequins")
         self.copy_mod_runtime(self.host)
 
@@ -421,15 +293,6 @@ class Unreal:
         if not registry.is_file():
             raise RuntimeError(f"Base release cook did not write {registry}")
         cooked = stage / self.cook_platform
-        if self.staged_runtime:
-            # UAT uses the installed engine's dependency list. Include the modular build's binary dependencies too.
-            binary_paths = [*self.staged_runtime.glob("Binaries/Win64/*.dll"),
-                            *self.staged_runtime.glob("Binaries/ThirdParty/**/*")]
-            for path in binary_paths:
-                if path.is_file():
-                    destination = cooked / "Engine" / path.relative_to(self.staged_runtime)
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(path, destination)
         return cooked, release, hashlib.sha256(registry.read_bytes()).hexdigest()
 
     def package_mod(self, author, release):
@@ -526,7 +389,7 @@ def main():
     parser = argparse.ArgumentParser(description="Measure UE calls in the standalone PerformanceBenchmark project")
     parser.add_argument("--engine", required=True, type=Path, help="UE 5.6 installation or Engine directory")
     parser.add_argument("--report", type=Path, default=PROJECT / "ue-call-benchmark.md")
-    parser.add_argument("--modular-runtime", type=Path, help="Matching Win64 Development modular Game engine directory")
+    parser.add_argument("--modular-runtime", type=Path, help="Complete Win64 Development modular Game engine")
     args = parser.parse_args()
     base = Path(tempfile.gettempdir()).resolve()
     if base == Path(base.anchor):

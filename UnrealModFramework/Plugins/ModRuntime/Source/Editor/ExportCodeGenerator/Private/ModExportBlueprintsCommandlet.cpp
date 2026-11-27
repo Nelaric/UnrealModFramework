@@ -14,6 +14,7 @@
 #include "ModAPIBlueprint.h"
 #include "ModBlueprintExportReader.h"
 #include "ModExportMetadataOptions.h"
+#include "ModExportOptionsCommandlet.h"
 #include "Modules/ModuleManager.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -42,7 +43,9 @@ void RecordInputs(FName Package, IAssetRegistry& Registry, TSet<FName>& Seen, TS
 		FString Filename;
 		if (FPackageName::DoesPackageExist(Name.ToString(), &Filename))
 		{
-			Files.Add(FPaths::ConvertRelativePathToFull(Filename));
+			Filename = FPaths::ConvertRelativePathToFull(Filename);
+			Files.Add(Filename);
+			Registry.ScanFilesSynchronous({Filename});
 			TArray<FName> Dependencies;
 			Registry.GetDependencies(Name, Dependencies, UE::AssetRegistry::EDependencyCategory::Package,
 			                         UE::AssetRegistry::EDependencyQuery::Hard);
@@ -141,7 +144,7 @@ bool WriteExtension(const FExportedExtension& Entry, UBlueprint& Blueprint, TSet
 	if (!Entry.StructPath.IsEmpty())
 	{
 		Json->SetStringField(TEXT("structPath"), Entry.StructPath);
-		Json->SetStringField(TEXT("structLayout"), Entry.StructLayout);
+		Json->SetStringField(TEXT("structShape"), Entry.StructLayout);
 	}
 	if (!Entry.ObjectPath.IsEmpty())
 	{
@@ -212,6 +215,13 @@ bool WriteType(const FJsonObject& Config, IAssetRegistry& Registry, TSet<FGuid>&
 		UE_LOG(LogTemp, Error, TEXT("Invalid Blueprint export configuration. Expected asset, typeId and module."));
 		return false;
 	}
+	FString AssetFilename;
+	if (!FPackageName::DoesPackageExist(FPackageName::ObjectPathToPackageName(Asset), &AssetFilename))
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s: Blueprint package does not exist."), *Asset);
+		return false;
+	}
+	Registry.ScanFilesSynchronous({FPaths::ConvertRelativePathToFull(AssetFilename)});
 	const auto Data = Registry.GetAssetByObjectPath(FSoftObjectPath(Asset), true);
 	auto* Blueprint = Cast<UBlueprint>(Data.GetAsset());
 	FString Filename;
@@ -298,7 +308,12 @@ int32 UModExportBlueprintsCommandlet::Main(const FString& Params)
 		return 1;
 	}
 	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
-	Registry.SearchAllAssets(true);
+	FString OptionsOutput;
+	if (FParse::Value(*Params, TEXT("OptionsOutput="), OptionsOutput) &&
+	    NewObject<UModExportOptionsCommandlet>()->Main(FString::Printf(TEXT("-Output=\"%s\""), *OptionsOutput)) != 0)
+	{
+		return 1;
+	}
 	TSet<FGuid> Ids;
 	TSet<FName> Seen;
 	TSet<FString> Files;

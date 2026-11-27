@@ -243,6 +243,14 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 			}
 			Model.ContextMacros[Module.Name] = std::move(Traversal.Macros);
 
+			if (const auto Methods = Traversal.Methods.find(CursorSource::Key(Unit));
+			    Methods != Traversal.Methods.end())
+			{
+				for (const auto Method : Methods->second)
+				{
+					Model.NativeMethodUnits[Clang.String(Clang.clang_getCursorUSR(Method))].insert(Unit);
+				}
+			}
 			for (const auto& [SourceKey, Expansions] : Traversal.ExportExpansions)
 			{
 				if (TypeResolution::OwnerModule(Model.Input, SourcePaths.at(SourceKey)) != &Module)

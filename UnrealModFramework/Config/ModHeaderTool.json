@@ -12,6 +12,12 @@
   "generation": {
     "gameId": "UnrealModFrameworkDev",
     "typeIdentities": "Config/ModAPITypes.json",
-    "analysisArguments": ["-Wno-invalid-constexpr"]
-  }
+    "analysisArguments": [
+      "-Wno-invalid-constexpr"
+    ]
+  },
+  "metadataGameTargets": [
+    "UnrealModFrameworkDev",
+    "UnrealModFrameworkDevModular"
+  ]
 }

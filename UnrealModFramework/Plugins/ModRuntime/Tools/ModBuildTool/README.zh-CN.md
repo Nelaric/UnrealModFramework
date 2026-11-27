@@ -23,7 +23,8 @@ MBT 驱动 UBT 使用生成的自动 Hook 源码副本，并依据目标回执�
 ```text
 ModBuildTool build-ue-target --engine <引擎目录> --project <工程.uproject> --target <目标>
                              --platform <平台> --configuration <配置>
-                             --architecture <架构> --mode <normal|rebuild|bootstrap>
+                               --architecture <x64|arm64> --mode <normal|rebuild>
+                               --commit <sha> --engine-commit <sha> --metadata <bundle>
 ModBuildTool plan --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
@@ -37,7 +38,7 @@ ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x6
 ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 --kind Executable
 ```
 
-`build-ue-target` 使用引擎自带的 .NET 运行时调用 UBT，每次构建一个目标架构。在 `normal` 模式下，MBT 会导出待执行动作、核对 MHT 的 Hook 源码映射与文件哈希、替换编译输入，再通过 UBT 执行更新后的计划，同时记录对象文件哈希供增量构建复用。`rebuild` 会在导出动作前向 UBT 传递重建请求。`bootstrap` 使用 UBT 的 `-MhtBootstrap` 构建 Development Editor，直接编译原函数；普通构建会按需自动准备引导 Editor。
+`prepare-metadata` 使用原生 Development Editor 导出 Bundle。调用 `validate-metadata` 可独立核对目标输入。`build-ue-target` 先验证 Bundle，再导出 UBT 动作，核对 Hook 源码和生成副本的哈希，替换编译输入，并执行链接与回执验证。`rebuild` 会传递 UBT 重建请求。`test-ue-target` 对正常 Editor 的链接与自动化报告进行检查。[命令示例](../../../../../Docs/DevelopmentWorkflow.zh-CN.md#本地构建)
 
 `plan` 仅校验输入，不执行编译也不创建目录，并返回当前输入指纹、所属模块、目标、宿主库位置及缓存状态。`build-host` 获取输出锁后检查缓存，命中时返回 `UpToDate`，否则独立编译并归档后返回 `Built`。`build-planned-host` 还会在持锁期间校验调用方传入的计划指纹。`verify-host` 在缓存或产物过期时返回非零退出码。退出码 `0` 表示成功，`1` 表示参数、输入、编译、I/O 或验证失败。JSON 结果写入 stdout，工具链诊断写入 stderr。
 
@@ -157,7 +158,7 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，将生成的 JSON �
 
 MBT 驱动 UBT 使用生成的自动 Hook 源码副本，并依据目标回执核对桌面原生二进制。宿主与编译校验单元由 UBT 在所属模块编译。
 
-`build-ue-target --mode normal` 与 UHT 使用同一份 `Config/ModHeaderTool.json` 生成配置。Windows 上由本地 MBT 驱动构建时，工具预构建步骤复用正在运行的 MBT，并构建 MHT 和 MST。切换到包含新 MBT 源码的分支后，重新执行 Setup 可更新下一次运行使用的 MBT。
+目标与 UHT 使用同一个 `Config/ModHeaderTool.json`。在运行 MBT 前准备工具，嵌套 UBT 调用复用该组可执行文件。
 
 以下更完整的动作图接入仍是后续契约：
 

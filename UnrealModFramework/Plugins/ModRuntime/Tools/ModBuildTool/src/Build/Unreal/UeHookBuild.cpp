@@ -9,11 +9,13 @@
 #include "Common/Files/Path.h"
 #include "Common/Files/TemporaryName.h"
 #include "Common/Hash/Hash.h"
-#include "Common/Process/Process.h"
 #include "Common/Process/ProcessEnvironment.h"
 #include "ModBuildTool/src/Build/ContextDocument.h"
 #include "ModBuildTool/src/Build/OwnedStage.h"
+#include "ModBuildTool/src/Build/Unreal/MetadataBundle.h"
+#include "ModBuildTool/src/Build/Unreal/UeBuildAdapter.h"
 #include "ModBuildTool/src/Build/Unreal/UeHookActions.h"
+#include "ModBuildTool/src/Build/Unreal/UeInvocation.h"
 
 #include <filesystem>
 #include <initializer_list>
@@ -30,54 +32,6 @@ namespace Mod::BuildTool
 namespace
 {
 constexpr std::string_view UbtEntry = "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll";
-
-fs::path FindDotnet(const fs::path& Engine)
-{
-#if defined(_WIN32)
-	constexpr std::string_view Host = "win";
-	constexpr std::string_view Executable = "dotnet.exe";
-#elif defined(__APPLE__)
-	constexpr std::string_view Host = "mac";
-	constexpr std::string_view Executable = "dotnet";
-#else
-	constexpr std::string_view Host = "linux";
-	constexpr std::string_view Executable = "dotnet";
-#endif
-#if defined(_M_ARM64) || defined(__aarch64__)
-	constexpr std::string_view Architecture = "arm64";
-#elif defined(_M_X64) || defined(__x86_64__)
-	constexpr std::string_view Architecture = "x64";
-#else
-	throw std::runtime_error("Unsupported UBT build host architecture.");
-	constexpr std::string_view Architecture = "";
-#endif
-	const fs::path Runtimes = Engine / "Binaries/ThirdParty/DotNet";
-	const auto Find = [&](std::string_view Arch)
-	{
-		const std::string Runtime = std::string(Host) + "-" + std::string(Arch);
-		fs::path Dotnet;
-		for (const auto& Entry : fs::directory_iterator(Path::FileSystemPath(Runtimes)))
-		{
-			const fs::path Candidate = Runtimes / Entry.path().filename() / Runtime / Executable;
-			if (Candidate > Dotnet && fs::is_regular_file(Path::FileSystemPath(Candidate)))
-			{
-				Dotnet = Candidate;
-			}
-		}
-		return Dotnet;
-	};
-	fs::path Dotnet = Find(Architecture);
-	if (Dotnet.empty() && Host == "win" && Architecture == "arm64")
-	{
-		Dotnet = Find("x64");
-	}
-	if (Dotnet.empty())
-	{
-		throw std::runtime_error("Cannot find the engine's bundled .NET for " + std::string(Host) + "-" +
-		                         std::string(Architecture) + " under " + Path::PathToUtf8(Engine) + ".");
-	}
-	return Dotnet;
-}
 
 struct HookSnapshot
 {
@@ -195,39 +149,46 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	{
 		throw std::runtime_error("build-ue-target mode must be normal, rebuild, or bootstrap.");
 	}
-	fs::path Engine = fs::canonical(Path::FileSystemPath(Target.Engine));
-	if (!fs::is_regular_file(Path::FileSystemPath(Engine / UbtEntry)))
-	{
-		Engine /= "Engine";
-	}
+	const fs::path Engine = UeInvocation::EngineDirectory(Target.Engine);
 	const fs::path Ubt = Engine / UbtEntry;
 	const fs::path Project = fs::canonical(Path::FileSystemPath(Target.Project));
-	if (!fs::is_regular_file(Path::FileSystemPath(Ubt)) || !fs::is_regular_file(Path::FileSystemPath(Project)) ||
-	    Project.extension() != ".uproject")
+	if (!fs::is_regular_file(Path::FileSystemPath(Project)) || Project.extension() != ".uproject")
 	{
-		throw std::runtime_error("Supply an Unreal Engine with UnrealBuildTool and a project .uproject file.");
+		throw std::runtime_error("Supply an Unreal project .uproject file.");
 	}
-	const auto Dotnet = FindDotnet(Engine);
 	auto Environment = ProcessEnvironment::CaptureEnvironment();
+	const auto Dotnet = UeInvocation::Dotnet(Engine, Environment);
+	Environment["UMF_MBT_EXECUTABLE"] = Path::PathToUtf8(Executable::ExecutablePath());
+	Environment["UMF_NATIVE_TOOLS_READY"] = "1";
+	Environment.erase("UMF_METADATA_INPUTS");
 #ifdef _WIN32
-	Environment["UMF_RUNNING_MBT_EXECUTABLE"] = Path::PathToUtf8(Executable::ExecutablePath());
+	Environment["UMF_RUNNING_MBT_EXECUTABLE"] = Environment.at("UMF_MBT_EXECUTABLE");
 #endif
 	const auto RunUbt = [&](const std::vector<std::string>& Arguments, std::string_view Step)
+	{ UeInvocation::Run(Dotnet, Arguments, Engine / "Source", Environment, Step); };
+	std::vector<std::string> TargetArguments{Target.Target,
+	                                         Target.Platform,
+	                                         Target.Configuration,
+	                                         "-Architecture=" + Target.Architecture,
+	                                         "-Project=" + Path::PathToUtf8(Project),
+	                                         "-WaitMutex",
+	                                         "-NoEngineChanges",
+	                                         "-MaxParallelActions=4"};
+	if (Target.Platform == "Linux" || Target.Platform == "LinuxArm64")
 	{
-		const int Exit = Process::RunProcess(Dotnet, Arguments, Engine / "Source", Environment);
-		if (Exit != 0)
+		TargetArguments.emplace_back("-NoDumpSyms");
+	}
+	if (Target.Platform == "Win64")
+	{
+		for (const auto& [Name, Flag] : {std::pair{"UMF_MSVC_VERSION", "-CompilerVersion="},
+		                                 std::pair{"UMF_WINDOWS_SDK_VERSION", "-WindowsSDKVersion="}})
 		{
-			throw std::runtime_error("UBT " + std::string(Step) + " failed with exit code " + std::to_string(Exit) +
-			                         ".");
+			if (const auto Value = Environment.find(Name); Value != Environment.end() && !Value->second.empty())
+			{
+				TargetArguments.emplace_back(std::string(Flag) + Value->second);
+			}
 		}
-	};
-	const std::vector<std::string> TargetArguments{Target.Target,
-	                                               Target.Platform,
-	                                               Target.Configuration,
-	                                               "-Architecture=" + Target.Architecture,
-	                                               "-Project=" + Path::PathToUtf8(Project),
-	                                               "-WaitMutex",
-	                                               "-MaxParallelActions=6"};
+	}
 	const auto Root = Project.parent_path();
 	const auto ModTools = Root / "Intermediate/ModTools";
 	const auto Variant = fs::path(Target.Target) / Target.Platform / Target.Configuration / Target.Architecture;
@@ -243,13 +204,20 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 		Modules += (Modules.empty() ? "" : "+") + Name;
 	}
 	Export.push_back("-ModExportModules=" + Modules);
+	Export.push_back("-Log=" + Path::PathToUtf8(Work / "UbtBuild.log"));
+	Export.emplace_back("-Timing");
 	Export.emplace_back("-NoHotReloadFromIDE");
 	if (Target.Mode == "bootstrap")
 	{
 		Export.emplace_back("-MhtBootstrap");
+		Export.emplace_back("-NoUBA");
 		RunUbt(Export, "bootstrap build");
 		return;
 	}
+
+	const auto Inputs = ModTools / "ModHeaderTool/HostTargets" / Variant / "Metadata";
+	MetadataBundle::Consume(Target, Inputs);
+	Environment["UMF_METADATA_INPUTS"] = Path::PathToUtf8(Inputs);
 
 	const auto Game =
 	    ContextDocument::Text(ContextDocument::ReadJson(Root / "Config/ModHeaderTool.json").at("generation"), "gameId");
@@ -276,7 +244,8 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	{
 		File::WriteFileAtomically(ActionsFile, Graph.dump(2));
 		std::vector<std::string> Execute{Path::PathToUtf8(Ubt), "-Mode=Execute",
-		                                 "-Actions=" + Path::PathToUtf8(ActionsFile), "-NoUBA"};
+		                                 "-Actions=" + Path::PathToUtf8(ActionsFile),
+		                                 "-Log=" + Path::PathToUtf8(Work / "UbtExecute.log"), "-NoUBA"};
 		Execute.insert(Execute.end(), TargetArguments.begin(), TargetArguments.end());
 		RunUbt(Execute, "action execution");
 	}
@@ -284,6 +253,18 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	{
 		throw std::runtime_error("The MHT Hook source map changed while the build was running.");
 	}
+	if ((Target.Platform == "Win64" || Target.Platform == "Linux" || Target.Platform == "LinuxArm64" ||
+	     Target.Platform == "Mac") &&
+	    (Target.Architecture == "x64" || Target.Architecture == "arm64"))
+	{
+		const auto Contexts = ModTools / "ModHeaderTool/HostTargets" / Variant / "watch.json";
+		const auto Link = UeBuildAdapter::FinalizeUeTarget(Contexts, UeInvocation::Receipt(Project, Target));
+		if (!Link.is_object() || Link.at("binaries").empty())
+		{
+			throw std::runtime_error("The UBT build did not verify a linked UMF host binding.");
+		}
+	}
+
 	Json Audit = Json::object();
 	for (const auto& [Source, Object] : Objects)
 	{

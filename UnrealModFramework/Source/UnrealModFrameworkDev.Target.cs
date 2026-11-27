@@ -5,7 +5,7 @@ using UnrealBuildTool;
 public class UnrealModFrameworkDevTarget : TargetRules
 {
 	public UnrealModFrameworkDevTarget(TargetInfo Target)
-		: this(Target, TargetLinkType.Default) { }
+		: this(Target, TargetLinkType.Monolithic) { }
 
 	protected UnrealModFrameworkDevTarget(TargetInfo Target, TargetLinkType linkType)
 		: base(Target)

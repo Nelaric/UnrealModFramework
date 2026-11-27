@@ -1,0 +1,140 @@
+{
+  "schemaVersion": 1,
+  "repository": "Nelaric/UMFCI",
+  "installerCommit": "f2c2175a89b8ff4ef4e940e7a4f8fba343046eb6",
+  "ueVersion": "5.6.1",
+  "upstreamCommit": "6978b63c8951e57d97048d8424a0bebd637dde1d",
+  "configuration": "Development",
+  "dotnetSdk": "8.0.300",
+  "maxInstalledBytes": 5000000000,
+  "toolchains": {
+    "windows": {
+      "compiler_family": "14.44.35207",
+      "sdk": "10.0.26100.0",
+      "allowedCompilers": [
+        "14.44.35228",
+        "14.44.35230"
+      ]
+    },
+    "linux": {
+      "sdk": "v25_clang-18.1.0-rockylinux8",
+      "archive_sha256": "9a6f65a1b14fc6e5d2268824099af936beea794f632c22eb9bccc8a8dd4f197c"
+    },
+    "macos": {
+      "xcode": "16.4",
+      "sdk": "15.5"
+    }
+  },
+  "targets": {
+    "windows-x64-game": {
+      "profile": "Game",
+      "architecture": "x86_64",
+      "ubtArchitecture": "x64",
+      "ubtPlatform": "Win64",
+      "runner": "windows-2022",
+      "toolchain": "windows",
+      "release": "ue-5.6.1-windows-x64-game-r3",
+      "recipe": "r3",
+      "manifestSha256": "1fe3516de1190327dec84adab0a82fe5b6447882c8eb4c92042fb1ed9a5457e0"
+    },
+    "windows-x64-editor": {
+      "profile": "Editor",
+      "architecture": "x86_64",
+      "ubtArchitecture": "x64",
+      "ubtPlatform": "Win64",
+      "runner": "windows-2022",
+      "toolchain": "windows",
+      "release": null,
+      "recipe": null,
+      "manifestSha256": null
+    },
+    "windows-arm64-game": {
+      "profile": "Game",
+      "architecture": "ARM64",
+      "ubtArchitecture": "arm64",
+      "ubtPlatform": "Win64",
+      "runner": "windows-11-arm",
+      "toolchain": "windows",
+      "release": "ue-5.6.1-windows-arm64-game-r3",
+      "recipe": "r3",
+      "manifestSha256": "eb24af6d6f00eedf14a1c4149ccef1bf1b7d1cf0056f62f23058bd83c747382a"
+    },
+    "linux-x64-game": {
+      "profile": "Game",
+      "architecture": "x86_64",
+      "ubtArchitecture": "x64",
+      "ubtPlatform": "Linux",
+      "runner": "ubuntu-24.04",
+      "toolchain": "linux",
+      "release": "ue-5.6.1-linux-x64-game-r2",
+      "recipe": "r2",
+      "manifestSha256": "16949a66971c239b231fb66b0062d973e16e91543b2c3895e54ce383b42f9099"
+    },
+    "linux-x64-editor": {
+      "profile": "Editor",
+      "architecture": "x86_64",
+      "ubtArchitecture": "x64",
+      "ubtPlatform": "Linux",
+      "runner": "ubuntu-24.04",
+      "toolchain": "linux",
+      "release": null,
+      "recipe": null,
+      "manifestSha256": null
+    },
+    "linux-arm64-game": {
+      "profile": "Game",
+      "architecture": "ARM64",
+      "ubtArchitecture": "arm64",
+      "ubtPlatform": "LinuxArm64",
+      "runner": "ubuntu-24.04-arm",
+      "toolchain": "linux",
+      "release": "ue-5.6.1-linux-arm64-game-r2",
+      "recipe": "r2",
+      "manifestSha256": "58ae921505ddc0a2b88ef44a4e880191c3a8881c897d256bd8d9f85c29f373c3"
+    },
+    "macos-x64-game": {
+      "profile": "Game",
+      "architecture": "x86_64",
+      "ubtArchitecture": "x64",
+      "ubtPlatform": "Mac",
+      "runner": "macos-15-intel",
+      "toolchain": "macos",
+      "release": null,
+      "recipe": null,
+      "manifestSha256": null
+    },
+    "macos-x64-editor": {
+      "profile": "Editor",
+      "architecture": "x86_64",
+      "ubtArchitecture": "x64",
+      "ubtPlatform": "Mac",
+      "runner": "macos-15-intel",
+      "toolchain": "macos",
+      "release": null,
+      "recipe": null,
+      "manifestSha256": null
+    },
+    "macos-arm64-game": {
+      "profile": "Game",
+      "architecture": "ARM64",
+      "ubtArchitecture": "arm64",
+      "ubtPlatform": "Mac",
+      "runner": "macos-15",
+      "toolchain": "macos",
+      "release": null,
+      "recipe": null,
+      "manifestSha256": null
+    },
+    "macos-arm64-editor": {
+      "profile": "Editor",
+      "architecture": "ARM64",
+      "ubtArchitecture": "arm64",
+      "ubtPlatform": "Mac",
+      "runner": "macos-15",
+      "toolchain": "macos",
+      "release": null,
+      "recipe": null,
+      "manifestSha256": null
+    }
+  }
+}

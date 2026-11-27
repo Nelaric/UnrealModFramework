@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from UnrealModFramework.Plugins.ModRuntime.Tools.verify_macho_hooks import verify_target
+from test_metadata_bundle import ENGINE_COMMIT, SOURCE_COMMIT, digest, encoded, variant
 
 EXPORT_HEADERS = (
     Path(__file__).resolve().parents[1]
@@ -155,6 +156,8 @@ def prepare_fake_ubt(root):
             shutil.copy2(library, runtime / library.name)
     else:
         (runtime / "dotnet").symlink_to(Path(sys.executable).resolve())
+    (engine / "Build").mkdir()
+    write_json(engine / "Build/Build.version", {"MajorVersion": 5, "MinorVersion": 6, "PatchVersion": 1})
     ubt = engine / "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll"
     ubt.parent.mkdir(parents=True)
     ubt.write_text(
@@ -271,7 +274,79 @@ def verify_direct_host_finalization(root, args):
         print(f'{platform}/{arch}: current host binding verified, stale symbol rejected')
 
 
-def verify_long_project_path(root, mbt, engine):
+def write_build_bundle(project, platform, arch):
+    root = Path(project).parent
+    extra = {**variant("Game", arch), "platform": platform}
+    default = [variant("GameEditor", "x64"), variant("Game", "x64"), variant("Game", "arm64")]
+    config = root / "Config/ModHeaderTool.json"
+    config.parent.mkdir(exist_ok=True)
+    document = json.loads(config.read_bytes()) if config.exists() else {"generation": {"gameId": "Game"}}
+    document.update(metadataEditorTarget="GameEditor", metadataGameTargets=["Game"], metadataExtraConsumers=[extra])
+    write_json(config, document)
+    sources = {"Project/Game.uproject": digest(Path(project).read_bytes())}
+    for folder in ("Config", "Source", "Plugins", "Platforms"):
+        for path in (root / folder).rglob("*"):
+            if path.suffix.lower() in {".ini", ".json", ".uplugin", ".cs", ".csproj", ".h", ".hpp", ".inl",
+                                      ".c", ".cpp", ".cc", ".mm"} and path.is_file():
+                content = path.read_bytes().removeprefix(b"\xef\xbb\xbf").replace(b"\r\n", b"\n")
+                sources["Project/" + path.relative_to(root).as_posix()] = digest(content)
+    scope = root / "Game.modexport"
+    if scope.is_file():
+        sources["Project/Game.modexport"] = digest(scope.read_bytes())
+    bundle = root / "Metadata"
+    bundle.mkdir()
+    payloads = {
+        "options.json": {"Project": "Project/Game.uproject", "SchemaVersion": 5, "Options": {}, "FunctionRedirects": []},
+        "blueprints.json": {"format": "UMF.BlueprintExports", "schemaVersion": 1, "inputs": [], "types": []},
+        "inputs.json": {"sources": sources, "assets": {}, "configRoots": [], "config": {}},
+    }
+    hashes = {}
+    for name, payload in payloads.items():
+        bytes_ = encoded(payload)
+        (bundle / name).write_bytes(bytes_)
+        hashes[name] = digest(bytes_)
+    write_json(bundle / "manifest.json", {
+        "format": "UMF.MetadataBundle", "schemaVersion": 1, "generatorVersion": "ModBuildTool.Metadata/1",
+        "project": "Project/Game.uproject", "sourceCommit": SOURCE_COMMIT,
+        "engine": {"major": 5, "minor": 6, "patch": 1, "upstreamCommit": ENGINE_COMMIT},
+        "producer": default[0], "consumers": default if extra in default else [*default, extra], "payloads": hashes,
+    })
+    return ["--commit", SOURCE_COMMIT, "--engine-commit", ENGINE_COMMIT, "--metadata", bundle]
+
+
+def write_build_receipt(project, generated, platform, arch, clang, triple, short_root):
+    if platform not in {"Win64", "Linux", "LinuxArm64", "Mac"} or arch not in {"x64", "arm64"}:
+        return
+    root = Path(project).parent
+    batch_file = generated / "Game.generated-artifacts.json"
+    generation = json.loads(batch_file.read_bytes())["generationId"]
+    source = short_root / f"binding-{platform}-{arch}.c"
+    image = source.with_suffix({"Win64": ".dll", "Mac": ".dylib"}.get(platform, ".so"))
+    source.write_text(
+        "#ifdef _WIN32\n#define API __declspec(dllexport)\n#else\n#define API __attribute__((visibility(\"default\")))\n#endif\n"
+        f"API int UMF_HostBinding_Game_{generation}(void) {{ return 1; }}\n"
+    )
+    flags = {"Win64": ["-Wl,/noentry"], "Mac": ["-Wl,-platform_version,macos,13.0,13.0"]}.get(platform, ["-fPIC"])
+    run([clang, "-target", triple, "-fuse-ld=lld", "-shared", "-nostdlib", *flags, source, "-o", image])
+    binaries = root / "Binaries" / platform
+    binaries.mkdir(parents=True)
+    shutil.copy2(image, binaries / image.name)
+    write_json(binaries / "Game.modules", {"BuildId": "1", "Modules": {"Game": image.name}})
+    write_json(binaries / "Game.target", {
+        "Project": project, "TargetName": "Game", "Platform": platform, "Configuration": "Development",
+        "Architecture": arch, "Version": {"BuildId": "1"},
+        "BuildProducts": [{"Path": f"$(ProjectDir)/Binaries/{platform}/Game.modules", "Type": "RequiredResource"},
+                          {"Path": f"$(ProjectDir)/Binaries/{platform}/{image.name}", "Type": "DynamicLibrary"}],
+    })
+    variants = root / "Intermediate/ModTools/ModHeaderTool/HostTargets/Game" / platform / "Development" / arch
+    variants.mkdir(parents=True)
+    write_json(variants / "watch.json", {
+        "format": "UMF.ModHostContextSet", "schemaVersion": 1, "project": str(project), "contexts": {},
+        "generatedManifest": str(batch_file),
+    })
+
+
+def verify_long_project_path(root, args):
     prefix = "\\\\?\\" if os.name == "nt" else ""
     with tempfile.TemporaryDirectory(dir=prefix + str(root)) as directory:
         component = "long-project-directory-" * 5
@@ -298,14 +373,18 @@ def verify_long_project_path(root, mbt, engine):
                 "platform": "Win64",
                 "configuration": "Development",
                 "architecture": "x64",
-                "generatedFiles": [],
+                "generatedFiles": [], "schemaVersion": 4, "unresolvedTypeCount": 0,
+                "generationId": "a" * 64, "contractHash": "a" * 64, "projectionHash": "a" * 64,
+                "nativeABIHash": "a" * 64, "compilationUnits": [{"ownerModule": "Game", "role": "HostBinding"}],
             },
         )
+        write_build_receipt(str(project), generated, "Win64", "x64", args.clang, "x86_64-pc-windows-msvc", root)
+        bundle = write_build_bundle(project, "Win64", "x64")
         run(
             [
-                mbt, "build-ue-target", "--engine", engine, "--project", project_arg,
+                args.mbt, "build-ue-target", "--engine", args.engine, "--project", project_arg,
                 "--target", "Game", "--platform", "Win64", "--configuration", "Development",
-                "--architecture", "x64", "--mode", "normal",
+                "--architecture", "x64", "--mode", "normal", *bundle,
             ],
             env={**os.environ, "PYTHONHOME": sys.base_prefix},
         )
@@ -689,6 +768,8 @@ struct UModExtensionSubsystem {
         {"Id": 2, "Type": "Link", "PrerequisiteActions": [0], "ProducedItems": [str(root / "game.linked")]},
         {"Id": 3, "Type": "Link", "PrerequisiteActions": [0], "ProducedItems": [str(root / "module.linked")]},
     ]})
+    write_build_receipt(project, generated, platform, arch, args.clang, triple, root)
+    bundle = write_build_bundle(project, platform, arch)
     build = [
         args.mbt,
         "build-ue-target",
@@ -698,7 +779,7 @@ struct UModExtensionSubsystem {
         "--platform", platform,
         "--configuration", "Development",
         "--architecture", arch,
-        "--mode", "normal",
+        "--mode", "normal", *bundle,
     ]
     env = {**os.environ, "PYTHONHOME": sys.base_prefix}
     run(build, env=env)
@@ -801,7 +882,7 @@ if __name__ == "__main__":
         verify_empty_host_finalization(Path(directory) / "empty", args.mbt)
         verify_direct_host_finalization(Path(directory) / "host", args)
         args.engine = prepare_fake_ubt(Path(directory))
-        verify_long_project_path(Path(directory), args.mbt, args.engine)
+        verify_long_project_path(Path(directory), args)
         verify_msvc_source_analysis(Path(directory) / "msvc-source-analysis", args)
         for target in (
             ("Win64", "x64", "x86_64-pc-windows-msvc"),

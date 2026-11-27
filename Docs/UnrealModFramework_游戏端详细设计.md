@@ -11,7 +11,7 @@
 
 | 链路 | 当前实现 | 仍需验收或扩展的范围 |
 | --- | --- | --- |
-| 导出和宿主构建 | MHT 解析活动 C++ 声明与 `ModExportBlueprints` 快照。UBT 直接编译宿主单元，MBT 驱动 Hook 源替换并校验桌面最终链接。Linux x64 CI 覆盖 Development Game、Editor 和 Editor Hook 分发。 | 更丰富的类型与异步调用形状、远程编译、更多目标与工具链组合 |
+| 导出和宿主构建 | MHT 解析活动 C++ 声明与 `ModExportBlueprints` 快照。UBT 直接编译宿主单元，MBT 驱动 Hook 源替换并校验桌面最终链接。Development CI 调度 Editor 自动化与独立的 Game 编译链接。 | 更丰富的类型与异步调用形状、远程编译、更多目标与工具链组合 |
 | SDK 和作者工程 | MDT 生成作者端 SDK、独立制作插件及可选的宿主 SDK 源插件；`TestMod` 演示独立制作、Cook 与完整生命周期 | 扩展至更多目标构建与实际 Shipping 发行 |
 | 包加载 | `ModLoader` 发现并验证 v1/v2/v3 归档，执行依赖与授权准入，挂载内容并分发结果；Win64 x64 Pak 支持按宿主配置加载匹配的 UE 模块或独立 C ABI 扩展 DLL | 各平台的 Shipping Pak/IoStore、完整资源清理与原生模块生命周期验收 |
 | World 扩展 | `UModExtensionSubsystem` 管理同步 Hook、`Immediate`/`NextTick` Event、内容槽、Actor/组件/数据 Patch 及版本化跨模组服务 | 任意结构或容器投影、工作线程扩展、游戏业务的完整回归矩阵 |
@@ -538,7 +538,7 @@ Exporter 通过 UHT 的 AddExternalDependency 登记 Schema、选项目录及其
 
 默认不复制或改写全项目源码。若后续确需隔离快照，标记变换、友元接缝与完整源码映射由 MHT 负责，MBT 仅管理已声明的模块路径、输入文件、依赖、输出与失效。UHT、MHT 和编译器必须读取同一份正式输入，插入内容及 GENERATED_BODY 行号也须可追溯。快照后端须另行验收，不得由 MBT 实现第二套宏或类型解释器。
 
-首次构建先准备源码基线中的真实类型与可发现的模块描述。需要新公共反射包装时，MDT 根据 MHT 契约生成 SDK 源码，再由后续消费目标执行正常 UHT。设置 `metadataEditorTarget` 后，适配器在需要时先以 `-MhtBootstrap` 构建 Development Editor，再运行 `ModExportOptions` 与 `ModExportBlueprints`。完整清单由后续正式构建发布。
+首次构建先准备源码基线中的真实类型与可发现的模块描述。需要新公共反射包装时，MDT 根据 MHT 契约生成 SDK 源码，再由后续消费目标执行正常 UHT。MBT 的 `prepare-metadata` 按需引导 Development Editor 并导出 Bundle。各目标以 `build-ue-target` 校验 Bundle，独立生成完整清单并验证最终链接。
 
 ### 分阶段生成
 

@@ -17,6 +17,8 @@
 #include "ModHeaderTool/src/Project/Project.h"
 
 #include <algorithm>
+#include <chrono>
+#include <iostream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
@@ -58,6 +60,7 @@ void SourceErrorAnalyzer::AnalyzeSourceErrors(GenerationModel& Model, const fs::
 	const auto Environment = Mod::BuildTool::ProcessEnvironment::CaptureEnvironment();
 	Model.Dependencies.insert(Tool);
 	Model.Dependencies.insert(fs::canonical(ClangLibrary));
+	const auto Started = std::chrono::steady_clock::now();
 	for (auto& API : Model.APIs)
 	{
 		const auto Member = Members.find(API.Id);
@@ -78,5 +81,7 @@ void SourceErrorAnalyzer::AnalyzeSourceErrors(GenerationModel& Model, const fs::
 		SourceReportBinder::BindSourceErrors(API, Model, *Member, ClassifiedReasons,
 		                                     Json::parse(TextFile::ReadTextFile(Report.File)), AnalysisDatabase);
 	}
+	const auto Seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - Started).count();
+	std::cerr << "UMF timing MST failure analysis " << Seconds << " s\n";
 }
 } // namespace Mod::HeaderTool

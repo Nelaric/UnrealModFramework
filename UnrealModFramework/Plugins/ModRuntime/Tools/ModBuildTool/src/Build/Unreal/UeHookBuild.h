@@ -18,6 +18,9 @@ struct UeHookTarget
 	std::string Configuration;
 	std::string Architecture;
 	std::string Mode;
+	fs::path Metadata;
+	std::string SourceCommit;
+	std::string EngineCommit;
 };
 
 class UeHookBuild

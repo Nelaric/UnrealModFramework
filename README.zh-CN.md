@@ -34,17 +34,9 @@ Setup 会将四个独立工具的 Release 可执行文件构建至 `UnrealModFra
 
 ### 构建开发宿主
 
-安装 UE 5.6 与目标平台 SDK。在仓库根目录使用 ModBuildTool（MBT）构建启用自动 C++ Hook 分发的 Win64 x64 Development Editor 示例。
+运行 Setup 后，在完整的 UE 5.6.1 或已验收的 Editor SDK 上使用 MBT 导出元数据。正常 Editor 和 Game 构建各自验证 Bundle，并独立生成其原生绑定。Game 可以使用独立的最小 Game SDK。[本地构建和自动化命令](Docs/DevelopmentWorkflow.zh-CN.md#本地构建)
 
-```powershell
-$mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
-& $mbt build-ue-target --engine "<UE 安装目录>" --project "UnrealModFramework/UnrealModFrameworkDev.uproject" `
-  --target UnrealModFrameworkDevEditor --platform Win64 --configuration Development --architecture x64 --mode normal
-```
-
-如需构建 Development Game，请将 `--target` 改为 `UnrealModFrameworkDev`。当生成导出快照需要 Editor 二进制时，构建流程会自动引导已配置的 Editor Target。在 Editor 中验证时，请在构建完成后打开开发宿主工程。[开发宿主工程](UnrealModFramework/UnrealModFrameworkDev.uproject) · [Linux 示例与目标架构](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)
-
-所有工具链均由 UBT 在所属模块内编译生成的宿主代码。游戏 SDK 的共享 Runtime 模块编译 Client 实现。CircleCI 使用 UE 5.6.1 构建 Linux x64 Development Game 和 Editor，并在 Editor Job 中运行 `ChangeHealthDispatch` 自动化测试。[构建与测试范围](Docs/DevelopmentWorkflow.zh-CN.md#linux-编译的范围)
+UBT 在所属模块内编译生成的宿主代码，游戏 SDK 的共享 Runtime 模块编译 Client 实现。[Development 与 Release Validation](Docs/DevelopmentWorkflow.zh-CN.md)
 
 ## 从开发分支获取 ModRuntime
 
@@ -145,4 +137,4 @@ MHT 会按所选构建目标校验活动声明。`HostCommitPayload` 为当前�
 
 ## 致谢
 
-感谢所有为 UnrealModFramework 做出贡献的开发者，感谢 Epic Games 提供 Unreal Engine，以及 CircleCI 提供 Linux 项目构建服务。
+感谢所有为 UnrealModFramework 做出贡献的开发者，感谢 Epic Games 提供 Unreal Engine。

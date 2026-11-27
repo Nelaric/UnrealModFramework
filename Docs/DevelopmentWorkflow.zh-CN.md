@@ -2,56 +2,87 @@
 
 [English](DevelopmentWorkflow.md) | 简体中文
 
-# 开发与 CI 流程
+# 开发与发布验证
 
-本文说明贡献检查、Linux 构建与文档发布流程。准备改动前，请先阅读[贡献指南](../CONTRIBUTING.zh-CN.md)。
+日常开发使用 UE 5.6.1 Development SDK。SDK 来源为 UMFCI 独立验收后发布的私有不可变发行版。[引擎锁](../.github/engine-lock.json)固定安装器提交、UE 上游提交、目标配置、制包版本、Manifest SHA-256、.NET SDK 和平台工具链。发行字段为空的目标会明确失败。安装器以流式方式读取归档，逐文件校验，并检查 5 GB 体积上限。
 
-## 从改动到 `main`
-
-1. 在分支或 Fork 中完成主题集中的改动，并运行相关的[本地检查](CodingStandards/BuildAndReview.zh-CN.md#本地检查)。
-2. 使用 [PR 模板](../.github/pull_request_template.md)向 `main` 发起 PR，并在适用时关联相关 Issue。
-3. 修复所有检查失败并完成维护者审查后再合并。维护者应通过分支保护规则要求相关检查通过。
-4. [启用 API Pages](Hosting/README.zh-CN.md) 后，合并到 `main` 会发布生成的 API 文档。
-
-## PR 会运行哪些检查
-
-Quality 工作流检查 PR 与提交命名、格式、文本规范及 API 文档，并运行 CircleCI 构建交接的单元测试；独立的 Linux 用例进一步验证面向 COFF、ELF 与 Mach-O 目标的自动 Hook 编译链接，以及基于 GCC 和 Clang 编译数据库的 MST 跨文件异常分析。工具版本锁定在工作流文件及 `.config/dotnet-tools.json` 中。[Quality 工作流](../.github/workflows/quality.yml)
-
-完成 [CircleCI 接入](CircleCI.zh-CN.md)后，可通过设置仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED=true` 启用[可信 PR 编译工作流](../.github/workflows/fork-pr-linux.yml)。在该变量启用前，其各 Job 会被跳过；现有的 CircleCI Push 流水线保持独立运行。
-
-PR 工作流会先验证提交并触发 CircleCI，随后并行展示 Game 与 Editor 两个 Job 并汇总结果。两个目标分别上报 `ci/linux-game-build` 和 `ci/linux-editor-build` 状态，`ci/fork-pr-linux-build` 负责汇总两者。汇总摘要包含 CircleCI 日志链接，Actions Job 会镜像输出检出与编译日志，同时过滤认证相关输出。贡献者无需 CircleCI 账号。
-
-对于 Fork PR，如涉及修改 CI 工作流、自动化脚本、Unreal 描述文件与构建脚本、CMake 文件或可执行辅助脚本，须由维护者在源仓库分支中处理。策略会同时检查重命名文件的新旧路径。源仓库分支的 PR 可以修改这些文件并继续使用可信编译流程。原生模组 ABI 变更同样需要维护者审查。
-
-## Linux 编译的范围
-
-Push 配置与可信 PR 配置均使用 Unreal Engine 5.6.1，为 `UnrealModFramework/UnrealModFrameworkDev.uproject` 构建 Linux x64 Development 目标。
-
-| CircleCI Job | 工作内容 |
+| Editor 生产方 | Game 消费方 |
 | --- | --- |
-| `build_game_linux` | 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。 |
-| `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor`，运行覆盖 C++ 与蓝图 Hook 分发的 `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`，再通过 `ModSDKTool build-editor` 构建并校验独立制作插件。 |
+| Windows x86_64 | Windows x86_64、ARM64 |
+| Linux x86_64 | Linux x86_64、ARM64 |
+| macOS x86_64 | macOS x86_64 |
+| macOS ARM64 | macOS ARM64 |
 
-各 Job 在独立的可写暂存目录中执行构建，并在拉取私有引擎镜像后以无网络模式运行 UE 容器。`ModBuildTool build-ue-target` 驱动 UBT 编译生成的 Hook 源码副本，UBT 则在所属模块内直接编译生成的宿主连接代码。Editor Job 同时核对编辑器退出码与测试成功标记，并将校验通过的制作插件保留在 Job 暂存目录中。Server、Shipping 及更多平台与引擎版本的组合仍需单独验证。[ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
+四个 Editor Job 各自调度。一组 Editor 成功后，对应的 Game Job 即可启动。Development Game 通过 UBT 编译和链接 Monolithic 目标并校验 Host Link Receipt。Editor Job 构建正常目标，在无界面环境下运行 `Nelaric.*`，并检查报告中的发现和执行情况。日志记录 SDK 安装、原生工具、元数据、反射与生成、编译链接和自动化阶段耗时。完整矩阵的冷构建关键路径目标为 5～10 分钟。
 
-每项独立框架功能均须按[审查规范](CodingStandards/BuildAndReview.zh-CN.md#自动化测试)配备面向行为的自动化测试，但不设数值化覆盖率门槛。对于已完成的 Unreal 自动化运行，可使用 `Scripts/check_automation_report.py` 校验导出报告、日志及编辑器退出码：
+## 本地构建
 
-```text
-python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
-```
-
-## 运行调用性能基准
-
-在仓库根目录运行[基准脚本](../Test/Performance/run_benchmark.py)，并指定 UE 5.6 安装目录与报告输出路径。通过 `--report` 显式指定路径可保留仓库中已提交的测量结果，便于后续比对。
+运行一次 [Setup](../README.zh-CN.md#构建开发宿主)准备四个工具和 libclang。然后使用与 CI 相同的 MBT 阶段。下例适用于合法的完整 Windows UE 5.6.1 Editor。有已验收的 Game SDK 时，将其路径传入 Game 构建。
 
 ```powershell
-python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/ue-call-benchmark.local.md'
+$mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
+$project = "UnrealModFramework/UnrealModFrameworkDev.uproject"
+$engine = "<完整 UE 5.6.1 或 Editor SDK>"
+$gameSdk = "<Win64 Game SDK 或完整 UE 5.6.1>"
+$bundle = "UnrealModFramework/Intermediate/ModTools/Metadata"
+$commit = git rev-parse HEAD
+$revision = (Get-Content .github/engine-lock.json -Raw | ConvertFrom-Json).upstreamCommit
+$platform = @("--project", $project, "--platform", "Win64", "--architecture", "x64")
+$identity = @("--commit", $commit, "--engine-commit", $revision)
+$inputs = @("--configuration", "Development", "--metadata", $bundle)
+
+& $mbt prepare-metadata --engine $engine --target UnrealModFrameworkDevEditor @platform @identity --output $bundle
+& $mbt build-ue-target --engine $engine --target UnrealModFrameworkDevEditor @platform @identity @inputs --mode normal
+& $mbt test-ue-target --engine $engine --target UnrealModFrameworkDevEditor @platform --report ".tools/automation"
+& $mbt build-ue-target --engine $gameSdk --target UnrealModFrameworkDev @platform @identity @inputs --mode normal
 ```
 
-独立基准工程包含 200 项用例，每条可用路径采样 1,000 次。Win64 x64 会测量宿主 C++、宿主蓝图，以及已挂载 `BenchmarkMod` 中的 C++ 与蓝图调用路径。请使用能够构建模块化 Development Game 的引擎源码版，或通过 `--modular-runtime` 传入匹配的模块化运行时；其他受支持的平台仅运行宿主侧路径。不可用路径在报告中标为 `未测试`。汇总值为每列可用用例均值的平均，反映当前测试机器与测试场景的表现；详见[仓库中的测量结果](../Test/Performance/ue-call-benchmark.md)。
+每次自动化运行使用一个新的报告目录。使用 UMFCI SDK 时，设置 `UE_USE_SYSTEM_DOTNET=1`，让 `DOTNET_ROOT` 指向锁定的原生 .NET SDK。可用 `UMF_MSVC_VERSION` 与 `UMF_WINDOWS_SDK_VERSION` 选择 Windows 工具链，CI 会在调用 MBT 前解析和校验版本。Linux ARM64 使用 `LinuxArm64` 和 `arm64`，Windows ARM64 使用 `Win64` 和 `arm64`。两者均消费 Game SDK。
 
-## 检查失败时
+`prepare-metadata` 会复用已验证的 Bundle。Bundle 缺失或过期时，它通过 Bootstrap 规则构建本机 Development Editor，并调用导出 Commandlet。`validate-metadata` 可独立核对 Bundle 与目标。正常构建先在 MBT 中校验 Bundle，再进入 UBT。各目标独立生成编译输入。CI 将同一经审查的提交传给所有 Job。本地存在编辑时，工具也会计算当前项目文件的摘要。
 
-请打开失败的 Actions Job 查看摘要，并点击其中的链接进入对应 CircleCI 日志；常规 push 构建也会显示在 [CircleCI 项目](https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework)中。如果 PR 编译被跳过，维护者应参照 [CircleCI 接入说明](CircleCI.zh-CN.md)核对启用变量、Webhook 配置及密钥。请求协助排查时，请附上失败运行的链接及已尝试的排查步骤。
+Bundle 的四个文件位于 `Metadata/`。文件名基于 `Project/` 和 `Engine/` 逻辑根。Options 和 Blueprint 数据使用反射名、参数角色与标量字段结构。消费目标会检查配置投影与生产方输入是否一致，不兼容的重定向、架构专用配置、蓝图包变化、源码漂移和负载损坏都会导致失败。C++ 布局、编译参数、Hook 对象和 ABI 由目标自身的编译数据库生成。Blueprint 使用反射结构体时，目标会以加载的反射类型校验字段结构。`Intermediate/` 下的 Bundle 为构建产物。
 
-各工作流配置分别位于 [Quality](../.github/workflows/quality.yml)、[可信 PR 编译](../.github/workflows/fork-pr-linux.yml)、[API Pages](../.github/workflows/pages.yml)、[CircleCI push 编译](../.circleci/config.yml)和 [CircleCI PR 编译](../.circleci/pr-build.yml)。
+## 合并检查
+
+Fork PR 在只读权限下运行 [Development](../.github/workflows/development.yml)。`Development public` 汇总命名、文本和格式、API 文档、四个原生工具及 COFF、ELF 和 Mach-O Hook 链接用例。Pages 仍独立发布。 [API Pages](../.github/workflows/pages.yml)
+
+维护者审查准确的 PR head 后，从受授权的**私有**仓库手动发起引擎验证。审查该提交的构建脚本、依赖和 UE 源码后再调度。私有调用方配置零付费预算，设置 `UMF_ZERO_SPEND=true`。`UMFCI_READ_TOKEN` 只需读取私有 SDK 发行和安装器仓库，独立的 `UMF_STATUS_TOKEN` 只需对 UnrealModFramework 写入提交检查状态。只有最终汇总步骤取得状态令牌。
+
+私有调用方使用固定并已审查的工作流提交。
+
+```yaml
+name: Reviewed Development
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request: { type: number, required: true }
+      commit: { type: string, required: true }
+jobs:
+  development:
+    uses: Nelaric/UnrealModFramework/.github/workflows/development.yml@<reviewed-workflow-commit>
+    with:
+      pull_request: ${{ inputs.pull_request }}
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+      UMF_STATUS_TOKEN: ${{ secrets.UMF_STATUS_TOKEN }}
+```
+
+工作流核对 SHA 与当前打开的 PR head，并调度标准 GitHub-hosted runner。完整运行会向该 SHA 上报 `ci/development`。Bundle 只通过私有调用仓库中短期保留的 Artifact 传递。引擎文件、构建产物、含受限 UE 数据的日志与缓存留在授权存储中。SDK 缺失、免费运行资源不可用或 Job 未完成时，聚合检查无法成功。
+
+首次在授权环境完整通过矩阵且公开汇总可用后，应用[版本化 Ruleset](../.github/rulesets/protect-main.json)。在此之前保留线上必需检查。新检查接管准入后，在服务端清理旧 CircleCI 触发器和 webhook。
+
+## 发布验证
+
+从受授权的私有仓库以明确的 Release Candidate SHA 调用 [Release Validation](../.github/workflows/release-validation.yml)。Win64 x64 的 `umf-release` runner 通过 `UMF_FULL_UE` 和 `UMF_MODULAR_UE` 提供完整 Editor 和匹配的已构建模块化 Game 引擎。可以使用既有的授权工作站，同一入口也可在该工作站直接运行。
+
+```text
+python -m Test.SharedRuntime.release_validation --engine <完整 Editor> --modular-engine <完整模块化 Game> --work <新目录> --commit <完整 SHA>
+```
+
+发布流程按原有包名暂存集成资源，构建 Modular Game，执行 MDT plan/build/inspect，构建独立作者工程，并完成宿主和 Mod 的 Cook、Stage 与 Package。基础发行版本来自候选提交，摘要来自实际 Cook 输出的 `AssetRegistry.bin`。暂存游戏运行 SharedRuntime、资源替换与 Mod 卸载验证，随后运行性能基准。报告保留在授权工作区。 [SharedRuntime 流程](../Test/SharedRuntime/README.md)
+
+## Phase 1 验证情况
+
+当前锁定四个已独立验收的 Game SDK，分别为 Windows x86_64、Windows ARM64、Linux x86_64 和 Linux ARM64。其余六个目标等待正式发行。本地使用完整 UE 5.6.1 验证 Windows Editor，并使用正式的 Windows x86_64 最小 Game SDK 验证消费链路。四组关键路径、两个 ARM64 Game Job 以及完整发布验证仍需在各自环境中运行。

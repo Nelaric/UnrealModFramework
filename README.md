@@ -34,17 +34,9 @@ Setup builds the four Release executables under `UnrealModFramework/Plugins/ModR
 
 ### Build the development host
 
-Install UE 5.6 and the target platform SDK. From the repository root, run ModBuildTool (MBT) to build the sample Win64 x64 Development Editor with automatic C++ Hook dispatch.
+After Setup, use MBT with full UE 5.6.1 or a verified Editor SDK to prepare metadata. The normal Editor and Game builds each validate the bundle and generate their own native bindings. A standalone minimal Game SDK can build the Game target. [Local build and automation commands](Docs/DevelopmentWorkflow.md#build-locally)
 
-```powershell
-$mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
-& $mbt build-ue-target --engine "<UE installation>" --project "UnrealModFramework/UnrealModFrameworkDev.uproject" `
-  --target UnrealModFrameworkDevEditor --platform Win64 --configuration Development --architecture x64 --mode normal
-```
-
-Change `--target` to `UnrealModFrameworkDev` for a Development Game build. When an export snapshot needs Editor binaries, the build bootstraps the configured Editor target automatically. To test in the Editor, open the development project once the build finishes. [Development host project](UnrealModFramework/UnrealModFrameworkDev.uproject) · [Linux command and target architectures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#automatic-hook-builds)
-
-UBT compiles generated host code in its owning module on every toolchain. The game's shared SDK Runtime module compiles the Client implementation. CircleCI builds the UE 5.6.1 Linux x64 Development Game and Editor targets and runs the `ChangeHealthDispatch` automation test in the Editor job. [Build and test coverage](Docs/DevelopmentWorkflow.md#linux-build-scope)
+UBT compiles generated host code in its owning module. The game's shared SDK Runtime compiles the Client implementation. [Development and Release Validation](Docs/DevelopmentWorkflow.md)
 
 ## Get ModRuntime from a development branch
 
@@ -145,4 +137,4 @@ Project-authored material is licensed under the [MIT License](LICENSE) unless st
 
 ## Thanks
 
-Thanks to everyone contributing to UnrealModFramework, to Epic Games for Unreal Engine, and to CircleCI for the Linux project build service.
+Thanks to everyone contributing to UnrealModFramework, to Epic Games for Unreal Engine.

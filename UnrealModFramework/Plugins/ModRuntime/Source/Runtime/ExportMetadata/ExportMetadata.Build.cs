@@ -65,7 +65,11 @@ public class ExportMetadata : ModuleRules
 		string root = project.Directory.FullName;
 		string tools = Path.Combine(root, "Plugins", "ModRuntime", "Tools");
 		string buildScript = Path.Combine(tools, OperatingSystem.IsWindows() ? "Build.bat" : "Build.sh");
-		if (buildNativeTools && File.Exists(buildScript))
+		if (
+			buildNativeTools
+			&& Environment.GetEnvironmentVariable("UMF_NATIVE_TOOLS_READY") != "1"
+			&& File.Exists(buildScript)
+		)
 		{
 			// CALL expands percent escapes a second time.
 			string command = OperatingSystem.IsWindows()

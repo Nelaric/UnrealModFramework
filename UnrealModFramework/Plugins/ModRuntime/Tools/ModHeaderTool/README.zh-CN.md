@@ -62,7 +62,7 @@ Hook 接收一个载荷并返回同类型结果；Event 的发布函数接收一
 
 省略 `CompatibleNames` 时，MHT 会使用 UE 从 Engine 配置及已启用插件配置中解析出的 `FunctionRedirects`。同一类内指向已导出宿主 `UFUNCTION` 的精确重定向会贡献对应的旧名；函数名可能重复时，请用反射类名和模块名限定重定向。连续改名链会导出链上的各个旧名。显式填写 `CompatibleNames = ()` 则表示兼容名列表为空。
 
-MHT 会在宏声明或 INI 条目处报告非法名称、名称冲突及适用范围内的无效重定向。UBT 构建会自动刷新默认配置快照；独立运行 MHT 时，修改重定向后请使用 `ModExportOptions` 刷新快照。宿主与 SDK 必须使用同一份生成契约构建。
+MHT 会在宏声明或 INI 条目处报告非法名称、名称冲突及适用范围内的无效重定向。UBT 构建读取已校验的 Bundle。修改重定向后，使用 MBT 的 `prepare-metadata` 重新导出。宿主与 SDK 必须使用同一份生成契约构建。
 
 ## FullView 与对象输入
 

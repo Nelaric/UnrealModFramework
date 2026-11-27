@@ -176,7 +176,7 @@ void Merge(GenerationModel& Model, const fs::path& Snapshot)
 			{
 				Entry.PayloadKind = "Struct";
 				Entry.PayloadPath = GenerationFields::Required(Item, "structPath");
-				Entry.PayloadLayout = GenerationFields::Required(Item, "structLayout");
+				Entry.PayloadLayout = GenerationFields::Required(Item, "structShape");
 			}
 			else
 			{

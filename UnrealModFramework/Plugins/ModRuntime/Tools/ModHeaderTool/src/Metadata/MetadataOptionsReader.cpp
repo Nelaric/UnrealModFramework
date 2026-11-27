@@ -27,9 +27,9 @@ MetadataOptions MetadataOptionsReader::LoadMetadataOptions(const Project& Projec
 {
 	if (!fs::is_regular_file(File))
 	{
-		throw MetadataOptionsRefreshRequired(
-		    "Metadata option catalog not found: " + DiagnosticLocation::QuoteDiagnosticPath(File),
-		    ". Run UnrealEditor-Cmd <project> -run=ModExportOptions to create a current snapshot.");
+		throw MetadataOptionsRefreshRequired("Metadata option catalog not found: " +
+		                                         DiagnosticLocation::QuoteDiagnosticPath(File),
+		                                     ". Prepare metadata and supply the validated target-local catalog.");
 	}
 	const Json Document = Json::parse(TextFile::ReadTextFile(File));
 	const int Version = Document.is_object() ? Document.value("SchemaVersion", 0) : -1;

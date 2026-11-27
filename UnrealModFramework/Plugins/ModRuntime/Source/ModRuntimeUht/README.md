@@ -36,19 +36,16 @@ invocation runs the following command:
 ModHeaderTool scan <actual.uproject> <metadata-options.json>
 ```
 
-The authoritative metadata catalog defaults to
-`<project>/Intermediate/ModTools/ModHeaderTool/MetadataOptions.json`. Before
-generation, the adapter checks this snapshot with MHT. If the snapshot is missing,
-stale, or uses an older version, the adapter exports a fresh one with the active
-engine's `ModExportOptions` commandlet and publishes it after validation. Changes to
-tracked INI files such as `DefaultEngine.ini` trigger this check on the next
-incremental build. `scan` mode refreshes an existing default snapshot and can still
-scan a project with no snapshot when none of its declarations require one. Any
-`options` override pointing elsewhere is managed by the caller.
+Generation requires a Metadata Bundle validated by MBT. Run `prepare-metadata`
+for the Development Editor to export it, then use `build-ue-target` to consume it.
+UHT receives the target-local `MetadataOptions.json` and `BlueprintExports.json`.
+Standalone `scan` can use the caller's `options` catalog or scan declarations that
+do not require metadata choices.
 
-On the build host, `metadataEditorTarget` names the Development Editor target that UBT
-builds in bootstrap mode when the commandlet needs project binaries. Projects that
-omit this setting can prepare the Editor with `-MhtBootstrap`.
+`metadataEditorTarget` identifies the producer. `metadataGameTargets` lists the
+paired Game names. Projects can explicitly register other `name`, `platform`,
+`architecture` and `configuration` tuples in `metadataExtraConsumers`. Each
+consumer still verifies its resolved configuration inputs.
 
 UHT reads the JSON report from stdout, and its output factory commits successful
 reports to
@@ -83,6 +80,7 @@ automatically from Setup. [Checked-in configuration](../../../../Config/ModHeade
   "schemaVersion": 1,
   "mode": "generate",
   "metadataEditorTarget": "UnrealModFrameworkDevEditor",
+  "metadataGameTargets": ["UnrealModFrameworkDev", "UnrealModFrameworkDevModular"],
   "blueprintExports": [{
     "asset": "/Game/Blueprints/BP_ModBlueprintAPIExportTest.BP_ModBlueprintAPIExportTest",
     "typeId": "game.blueprint_test",
@@ -149,11 +147,11 @@ Runtime `module` within the selected scope. UBT attaches the generated compilati
 before publishing; existing declarations with empty names or versions default to their
 current declaration name and `1.0.0`.
 
-During generation, the `ModExportBlueprints` commandlet compiles the saved asset and
+During metadata preparation, the `ModExportBlueprints` commandlet compiles the saved asset and
 passes the compiled `UFunction` signature to MHT. The supported instance API profile
 is `World`, `GameThread`, and `ReturnError`, accepting value scalar inputs and
 returning either a single scalar output or `void`. Configured packages are added to
-the host cook. Use `-MhtBootstrap` to prepare the Editor when needed.
+the host cook in a full-engine release build.
 
 Once its object is ready, the game calls `UModAPIHostSubsystem::RegisterWorldProvider`
 and retains the registration handle. It then uses `SetWorldCallerPolicy` to specify
@@ -186,11 +184,7 @@ selected target installed. Each invocation builds one architecture. Apple target
 link checks use `python3` and Xcode's `nm`. This example builds the Linux Development
 Editor from the repository root.
 
-```sh
-mbt=UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool
-"$mbt" build-ue-target --engine /opt/UE_5.6 --project UnrealModFramework/UnrealModFrameworkDev.uproject \
-  --target UnrealModFrameworkDevEditor --platform Linux --configuration Development --architecture x64 --mode normal
-```
+[MBT build and automation commands](../../../../../Docs/DevelopmentWorkflow.md#build-locally)
 
 The standalone Hook fixtures exercise these UBT platform and architecture identifiers.
 The Win64 `arm64ec` fixture also requires the matching Windows SDK runtime library.
@@ -208,7 +202,7 @@ The Win64 `arm64ec` fixture also requires the matching Windows SDK runtime libra
 `UMF_MHT_LIBCLANG` selects the build host's `libclang`, and
 `UMF_MHT_CLANG_RESOURCE_DIR` selects its matching resource directory. A project can
 also configure a host-specific library path via `hostLibclang`. The compilation
-database supplies the target SDK, include paths, and architecture. [UE integration builds and automation coverage](../../../../../Docs/DevelopmentWorkflow.md#linux-build-scope)
+database supplies the target SDK, include paths, and architecture. [UE integration builds and automation coverage](../../../../../Docs/DevelopmentWorkflow.md)
 
 MHT and MST identify the annotated member in Clang's AST and write its source copy.
 MBT substitutes that input in the matching UBT action (including nested response
@@ -217,7 +211,7 @@ registration references a versioned symbol defined by the copy, so COFF and ELF 
 reject an unpatched original object. On Apple targets, the post-build step also checks
 Mach-O imports with Xcode `nm`, including links that use dynamic lookup. Both C++ and
 the Blueprint thunk enter the same public function. When a bootstrap Editor is needed,
-the tools invoke UBT with `-MhtBootstrap`, producing a Development Editor that calls
+`prepare-metadata` invokes UBT with `-MhtBootstrap`, producing a Development Editor that calls
 the original function directly. The `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`
 test exercises both entry points.
 

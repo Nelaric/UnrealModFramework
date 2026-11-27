@@ -24,7 +24,7 @@
 
 - 对 `.Build.cs` 和 `.Target.cs` 文件运行 CSharpier。其强制要求程度与 C++ 的 clang-format 相同。
 - 保持模块依赖最小化，并依据头文件实际需求区分公开与私有依赖。不得在 Runtime 中引入厂商 SDK 依赖。
-- 面向 UE 5.6 及以上版本。请求审查前，应使用 UE 5.6 构建开发宿主的 Game 和 Editor Target；引入 Server Target 后也应一并构建。未来的 CI 应覆盖最低与最新支持的引擎版本。GitHub Actions 负责执行命名、格式、文本规范、API 文档、自动 Hook 目标用例及 MST 源码分析检查；CircleCI 负责构建 UE Linux Game 和 Editor Target、运行 Editor Hook 分发自动化测试，并构建独立制作插件，详见 [CI 构建范围](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.zh-CN.md#linux-编译的范围)。
+- 面向 UE 5.6 及以上版本。Development CI 使用已锁定的 UE 5.6.1 SDK 构建 Game 与 Editor，并执行无界面自动化。完整引擎、模块化 Game、独立 SDK、打包与性能测试由 Release Validation 负责。提交审查时说明实际运行的环境和测试。 [CI 构建范围](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.zh-CN.md)
 
 ## 自动化测试
 
@@ -32,7 +32,7 @@
 
 ## 本地检查
 
-请在仓库根目录（与 `UnrealModFramework/` 工程目录同级）运行以下命令，并使用 `.github/workflows/quality.yml` 和 `.config/dotnet-tools.json` 中锁定的工具版本：
+请在仓库根目录（与 `UnrealModFramework/` 工程目录同级）运行以下命令，并使用 `.github/workflows/development.yml` 和 `.config/dotnet-tools.json` 中锁定的工具版本：
 
 1. `python Scripts/check_text.py` 检查文本编码和换行符。
 2. `python Scripts/check_format.py` 检查 C++ 和 UE 构建脚本的格式。运行前需先安装锁定版本的 clang-format，并恢复本地 .NET 工具清单。

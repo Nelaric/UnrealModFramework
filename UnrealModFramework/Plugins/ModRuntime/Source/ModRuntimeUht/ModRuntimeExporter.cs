@@ -123,25 +123,20 @@ internal static class ModRuntimeExporter
 			throw new UhtException("ModRuntime MHT: timeoutSeconds must be between 1 and 86400.");
 		}
 		string executable = FindExecutable(pluginRoot, projectRoot, config);
-		string defaultOptions = Path.Combine(mht, "MetadataOptions.json");
-		string options = OptionalText(config, "options") is string configuredOptions
-			? Resolve(projectRoot, configuredOptions)
-			: defaultOptions;
-		if (
-			SamePath(options, defaultOptions)
-			&& !factory.Session.FailIfGeneratedCodeChanges
-			&& (mode == "generate" || File.Exists(options))
-		)
+		string? metadata = Environment.GetEnvironmentVariable("UMF_METADATA_INPUTS");
+		if (mode == "generate" && metadata == null)
 		{
-			MetadataSnapshot.EnsureCurrent(
-				factory.Session.Logger,
-				factory.Session.EngineDirectory!,
-				project,
-				executable,
-				options,
-				mode == "generate" ? OptionalText(config, "metadataEditorTarget") : null,
-				timeout
+			throw new UhtException(
+				"ModRuntime MHT: generation requires a validated metadata bundle. Run ModBuildTool build-ue-target."
 			);
+		}
+		string options =
+			metadata != null
+				? Path.Combine(metadata, "MetadataOptions.json")
+				: Resolve(projectRoot, OptionalText(config, "options") ?? Path.Combine(mht, "MetadataOptions.json"));
+		if (metadata != null)
+		{
+			factory.AddExternalDependency(Path.Combine(metadata, "bundle.sha256"));
 		}
 		AddDependency(factory, project);
 		AddDependency(factory, executable);
@@ -189,7 +184,7 @@ internal static class ModRuntimeExporter
 				?? OptionalText(target, "libclang")
 				?? (
 					config.TryGetProperty("hostLibclang", out JsonElement hostLibraries)
-						? OptionalText(hostLibraries, MetadataSnapshot.HostPlatform)
+						? OptionalText(hostLibraries, UbtPreparation.HostPlatform)
 						: null
 				)
 				?? OptionalText(config, "libclang")
@@ -228,42 +223,13 @@ internal static class ModRuntimeExporter
 					$"ModRuntime MHT: build input does not match {targetName}/{variantKey}: \"{buildInput}\""
 				);
 			}
-			var owners = context
-				.GetProperty("modules")
-				.EnumerateArray()
-				.Select(item => UbtPreparation.Identifier(item, "name"))
-				.ToHashSet(StringComparer.OrdinalIgnoreCase);
 			string lifecycleSource = Path.Combine(pluginRoot, "Source", "Runtime", "ModLoader", "Public");
 			string lifecycleHeader = Path.Combine(lifecycleSource, "ModInstance.h");
 			bool exportLifecycle = manifest.Modules.Any(module =>
 				module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))
 			);
-			string blueprintSnapshot = "";
-			if (blueprintExports.ValueKind == JsonValueKind.Array)
-			{
-				var selectedBlueprints = blueprintExports
-					.EnumerateArray()
-					.Where(entry =>
-						configuredInput != null || owners.Contains(UbtPreparation.Identifier(entry, "module"))
-					)
-					.ToArray();
-				if (selectedBlueprints.Length > 0)
-				{
-					string selection = Path.Combine(variantDirectory, "BlueprintInput.json");
-					WriteFileIfChanged(
-						selection,
-						JsonSerializer.SerializeToUtf8Bytes(new { blueprintExports = selectedBlueprints })
-					);
-					blueprintSnapshot = ExportBlueprints(
-						factory,
-						project,
-						selection,
-						config,
-						variantDirectory,
-						timeout
-					);
-				}
-			}
+			string blueprintSnapshot = Path.Combine(metadata!, "BlueprintExports.json");
+			factory.AddExternalDependency(blueprintSnapshot);
 			string request = Path.Combine(variantDirectory, "GenerationRequest.json");
 			Dictionary<string, object> fields = new()
 			{
@@ -271,7 +237,7 @@ internal static class ModRuntimeExporter
 				["schemaVersion"] = 1,
 				["buildInput"] = buildInput,
 				["outputDirectory"] = output,
-				["metadataOptions"] = File.Exists(options) ? options : "",
+				["metadataOptions"] = options,
 				["libclang"] = clang ?? "",
 				["lifecycleSource"] = exportLifecycle ? lifecycleSource : "",
 				["blueprintSnapshot"] = blueprintSnapshot,
@@ -401,76 +367,6 @@ internal static class ModRuntimeExporter
 			}
 			factory.CommitOutput(Path.Combine(output, "Scan.json"), new StringBuilder(content));
 		}
-	}
-
-	private static string ExportBlueprints(
-		IUhtExportFactory factory,
-		string project,
-		string configPath,
-		JsonElement config,
-		string variantDirectory,
-		int timeout
-	)
-	{
-		string engine = factory.Session.EngineDirectory!;
-		string projectRoot = Path.GetDirectoryName(project)!;
-		string editorTarget =
-			OptionalText(config, "metadataEditorTarget")
-			?? throw new UhtException("ModRuntime Blueprint exports require a metadataEditorTarget.");
-		if (!MetadataSnapshot.HasDevelopmentEditor(projectRoot, editorTarget))
-		{
-			UbtPreparation.BuildEditor(factory.Session.Logger, engine, project, editorTarget, timeout);
-		}
-		string editor = MetadataSnapshot.EditorExecutable(engine);
-		string snapshot = Path.Combine(variantDirectory, "BlueprintExports.json");
-		string temporary = Path.Combine(variantDirectory, $".blueprints-{Guid.NewGuid():N}.json");
-		string log = Path.ChangeExtension(temporary, ".log");
-		try
-		{
-			void RunCommandlet() =>
-				MhtProcess.Run(
-					factory.Session.Logger,
-					editor,
-					new[]
-					{
-						project,
-						"-run=ModExportBlueprints",
-						$"-Input={configPath}",
-						$"-Output={temporary}",
-						$"-abslog={log}",
-						"-unattended",
-						"-SkipCompile",
-						"-NullRHI",
-						"-NoSound",
-						"-NoSplash",
-						"-stdout",
-					},
-					projectRoot,
-					timeout,
-					description: "ModRuntime ModExportBlueprints"
-				);
-			try
-			{
-				RunCommandlet();
-			}
-			catch (UhtException)
-				when (File.Exists(log)
-					&& File.ReadAllText(log).Contains("we could not find the class", StringComparison.Ordinal)
-				)
-			{
-				// An Editor built before this commandlet may still have a valid target receipt.
-				UbtPreparation.BuildEditor(factory.Session.Logger, engine, project, editorTarget, timeout);
-				RunCommandlet();
-			}
-			WriteFileIfChanged(snapshot, File.ReadAllBytes(temporary));
-			FileItem.ResetCachedInfo(snapshot);
-		}
-		finally
-		{
-			File.Delete(temporary);
-			File.Delete(log);
-		}
-		return snapshot;
 	}
 
 	private static void RegisterGeneratedDependencies(IUhtExportFactory factory, string output, JsonElement context)

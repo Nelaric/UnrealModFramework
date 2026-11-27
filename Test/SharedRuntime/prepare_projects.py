@@ -14,6 +14,39 @@ def save(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
+FIXTURES = ROOT / "Test/ReleaseFixtures"
+
+
+def stage_host(destination):
+    game = ROOT / "UnrealModFramework"
+    for directory in ("Content", "Config", "Source"):
+        shutil.copytree(game / directory, destination / directory)
+    descriptor = destination / (GAME + ".uproject")
+    project = json.loads((game / (GAME + ".uproject")).read_text(encoding="utf-8"))
+    project["Plugins"].extend({"Name": name, "Enabled": True} for name in (
+        "EnhancedInput", "ACLPlugin", "Niagara",
+    ))
+    save(descriptor, project)
+    for file in game.glob("*.modexport"):
+        shutil.copy2(file, destination)
+    framework = game / "Plugins/ModRuntime"
+    installed = destination / "Plugins/ModRuntime"
+    for item in ("Source", "Resources", "Config"):
+        if (framework / item).is_dir():
+            shutil.copytree(framework / item, installed / item, ignore=shutil.ignore_patterns(
+                "bin", "obj", "*.csproj.props", "*.props.user"))
+    shutil.copy2(framework / "ModRuntime.uplugin", installed)
+    shutil.copytree(FIXTURES / "Content", destination / "Content", dirs_exist_ok=True)
+    for fixture in (FIXTURES / "Config").glob("*.ini"):
+        ini = destination / "Config" / fixture.name
+        contents = ini.read_text(encoding="utf-8") + "\n" if ini.is_file() else ""
+        fixture_text = fixture.read_text(encoding="utf-8")
+        if contents:
+            fixture_text = fixture_text.split("\n", 1)[1].lstrip("\n")
+        ini.write_text(contents + fixture_text, encoding="utf-8", newline="\n")
+    return descriptor
+
+
 def prepare(work, sdk):
     sdk = sdk.resolve()
     if not (sdk / "Host/Plugins/UMFDevSDK/UMFDevSDK.uplugin").is_file():
@@ -21,22 +54,12 @@ def prepare(work, sdk):
     work.mkdir(parents=True, exist_ok=True)
     if any((work / folder).exists() for folder in ("H", "A", "B")):
         raise ValueError("Choose a fresh work directory for the three project copies")
-    game = ROOT / "UnrealModFramework"
     sample = ROOT / "ExampleMods/TestMod"
-    for source, name, folder in ((game, GAME, "H"), (sample, "TestMod", "A")):
-        destination = work / folder
-        for directory in ("Content", "Config", "Source"):
-            shutil.copytree(source / directory, destination / directory)
-        shutil.copy2(source / (name + ".uproject"), destination)
+    for directory in ("Content", "Config", "Source"):
+        shutil.copytree(sample / directory, work / "A" / directory)
+    shutil.copy2(sample / "TestMod.uproject", work / "A")
     host = work / "H"
-    for file in game.glob("*.modexport"):
-        shutil.copy2(file, host)
-    framework = game / "Plugins/ModRuntime"
-    installed = host / "Plugins/ModRuntime"
-    for item in ("Source", "Resources", "Config"):
-        if (framework / item).is_dir():
-            shutil.copytree(framework / item, installed / item)
-    shutil.copy2(framework / "ModRuntime.uplugin", installed)
+    stage_host(host)
     shutil.copytree(sdk / "Host/Plugins/UMFDevSDK", host / "Plugins/UMFDevSDK")
     shutil.copytree(HERE / "Host/SharedRuntimeChecks", host / "Source/SharedRuntimeChecks")
     descriptor = host / (GAME + ".uproject")
