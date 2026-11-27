@@ -5,6 +5,7 @@
 
 #include "GameCharacter.h"
 
+#include "Curves/CurveFloat.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
@@ -309,7 +310,7 @@ bool FHostEventWorldLifecycleTest::RunTest(const FString&)
 	                        [&](UModExtensionSubsystem& Extensions, UModInstance& Owner)
 	                        {
 		                        TArray<float> Observed;
-		                        auto* Listener = NewObject<UObject>(World);
+		                        auto* Listener = NewObject<UCurveFloat>(World);
 		                        FHandler Handler;
 		                        Handler.Target = Listener;
 		                        Handler.Key = TEXT("lifecycle-listener");
