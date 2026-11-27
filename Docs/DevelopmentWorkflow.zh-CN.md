@@ -19,7 +19,7 @@
 
 ## 桌面构建范围
 
-[桌面 CI](../.github/workflows/desktop.yml) 在向 `main` 提交 PR、推送到 `main` 或手动触发时运行。以下六种 GitHub 官方托管环境各运行独立的 Game 和 Editor 作业，均使用 UE 5.6.1 Development。
+[桌面 CI](../.github/workflows/desktop.yml) 在向 `main` 提交 PR、推送到 `main` 或手动触发时运行。以下六种 GitHub 官方托管环境共运行 11 项 UE 5.6.1 Development 作业。所有 x64 环境以及 Windows 和 macOS 的 ARM64 环境都构建 Game 和 Editor。Linux ARM64 仅构建 Game。
 
 | 系统 | x64 runner | ARM64 runner |
 | --- | --- | --- |
@@ -29,13 +29,13 @@
 
 每项先编译四个原生 Mod 工具，验证可执行文件架构并测试自动化报告检查脚本，再由 MBT 编译对应目标。Game 作业烹饪、暂存并启动打包游戏；Editor 作业启动编辑器，另用 MDT 构建并校验独立制作插件。两种目标都验证生命值变化、C++ Hook 的 Pre、On、Post 阶段。Editor 还验证已编译蓝图的调用。作业保留宿主链接凭据，并要求本次 Unreal 报告中两个指定用例都通过。[CI 脚本](../Scripts/run_desktop_ci.py)
 
-UE 5.6.1 原版不支持 `UnrealEditor LinuxArm64`，这项作业会报告缺少原生包。Linux ARM64 Game 使用 x64 Editor 命令行程序烹饪资源，然后在 ARM runner 上执行暂存的 AArch64 游戏。runner 单独安装烹饪程序所需的 x64 运行库。MBT 在编译项目烹饪模块时生成并链接 Hook 实现。
+Linux ARM64 Game 使用 x64 Editor 命令行程序烹饪资源，然后在 ARM runner 上执行暂存的 AArch64 游戏。runner 单独安装烹饪程序所需的 x64 运行库。MBT 在编译项目烹饪模块时生成并链接 Hook 实现。
 
 每个作业使用自己的目标包，仓库变量 `UE_PACKAGE_RECIPE` 固定到制包仓库的完整提交 SHA。需要分别更新目标时，变量 `UE_PACKAGE_RECIPES` 可存放 JSON 映射，例如将 `WINDOWS_X64_Editor` 指向该包的完整制包提交。`Nelaric/UnrealEngine-CI` 从固定的 Epic 上游输入制包，按目标裁剪并记录每个文件，再用另一台原生 runner 校验解压结果。该 runner 还会编译和烹饪一个独立 C++ 工程，其反射插件依赖 GameplayAbilities。发布记录包含各文件的保留理由、摘要和裁剪前后大小。Game 包保留代码工程烹饪所需的 Editor 命令行程序及其依赖。
 
 在框架仓库设置变量 `UE_PACKAGES_APP_ID` 和 Actions 密钥 `UE_PACKAGES_APP_PRIVATE_KEY`。组织的 GitHub App 只需安装到私有制包仓库，并授予 Contents 只读权限。每个作业使用短期安装令牌下载对应的 Release。安装器核对目标、架构、验证记录、分卷及文件清单。[安装脚本](../Scripts/install_ci_engine.py)
 
-GitHub 不向 Fork PR 提供仓库密钥。公共质量检查和原生工具编译可在 Fork PR 中运行。需要验证引擎时，由维护者审查后在源仓库分支上运行相应版本。缺少引擎配置会使对应作业失败。汇总检查 `Desktop build and automation` 要求 12 项全部通过。
+GitHub 不向 Fork PR 提供仓库密钥。公共质量检查和原生工具编译可在 Fork PR 中运行。需要验证引擎时，由维护者审查后在源仓库分支上运行相应版本。缺少引擎配置会使对应作业失败。汇总检查 `Desktop build and automation` 要求 11 项全部通过。
 
 矩阵通过后，将 `main` 规则集的三个旧检查（`ci/linux-game-build`、`ci/linux-editor-build`、`ci/fork-pr-linux-build`）替换为 `Desktop build and automation`，保留质量检查。在 CircleCI 停用旧项目的推送触发器，再移除 GitHub Actions 中的旧 webhook 密钥和启用变量。
 

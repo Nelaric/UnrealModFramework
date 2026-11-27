@@ -34,8 +34,10 @@ jobs:
           - {os: macOS, arch: x64, platform: Mac, runner: macos-15-intel, key: MACOS_X64}
           - {os: macOS, arch: arm64, platform: Mac, runner: macos-15, key: MACOS_ARM64}
           - {os: Linux, arch: x64, platform: Linux, runner: ubuntu-24.04, key: LINUX_X64}
-          - {os: Linux, arch: arm64, platform: LinuxArm64, runner: ubuntu-24.04-arm, key: LINUX_ARM64}
         target: [Game, Editor]
+        include:
+          - host: {os: Linux, arch: arm64, platform: LinuxArm64, runner: ubuntu-24.04-arm, key: LINUX_ARM64}
+            target: Game
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,7 +127,7 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - name: Require all twelve targets
+      - name: Require all desktop targets
         env:
           MATRIX_RESULT: ${{ needs.build.result }}
         run: test "$MATRIX_RESULT" = success
