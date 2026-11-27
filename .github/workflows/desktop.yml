@@ -21,7 +21,7 @@ jobs:
     runs-on: ${{ matrix.host.runner }}
     permissions:
       contents: read
-    timeout-minutes: 180
+    timeout-minutes: 300
     env:
       UE_USE_SYSTEM_DOTNET: ${{ matrix.host.platform == 'LinuxArm64' && '1' || '0' }}
       RECIPE: ${{ fromJSON(vars.UE_PACKAGE_RECIPES || '{}')[format('{0}_{1}', matrix.host.key, matrix.target)] || vars.UE_PACKAGE_RECIPE }}
@@ -39,9 +39,6 @@ jobs:
           - host: {os: Linux, arch: arm64, platform: LinuxArm64, runner: ubuntu-24.04-arm, key: LINUX_ARM64}
             target: Game
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -49,35 +46,6 @@ jobs:
         if: matrix.host.platform == 'LinuxArm64'
         with:
           dotnet-version: '8.0.x'
-      - name: Build the four native tools on Windows
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: call UnrealModFramework\Plugins\ModRuntime\Tools\Build.bat --setup --generator Ninja --jobs 4
-      - name: Build the four native tools on Linux or macOS
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            brew list --versions gcc >/dev/null || brew install gcc
-            gcc_dir="$(brew --prefix gcc)/bin"
-            for compiler in "$gcc_dir"/g++-[0-9]*; do
-              [[ -x "$compiler" ]] || exit 1
-              export CXX="$compiler"
-            done
-          fi
-          sh UnrealModFramework/Plugins/ModRuntime/Tools/Build.sh --setup --generator Ninja --jobs 4
-      - name: Verify native tool binaries and automation report checks
-        shell: bash
-        run: |
-          python -m pip install --disable-pip-version-check zstandard==0.25.0
-          python -m unittest discover -s Scripts -p 'test_*.py'
-          tools=UnrealModFramework/Plugins/ModRuntime/Tools/build
-          suffix=
-          if [[ "$RUNNER_OS" == Windows ]]; then suffix=.exe; fi
-          for tool in ModHeaderTool ModBuildTool ModSourceTool ModSDKTool; do
-            "$tools/ModBuildTool/ModBuildTool$suffix" inspect-binary --file "$tools/$tool/$tool$suffix" \
-              --platform ${{ matrix.host.platform }} --architecture ${{ matrix.host.arch }} --kind Executable
-          done
       - name: Check private package access
         shell: bash
         env:
@@ -94,31 +62,58 @@ jobs:
           owner: Nelaric
           repositories: UnrealEngine-CI
           permission-contents: read
-      - name: Install this target's verified private development package
+      - name: Check out the standalone package verifier
+        uses: actions/checkout@v4
+        with:
+          repository: Nelaric/UnrealEngine-CI
+          ref: 7de95b002b99365b1de96eaa3cbf84ec15ba34da
+          token: ${{ steps.packages.outputs.token }}
+          persist-credentials: false
+          sparse-checkout: |
+            probe
+            ueci
+      - name: Prepare Linux build storage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash ueci/linux_disk.sh
+      - name: Prepare macOS build storage
+        if: runner.os == 'macOS'
+        run: python -m ueci.mac_disk
+      - name: Select the native workspace
+        id: work
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          echo "path=$(python -m ueci.workspace)" >> "$GITHUB_OUTPUT"
+      - name: Install the verified private development package
         shell: bash
         env:
           GH_TOKEN: ${{ steps.packages.outputs.token }}
+          WORK: ${{ steps.work.outputs.path }}
         run: |
-          system=$(echo "${{ matrix.host.os }}" | tr '[:upper:]' '[:lower:]')
-          python Scripts/install_ci_engine.py "${{ runner.temp }}/ue" "$system" "${{ matrix.host.arch }}" "${{ matrix.target }}" "$RECIPE"
+          system=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
+          python ueci/install_ci_engine.py "$WORK/ue" "$system" "${{ matrix.host.arch }}" "${{ matrix.target }}" "$RECIPE"
       - name: Prepare the x64 cooker runtime for the ARM64 Linux Game
         if: matrix.host.platform == 'LinuxArm64' && matrix.target == 'Game'
-        run: python Scripts/setup_linux_arm64_cooker.py
-      - name: Build Development ${{ matrix.target }} and run its automation
-        run: >-
-          python -u Scripts/run_desktop_ci.py "${{ runner.temp }}/ue"
-          ${{ matrix.host.platform }} ${{ matrix.host.arch }} ${{ matrix.target }}
-          "${{ runner.temp }}/desktop-results"
-      - name: Upload build receipt and Unreal automation evidence
-        if: ${{ !cancelled() }}
+        run: python ueci/setup_linux_arm64_cooker.py
+      - name: Compile, cook and run PackageProbe automation on the native target
+        shell: bash
+        env:
+          WORK: ${{ steps.work.outputs.path }}
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.host.arch }}
+        run: |
+          set -o pipefail
+          system=$(echo "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
+          python -u -m ueci.probe "$WORK/ue" "$system-$ARCH" "$TARGET" "$WORK/probe" 2>&1 | tee "$WORK/probe.log" | python -u -c 'import sys; [print(line.rstrip()) for line in sys.stdin if line.startswith("PackageProbe verification: ")]'
+      - name: Upload the standalone automation report
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.host.key }}-${{ matrix.target }}-evidence
           path: |
-            ${{ runner.temp }}/desktop-results/host-link.json
-            ${{ runner.temp }}/desktop-results/automation.log
-            ${{ runner.temp }}/desktop-results/report/index.json
-          if-no-files-found: ignore
+            ${{ steps.work.outputs.path }}/probe/Saved/PackageValidation/result.json
+            ${{ steps.work.outputs.path }}/probe/Saved/PackageValidation/report/index.json
+          if-no-files-found: error
           retention-days: 7
 
   result:

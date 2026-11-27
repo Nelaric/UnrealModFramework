@@ -27,17 +27,17 @@ The [Quality workflow](../.github/workflows/quality.yml) checks naming, text, fo
 | macOS | `macos-15-intel` | `macos-15` |
 | Linux | `ubuntu-24.04` | `ubuntu-24.04-arm` |
 
-Each job builds the four native Mod tools, inspects their executable architecture, runs the automation-report checks, and compiles its target with MBT. Game jobs cook, stage and launch the game. Editor jobs launch the editor and use MDT to build and verify the independent authoring plugin. Both targets check health changes and C++ Hook dispatch, including Pre, On and Post handlers. Editor also tests calls from a compiled Blueprint. Each successful job records the host link receipt and requires both named tests to pass in a fresh Unreal report. [CI driver](../Scripts/run_desktop_ci.py)
+Each job builds the standalone C++ project PackageProbe from the pinned engine-package repository. Its runtime plugin derives a reflected class from GameplayAbilities. The verifier checks the generated reflection code, cooks the Engine Entry map and runs PackageProbe.Runtime.AbilityReflection. Editor jobs run it in the native editor. Game jobs stage and launch the Development game. The Unreal report records the result for the selected target and CPU.
 
-Linux ARM64 Game uses an x64 Editor commandlet for cooking and executes the staged AArch64 game on the ARM runner. The runner supplies the x64 runtime for the commandlet. MBT builds the project's cooker modules with their generated Hook definitions.
+The Windows and Linux ARM64 Game jobs use an x64 editor commandlet to cook the sample. Each launches the staged ARM64 game on its native runner.
 
 Each job installs its own verified private package, pinned by the full producer commit in `UE_PACKAGE_RECIPE`. To promote individual targets independently, `UE_PACKAGE_RECIPES` accepts a JSON object mapping a target key such as `WINDOWS_X64_Editor` to its complete producer commit. The `Nelaric/UnrealEngine-CI` producer builds from a pinned Epic input, trims and inventories the files for one target, and verifies a fresh extraction on a second native runner. That runner also compiles and cooks a separate C++ project with a reflected plugin using GameplayAbilities. Published releases include per-file reasons, hashes and the sizes before and after trimming. A Game package includes the Editor commandlet and libraries needed to cook a code project.
 
 Set `UE_PACKAGES_APP_ID` as a repository variable and `UE_PACKAGES_APP_PRIVATE_KEY` as an Actions secret. Install the organization's GitHub App on the private producer with read-only Contents permission. Each job uses a short-lived installation token to download its own release. The installer checks the target, architecture, verification record, archive parts and file inventory. [Package installer](../Scripts/install_ci_engine.py)
 
-GitHub withholds repository secrets from fork pull requests. Public quality and native-tool checks can run there. For engine validation, a maintainer reviews the submitted code and runs that revision on a branch in the source repository. Missing engine inputs fail the affected jobs. The aggregate check `Desktop build and automation` requires all 11 jobs to pass.
+GitHub withholds repository secrets from fork pull requests. Public quality checks can run there. For engine validation, a maintainer reviews the submitted code and runs that revision on a branch in the source repository. Missing engine inputs fail the affected jobs. The aggregate check `Desktop build and automation` requires all 11 jobs to pass.
 
-When the matrix passes, replace the three legacy required checks (`ci/linux-game-build`, `ci/linux-editor-build`, `ci/fork-pr-linux-build`) in the `main` ruleset with `Desktop build and automation`. Retain the quality checks. Disable the legacy project push trigger in CircleCI and remove the obsolete Actions webhook secret and enable variable.
+When the matrix passes, replace the three legacy required checks (`ci/linux-game-build`, `ci/linux-editor-build`, `ci/fork-pr-linux-build`) in the `main` ruleset with `Desktop build and automation`. Retain the quality checks. The legacy PR webhook is disabled with CIRCLECI_PR_BUILDS_ENABLED set to false. Finish retirement by disabling the CircleCI project push trigger and removing the obsolete webhook secret and enable variable.
 
 ## Run the call benchmark
 
