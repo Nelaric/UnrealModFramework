@@ -44,9 +44,9 @@
       "ubtPlatform": "Win64",
       "runner": "windows-2022",
       "toolchain": "windows",
-      "release": null,
-      "recipe": null,
-      "manifestSha256": null
+      "release": "ue-5.6.1-windows-x64-editor-r2",
+      "recipe": "r2",
+      "manifestSha256": "b6ec3b7b6f8147fa71bda1e1b85cadfa457eb08bb574366f5602dc92fa93b299"
     },
     "windows-arm64-game": {
       "profile": "Game",
@@ -121,9 +121,9 @@
       "ubtPlatform": "Mac",
       "runner": "macos-15",
       "toolchain": "macos",
-      "release": null,
-      "recipe": null,
-      "manifestSha256": null
+      "release": "ue-5.6.1-macos-arm64-game-r2",
+      "recipe": "r2",
+      "manifestSha256": "0c528aabbb083a3b01b71103abc4cb96cc8b2890b0b8ded2d3991f0e21ae74f1"
     },
     "macos-arm64-editor": {
       "profile": "Editor",

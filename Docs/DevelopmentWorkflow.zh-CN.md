@@ -85,4 +85,4 @@ python -m Test.SharedRuntime.release_validation --engine <完整 Editor> --modul
 
 ## Phase 1 验证情况
 
-当前锁定四个已独立验收的 Game SDK，分别为 Windows x86_64、Windows ARM64、Linux x86_64 和 Linux ARM64。其余六个目标等待正式发行。本地使用完整 UE 5.6.1 验证 Windows Editor，并使用正式的 Windows x86_64 最小 Game SDK 验证消费链路。四组关键路径、两个 ARM64 Game Job 以及完整发布验证仍需在各自环境中运行。
+当前锁定 Windows x86_64 Editor，以及 Windows x86_64、Windows ARM64、Linux x86_64、Linux ARM64 和 macOS ARM64 五个 Game SDK。其余四个目标等待正式发行。本地使用完整 UE 5.6.1 验证 Windows Editor，并使用正式的 Windows x86_64 最小 Game SDK 验证消费链路。四组关键路径、两个 ARM64 Game Job 以及完整发布验证仍需在各自环境中运行。

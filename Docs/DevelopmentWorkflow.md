@@ -85,4 +85,4 @@ The release flow stages the integration assets under their existing package name
 
 ## Phase 1 verification
 
-The current lock has independently verified Windows x86_64, Windows ARM64, Linux x86_64 and Linux ARM64 Game releases. The remaining six entries await qualified releases. The full Windows UE 5.6.1 Editor and the verified Windows x86_64 Game SDK provide local coverage while those entries are unavailable. The four-producer critical path, both ARM64 Game jobs and the full Release Validation run require their real runner and SDK environments.
+The current lock pins the Windows x86_64 Editor and five Game releases for Windows x86_64, Windows ARM64, Linux x86_64, Linux ARM64 and macOS ARM64. The remaining four entries await qualified releases. The full Windows UE 5.6.1 Editor and the verified Windows x86_64 Game SDK provide local coverage while those entries are unavailable. The four-producer critical path, both ARM64 Game jobs and the full Release Validation run require their real runner and SDK environments.
