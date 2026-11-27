@@ -41,6 +41,7 @@ obj/
 
 # Visual Studio and generated Unreal project files
 .vs/
+/UnrealModFramework/.vsconfig
 *.sln
 *.suo
 *.opensdf

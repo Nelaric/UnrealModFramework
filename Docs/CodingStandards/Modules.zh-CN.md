@@ -4,104 +4,100 @@
 
 # 模块与依赖边界
 
-仓库包含开发宿主工程和游戏侧的 `ModRuntime` 插件；MDT 从内嵌源码资源生成并构建独立制作插件。每个模块只承担单一职责，仅声明实际使用的依赖，并将实现细节放入 `Private`。公开头文件即契约：它们必须能够独立包含并通过编译，且只有当公开头文件确实需要某依赖时，才将该依赖声明为 `.Build.cs` 的公开依赖。禁止循环模块依赖。
+本仓库包含开发宿主工程和游戏侧的 `ModRuntime` 插件；独立的 Mod 制作插件（`ModDevelopmentSDKEditor`）则由 ModSDKTool（MDT）从内嵌源码资源生成并编译。每个模块只承担单一明确的职责，只声明自身直接用到的依赖，并将内部实现收纳在 `Private/` 下。公开头文件即对外契约：必须能够单独包含并通过编译，且只有当 `Public/` 头文件确实直接依赖某模块时，才能在 `.Build.cs` 中将其列为 `Public` 依赖。严禁出现循环模块依赖。
 
-UE 工程位于 `UnrealModFramework/`。本文中的所有模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `HAL`、`ExportMetadata`、`ModAPI`、`ModLoader`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块；`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块。
+Unreal 工程位于 `UnrealModFramework/`，下文列出的所有模块与配置路径均相对于该目录。`ModRuntime` 插件包含 `HAL`、`ExportMetadata`、`ModAPI`、`ModLoader`、`BlueprintIntegration` 和 `ExportCodeGenerator` 六个模块，`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块：
 
-| 职责 | 位置 | UE 模块类型 |
+| 职责 | 相对于 `UnrealModFramework/` 的路径 | UE 模块类型 |
 | --- | --- | --- |
-| 原生目录通知 | `Plugins/ModRuntime/Source/Runtime/Core/HAL/` | `Runtime` |
-| 导出元数据与配置选项 | `Plugins/ModRuntime/Source/Runtime/ExportMetadata/` | `Runtime` |
-| 生成 API 绑定、World 扩展分发、内容、Patch、服务及兼容检查 | `Plugins/ModRuntime/Source/Runtime/ModAPI/` | `Runtime` |
-| 模组加载器 | `Plugins/ModRuntime/Source/Runtime/ModLoader/` | `Runtime` |
-| Blueprint 接入 | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
-| 导出代码生成 | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
-| 独立制作工具 | `Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/Source/DevelopmentEditor/` | `Editor` |
-| 开发宿主 | `Source/ExportTest/` | `Runtime` |
+| 原生文件系统目录变更通知 | `Plugins/ModRuntime/Source/Runtime/Core/HAL/` | `Runtime` |
+| 导出元数据 Schema 与配置项读取 | `Plugins/ModRuntime/Source/Runtime/ExportMetadata/` | `Runtime` |
+| 生成的 API 绑定、World 扩展分发、内容槽、Patch、跨 Mod 服务与联机/存档辅助 | `Plugins/ModRuntime/Source/Runtime/ModAPI/` | `Runtime` |
+| `.mod` 归档准入校验、解包提取与容器挂载 | `Plugins/ModRuntime/Source/Runtime/ModLoader/` | `Runtime` |
+| 蓝图 Mod 导出面板、独立声明模型与 Kismet 编译接入 | `Plugins/ModRuntime/Source/Editor/BlueprintIntegration/` | `Editor` |
+| 导出 GameMod 配置项与蓝图声明快照的 Commandlet | `Plugins/ModRuntime/Source/Editor/ExportCodeGenerator/` | `Editor` |
+| 独立 Mod 制作与打包界面及 Commandlet | `Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/Source/DevelopmentEditor/` | `Editor` |
+| 开发宿主游戏接入示例 | `Source/ExportTest/` | `Runtime` |
 
-宿主工程通过 `Config/DefaultEngine.ini` 中的 `[CoreRedirects]` 将 `/Script/ModBlueprintIntegration` 映射到 `/Script/BlueprintIntegration`，以保留已有蓝图资产中的引用。
+注意：`Plugins/ModRuntime/Source/` 下的 `Runtime` 与 `Editor` 只是组织源码的目录分层，本身并非 UE 模块，真正的模块均逐一登记在 `ModRuntime.uplugin` 中。宿主工程在 `Config/DefaultEngine.ini` 的 `[CoreRedirects]` 中将 `/Script/ModBlueprintIntegration` 重定向至 `/Script/BlueprintIntegration`，以兼容既有蓝图资产中的序列化引用。
 
-`ExportMetadata` 必须在 Game 和 Editor Target 中编译，且不得依赖编辑器模块、特定宿主游戏的代码、内容分发服务或制作编辑器。运行时模块按具体职责划分：`ExportMetadata` 承载现有契约类型与配置选项，后续服务放入按具体功能命名的模块。宿主游戏可以依赖 `ModRuntime` 插件，以显式提供扩展点。
+### 核心模块与 SDK 边界
 
-`Runtime` 和 `Editor` 只是单个 `ModRuntime` 插件内用于归类模块的目录，本身并非 UE 模块。各模块须在 `ModRuntime.uplugin` 中声明。`ExportMetadata` 公开依赖 `Core`，以使用 UE 字符串和配置数组。
+- **`ExportMetadata`**：同时参与 Game 与 Editor Target 编译，仅公开依赖 `Core`（用于 UE 字符串与配置数组），严禁依赖任何编辑器模块、特定宿主游戏代码、内容分发平台或 `DevelopmentEditor`。后续新增运行时服务时，应按具体领域拆分为独立命名的模块，不要把无关职责塞进 `ExportMetadata`。
+- **`ModAPI`**：面向 Game 与 Editor Target 的 Runtime 模块，公开依赖 `Core`、`CoreUObject`、`Engine` 和 `ModLoader`，私有依赖 `Json`。其中 `UModAPIHostSubsystem` 按 `GameInstance` 管理 API 提供者、调用方授权策略与生成绑定；`UModExtensionSubsystem` 按 `World` 准备和停止扩展，统筹 Hook/Event 快照、内容槽、Patch 锚点、服务租约与玩法指纹。具体的对局准入与存档逻辑由宿主侧（如 `ExportTest`）负责接入。
+- **`DevelopmentEditor` 与双端 SDK 变体**：MDT 将内嵌的 `DevelopmentEditor` 源码释放到临时工作区，调用 UAT `BuildPlugin` 独立编译制作插件；游戏侧与制作端之间仅通过版本化 JSON 契约和生成的公开头文件交互（跨进程实时预览目前仍处于设计阶段）。与此同时，UHT 会把生成的宿主 C++ 包装单元直接登记到各声明所属模块中由 UBT 编译；而游戏侧与作者侧两套 SDK 插件共享同一个 `<pluginName>Runtime` 模块名、反射类型及 Client 源码——游戏侧版本依赖真实的 `ModRuntime`，作者侧版本则提供 `/Script/ModLoader` 的公开反射镜像（见[宿主编译与链接](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#宿主编译与链接)与 [SDK 安装说明](https://github.com/Nelaric/UnrealModFramework/blob/main/UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md#安装与验证)）。
+- **`ExportCodeGenerator`**：Editor 模块，公开依赖 `ExportMetadata`，私有依赖 `Core`、`CoreUObject`、`Engine`、`Json`、`Projects`、`AssetRegistry`、`BlueprintIntegration`、`ModAPI` 和 `UnrealEd`。其中 `ModExportOptions` 负责导出解析后的 `[ModExportMetadata]` 候选值与 UE 重定向配置，`ModExportBlueprints` 负责编译配置中指定的蓝图资产并导出声明快照；随后由 MHT 结合目标编译数据库的 `libclang` AST 合并生成宿主桥接代码、公开契约、C ABI 头文件及编译期校验单元。
+- **UE 接口与原生 C ABI 分离**：面向 UE 模块的 C++ 契约使用标准 UE 类型；而独立原生二进制之间不能假设 `UObject` 或 C++ 标准库内存布局兼容，因此对外 C ABI 一律采用定宽标量、显式字节长度、不透明句柄及文档化的缓冲区归属规则。
 
-`BlueprintIntegration` 负责 Editor Target 中的蓝图 Mod 导出声明，直接依赖 `Core`、`CoreUObject`、`Engine`、`BlueprintGraph`、`GraphEditor`、`Kismet`、`KismetCompiler`、`ExportMetadata`、`ModAPI`、`Slate`、`SlateCore`、`ToolWidgets`、`UMGEditor` 和 `UnrealEd`。由于导出面板及实现图依赖运行时契约不使用的蓝图编辑器与编译器模块，它们保留在此模块中。其中，`GraphEditor` 和 `ToolWidgets` 提供“我的蓝图”原生的动作列表与“添加”按钮；`UMGEditor` 依赖确保标签页在 Widget 蓝图切换模式后仍保持注册。`ExportMetadata` 和独立的 `DevelopmentEditor` 均不依赖本模块。该模块在引擎初始化完成后加载，以便 `Kismet` 注册编辑器服务。
+每当需要新增模块时，都必须清楚说明其单一职责、直接依赖、适用的 Target 类型，以及为何现有模块不适合承载该功能。可选扩展能力应做成独立模块或插件，切勿仅仅为了补齐某个缺失的 `#include` 而随意拉入模块依赖。
 
-该模块在蓝图编辑器中注册 **蓝图Mod导出** 标签页，并在存在“我的蓝图”标签页时停靠在其旁边。对于布局不同的接口、宏库、Widget 和动画蓝图编辑器模式，则由后备标签页生成器负责接入；对于无法提供所需运行时实现的蓝图类型，相应的创建功能将被禁用。面板复用“我的蓝图”的 `SGraphActionMenu`、分类样式、“添加”按钮、搜索框和视图选项控件。API、Event 和 Hook 均以可折叠分类呈现，并带有圆形添加按钮。条目采用原生调色板图标、选中效果和行内重命名：单击可在蓝图编辑器已有的“细节”面板中查看属性，双击可打开实现图，右键菜单及 F2、Delete 键支持重命名与删除。导出标签页内不单设属性面板。
+### 蓝图导出接入（`BlueprintIntegration`）
 
-各声明以支持撤销的事务性对象形式保存在当前蓝图的 `UBlueprintExtension` 中。API 实现图与 Hook 原版逻辑图由各自声明持有并纳入蓝图图发现，由编译器据此生成可执行函数图；Event 声明则保存载荷类型与发布设置。本模块不注册函数、变量或事件分发器的细节面板定制。
+`BlueprintIntegration` 承载 Editor Target 下的蓝图 Mod 导出编辑能力，直接依赖 `Core`、`CoreUObject`、`Engine`、`BlueprintGraph`、`GraphEditor`、`Kismet`、`KismetCompiler`、`ExportMetadata`、`ModAPI`、`Slate`、`SlateCore`、`ToolWidgets`、`UMGEditor` 和 `UnrealEd`，并在引擎初始化完成后加载以便 `Kismet` 注册编辑器服务。`ExportMetadata` 与 `DevelopmentEditor` 均不依赖该模块。其中 `GraphEditor` 与 `ToolWidgets` 提供与原生“我的蓝图”一致的动作列表和添加按钮，`UMGEditor` 则保证在 Widget 蓝图切换编辑模式时标签页不会丢失。
 
-| 声明 | 保存的字段 | 编辑器图 |
+打开蓝图编辑器后，模块会在“我的蓝图”旁停靠 **蓝图Mod导出** 标签页（接口、宏库、Widget 与动画蓝图等不同布局由后备标签页生成器兜底；无法承载运行时实现的蓝图类型会自动禁用新建入口）。面板复用“我的蓝图”的 `SGraphActionMenu`、`API` / `Event` / `Hook` 可折叠分组、圆形添加按钮、搜索框、行内重命名（`F2`）与 `Delete` 删除交互：单击条目即可在原有的“细节”面板编辑属性，双击直接打开对应的实现图，不额外嵌套独立的属性栏。
+
+所有导出项均作为支持撤销/重做的事务对象存储在当前蓝图的 `UBlueprintExtension` 中，完全独立于普通蓝图函数或事件分发器（不支持从旧式普通函数或分发器导入、迁移或修复归属；不兼容的旧声明需重新创建）：
+
+| 声明类型 | 保存的属性字段 | 关联的编辑器图表 / 节点 |
 | --- | --- | --- |
-| API | 版本、显示名与公开名、说明、作用域、线程、失败规则、权限 | 实现图 |
-| Event | 版本、显示名、说明、载荷、来源作用域、发布与退订规则、权限、权威设置 | 宿主业务图中的 **Publish Event** 节点 |
-| Hook | 版本、显示名、说明、载荷、`AllowedStages`、`AllowedOperations`、权限、权威设置 | 原版逻辑图及 **Hook Point** 节点 |
+| API | 版本、显示名与公开名、说明、作用域、线程、失败规则、权限列表 | 专属的 API 实现图 |
+| Event | 版本、显示名、说明、载荷类型、来源作用域、发布与退订规则、权限、网络权威 | 放置在宿主业务执行图中的 **Publish Event** 节点 |
+| Hook | 版本、显示名、说明、载荷类型、`AllowedStages`、`AllowedOperations`、权限、网络权威 | 专属的原版逻辑图 + 宿主业务执行图中的 **Hook Point** 节点 |
 
-配置项的候选值位于 `Config/DefaultGameMod.ini` 的 `[ModExportMetadata]` 节。API 候选值使用 `APIScopes`、`APIThreads`、`APIPermissions` 和 `APIFailureRules`；Event 候选值使用 `EventSourceScopes` 和 `EventPublishRules`。数组项通过 `+键=值` 添加。API 权限以标识符数组形式存储。
+下拉候选项由 `Mod::ExportMetadata::FOptions` 从 `Config/DefaultGameMod.ini` 的 `[ModExportMetadata]` 节读取（API 使用 `APIScopes`、`APIThreads`、`APIPermissions`、`APIFailureRules`；Event 使用 `EventSourceScopes`、`EventPublishRules`，均通过 `+键=值` 追加）。
 
-蓝图 Mod 导出仅由在该面板中创建的独立声明定义。API 和 Hook 的实现图由各自声明对象独占，Event 声明自行保存载荷与发布设置。本模块不提供针对普通函数或事件分发器旧声明的导入、迁移、归属修复或兼容路径；不受支持的声明必须重新创建。实现图的生命周期由导出面板控制。图发现、打开和编译阶段均会校验归属，图缺失或脱离声明时会产生诊断信息，而不会作为孤立图被打开。
-
-声明名称统一采用 `ModAPI_<名称>`、`ModEvent_<名称>` 和 `ModHook_<名称>`。数据模型提供统一的显示名称和提示文字，供导出列表、细节标题、原生图标签页、面包屑路径、入口节点、搜索结果及编译诊断共用。编辑时既可输入基础名称，也可输入带对应类型前缀的完整名称；内部仅保存基础名称，因此行内编辑不会重复追加前缀。API 与 Hook 图使用派生自 K2 的 Schema 提供原生图显示名，不依赖内部对象名。图发现与打开时仅为声明独立持有的实现图绑定该 Schema，无需重命名源图或转换旧声明；单独的入口节点绘制工厂已移除。
-
-编译生成函数的实际函数名和显示名称元数据均采用声明名称，从而保持调用节点标题与动作菜单标签一致。编译器将该名称应用于中间图、入口与返回节点以及局部变量作用域，而不在编译期间重命名源图。重命名操作会在同一个编辑器事务中同步更新图名、局部变量作用域及已加载的函数引用；当源图内部名与声明编译名不同时，也会更新指向声明编译名的引用。空名称、重名、过长名称和非法名称一律拒绝，不使用 GUID 或自动编号替代。声明 GUID 仅作为内部标识，不在细节面板中显示。
-
-蓝图扩展会向“在蓝图中查找”提供 API、Event 和 Hook 的名称与提示文字。新建、重命名、编辑属性、删除声明以及面板撤销/重做，均会刷新已保存资产的搜索索引。面板搜索同时匹配规范完整名和基础名称。刷新选中行时也会同步刷新细节标题，包括直接在细节面板中改名后的场景。源图与编译副本共用同一名称绑定流程，以同步入口和返回节点的函数引用、函数显示元数据及局部变量作用域，因此原生的“查找引用”也会使用声明的函数名。
-
-`Mod::ExportMetadata::FOptions` 负责读取配置中的候选选项。宿主在蓝图执行图中显式放置声明对应的 **Publish Event** 或 **Hook Point** 节点；编译器按 GUID 解析声明并将节点展开为运行时调用。`ModExportBlueprints` 会编译配置中指定的已保存资产，并将已连接扩展节点的 Hook/Event 声明写入快照，随后由 MHT 消费快照并生成描述符与 SDK 投影。
-
-`ModAPI` 是适用于 Game 与 Editor Target 的 Runtime 模块，公开依赖 `Core`、`CoreUObject`、`Engine` 和 `ModLoader`，私有依赖 `Json`。`UModAPIHostSubsystem` 按 GameInstance 管理提供者、权限和生成的 API 绑定；`UModExtensionSubsystem` 按 World 准备和停止扩展，统筹 Hook/Event 快照、内容槽、Patch 锚点、服务租约和玩法指纹。`ExportTest` 承载宿主侧的具体接入，包括玩法准入和存档处理。
-
-MDT 将内嵌的 `DevelopmentEditor` 源码写入临时工作区，并调用 UAT `BuildPlugin` 独立构建制作插件。制作插件独立于游戏侧模块构建，通过版本化 JSON 契约和生成的公开头文件跨边界传递 SDK 与包接口。跨进程预览目前仍为设计项。
-
-`ExportCodeGenerator` 是 Editor 模块，公开依赖 `ExportMetadata`，私有依赖 `Core`、`CoreUObject`、`Engine`、`Json`、`Projects`、`AssetRegistry`、`BlueprintIntegration`、`ModAPI` 和 `UnrealEd`。`ModExportOptions` 负责导出解析后的 GameMod 选项与 UE 重定向，`ModExportBlueprints` 负责导出配置中指定的蓝图声明。MHT 从目标的 libclang AST 解析活动 C++ 声明并读取蓝图快照，据此生成宿主桥接、公开契约、ABI 声明与校验代码。当前支持的配置档案包括同步 UObject API，以及携带受支持标量、反射值或投影对象载荷的 World Hook/Event 扩展。
-
-原生模组 ABI 类型应与面向 UE 的公开 API 分离。面向 UE 的 C++ 契约使用 UE 类型；外部 C ABI 则采用固定宽度字段、显式长度、不透明句柄及书面说明的所有权规则，因为 UE 对象布局与 C++ ABI 布局在独立构建的二进制之间不具备可移植性。
-
-新增模块时必须说明其职责、直接依赖、支持的 Target，以及现有模块为何不适合承载该能力。可选集成应作为独立模块或插件添加。不要仅为了让缺失的包含文件通过编译而随意引入依赖。
+规范声明名统一为 `ModAPI_<名称>`、`ModEvent_<名称>` 和 `ModHook_<名称>`。重命名时无论输入不带前缀的基础名还是带对应前缀的完整名，内部都只保存基础名，避免反复编辑导致前缀叠加；空名称、重名、超长名称或非法字符会直接报错拦截，绝不用 GUID 或自动序号凑数。API 与 Hook 的实现图绑定专用的 K2 派生 Schema，且严格校验归属关系（缺失或脱离声明的图表会直接报诊断错误，而不会当作孤立图表打开）。蓝图编译期间，编译器会将规范声明名统一绑定到中间图、入口/返回节点、局部变量作用域与显示元数据上，不在编译过程中篡改源图对象名；用户在编辑器中重命名时，则会在单个撤销事务内同步更新图表名、作用域及已加载的函数引用。此外，已保存蓝图的导出项会自动同步到“在蓝图中查找”和原生“查找引用”索引中。导出快照时，`ModExportBlueprints` 会编译已保存蓝图，并收录执行输入引脚已连线的 **Hook Point** 与 **Publish Event** 声明。
 
 ## 模组加载器
 
-`ModLoader` 负责发现、校验、提取和挂载 `.mod` 归档，并将结果转发给游戏会话。它支持 v1（Cooked 内容包）、v2（包含 UE 原生模块）和 v3（包含扩展清单及可选原生代码）三种归档格式。公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`HAL`、`RenderCore` 和引擎自带的 OpenSSL 库；Editor Target 额外私有依赖 `UnrealEd`，用于跟踪 PIE 生命周期并释放已加载的包。该运行时模块随 UBT 目标编译，确保生成的 Hook 可在桌面和移动宿主上注册。挂载要求 Pak 或 IoStore 后端以及游戏、基础发布、引擎和平台身份均相匹配。Win64 x64 Pak 宿主通过 `bAllowNativeModules=True` 显式启用 UE 模块加载，通过 `bAllowNativeExtensions=True` 显式启用独立扩展 DLL 加载。`ModLoader` 负责进程准入与包租约，`ModAPI` 负责安装生成的扩展契约校验器并管理 World 回调与绑定。
+`ModLoader` 负责扫描、校验、解包提取并挂载 `.mod` 归档，将加载结果同步给游戏会话。它支持三种归档主版本：**v1**（纯 Cooked 内容包）、**v2**（内容加匹配宿主的 UE 原生模块）和 **v3**（携带扩展清单，可选附带 UE 模块或独立 C ABI 回调 DLL）。其公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`HAL`、`RenderCore` 与引擎内置 OpenSSL（Editor 构建还会私有依赖 `UnrealEd` 以管理 PIE 生命周期和包释放）。职责划分上，`ModLoader` 掌管进程级准入与包租约，`ModAPI` 则安装生成的扩展契约校验器并管理 World 级回调与绑定。
 
-引擎初始化完成后，Game Thread 代码可调用 `Mod::Loader::IModLoaderModule::Get().LoadPackage(Path, Policy)` 或 `LoadDirectory(Directory, Policy)`。C++ 调用方须在自身模块的 `.Build.cs` 中声明 `ModLoader` 依赖。这些调用会同步校验文件并准备资源，应在进入玩法前完成。成功结果会列出已挂载资源的长包名，供宿主按需加载资产。
+### 启动扫描、目录热监听与手动加载
 
-宿主 C++ 可通过 `OnLoadCompleted()` 订阅启动和手动加载事件。每次操作广播一次，携带加载来源、输入路径以及所有 `FLoadResult` 条目。目录扫描为空时结果列表为空；扫描级失败则返回一条包含 `Error` 和 `Detail` 的失败条目。回调在 Game Thread 上执行，重入或非游戏线程触发的完成事件会延后分发。
+打包后的游戏在启动时默认扫描可执行文件同级 `Mods/` 目录下的顶层 `.mod` 文件（标准 Win64 打包路径为 `<项目>/Binaries/Win64/Mods`）；在 `Config/DefaultGame.ini` 的 `[ModLoader]` 节设置 `bLoadAtStartup=False` 可关闭启动自动扫描。开启启动加载时，`HAL` 模块默认还会在 Win64、Linux 与 macOS 上监听该目录（设 `bWatchForChanges=False` 可关闭热监听）：检测到新文件落盘稳定后，先在后台工作线程完成校验与解包，再切回 Game Thread 提交挂载；若归档声明的 `ModId` 当前已挂载，则直接跳过且不触发重复通知。
 
-打包后的游戏在启动时默认扫描可执行文件同级 `Mods` 目录下的顶层 `.mod` 文件（标准 Win64 打包路径为 `<项目>/Binaries/Win64/Mods`）。在宿主的 `Config/DefaultGame.ini` 中配置基础发布信息；如需禁用启动扫描，可在 `[ModLoader]` 节设置 `bLoadAtStartup=False`。
+在 `.Build.cs` 中依赖了 `ModLoader` 的宿主 C++ 模块，也可在引擎初始化后、对局开始前于 Game Thread 调用 `Mod::Loader::IModLoaderModule::Get().LoadPackage(Path, Policy)` 或 `LoadDirectory(Directory, Policy)` 同步加载，并通过 `OnLoadCompleted()` 订阅完成通知（每次启动或手动操作广播一次，空目录返回空列表，目录级扫描失败返回单条带 `Error` 与 `Detail` 的记录）。
 
-运行时 `HAL` 模块在 Win64、Linux 和 Mac 平台上提供原生目录通知。启用启动加载时，加载器默认监听同一目录；若仅需启动加载和手动加载，可设置 `bWatchForChanges=False`。监听到变更后，加载器会等待文件元数据稳定，在工作线程准备新归档，再切回 Game Thread 完成挂载提交。声明已挂载 ModId 的归档会被跳过，且不触发加载完成通知。
+### 宿主配置与准入策略
+
+请在宿主 `Config/DefaultGame.ini` 的 `[ModLoader]` 节填入与打包时一致的发行身份，并指定游戏实际采用的容器后端（`Pak` 或 `IoStore`）：
 
 ```ini
 [ModLoader]
 GameId=YourGame
 BaseReleaseVersion=1.0.0
-BaseRegistrySha256=<基础发布 AssetRegistry.bin 的 SHA-256>
+BaseRegistrySha256=<基础发行版 AssetRegistry.bin 的 SHA-256>
 Backend=IoStore
 PreparationTimeoutSeconds=120
 ```
 
-将游戏和基础发布信息填写为传递给制作工具的值，并选择与游戏发布一致的容器 `Backend`。加载器会校验归档格式、目标平台、UE 构建、Cook 回执以及各载荷摘要。
+- **原生代码开关（Win64 x64 Pak）**：设置 `bAllowNativeModules=True` 允许加载匹配宿主的 UE 原生模块，设置 `bAllowNativeExtensions=True` 允许加载独立的 C ABI 扩展 DLL。
+- **整包白名单**：未配置摘要且未显式设置开关时默认关闭。为每个获批的 `.mod` 添加 `+TrustedPackageSha256=<整包 sha256>`（取自打包输出）即可开启校验；显式设置 `bEnforcePackageAllowlist=False` 会绕过已有白名单，设为 `True` 则即便名单为空也会强制拦截所有包。手动加载可通过 `FLoadPolicy` 传入同名策略。
+- **启用集合、版本锁定与权限授予**：同一节还支持配置 `+EnabledMods=<ModId>`、`+RequiredMods=<ModId>`、`+PinnedArchives=<ModId>=<整包 SHA-256>` 和 `+ExtensionGrants=<ModId>=<权限 ID>`。将 `bEnableAllMods=False` 与空启用列表搭配即可进入零模组纯净模式。在单局 World 层面，宿主可通过 `FWorldPolicy::Grants` 覆盖某个 Mod 的权限集，未指定时默认继承进程准入授权；同一个 `GameInstance` 内首个完成准备的 World 会冻结所选包集合与授权，供后续切图复用。
 
-在未配置摘要且未显式指定开关时，白名单处于关闭状态。要启用白名单，可从构建结果的 `sha256` 字段获取整包摘要，为每个经批准的 `.mod` 添加一条 `+TrustedPackageSha256=<摘要>`。显式设置 `bEnforcePackageAllowlist=False` 将跳过已配置的名单；设为 `True` 时，即便名单为空也会执行校验并拒绝所有包。手动加载使用 `FLoadPolicy` 中的对应字段。
+### World 准备、多人联机握手与存档校验
 
-进程准入还支持在同一节中配置 `+EnabledMods=<ModId>`、`+RequiredMods=<ModId>`、`+PinnedArchives=<ModId>=<整包 SHA-256>` 和 `+ExtensionGrants=<ModId>=<权限 ID>`。将 `bEnableAllMods=False` 与空的启用列表配合使用，即可选择空模组集合。宿主可通过 `FWorldPolicy::Grants` 为指定 Mod 提供完整的 World 授权集，未指定时则沿用进程准入授权。首次准备确定的包集合与授权会在同一个 GameInstance 内的各个 World 之间沿用。
+调用 `UModExtensionSubsystem::Prepare` 前，宿主应先登记内容槽与 Patch 锚点（需要开放组件挂接或数据资产注册时，分别设置 `FPatchAnchorRules::Attachment` 或 `DataAssetType`）。运行期间，宿主可通过 `ResolvePatchData` 查询锚点数据、通过 `GetPatchOrigin` 反查 Actor 或组件来自哪个 Mod、通过 `SetFailureHandler` 监听 World 异常关闭原因、通过 `GetPackageRevisions` 读取已准入归档的精确哈希，并用 `GetGameplayDigest` 与 `ExpectedGameplayDigest` 在开局前核对权威玩法指纹。
 
-调用 `Prepare` 之前，应通过 `UModExtensionSubsystem` 声明内容槽和 Patch 锚点。设置 `FPatchAnchorRules::Attachment` 或 `DataAssetType` 可启用组件挂接或数据注册。宿主可按锚点与数据 ID 调用 `ResolvePatchData`，或按 Actor 或组件调用 `GetPatchOrigin`。`SetFailureHandler` 用于接收 World 关闭原因；`GetGameplayDigest` 返回首次就绪方案的玩法指纹，`ExpectedGameplayDigest` 可在开放玩法前与权威值进行比对；`GetPackageRevisions` 返回会话已准入归档的精确摘要。
+多人联机在 `PreLogin` 阶段统一核对游戏标识、基础发行版、生成契约与模组发行集合：服务端在 UE `Welcome` 前下发地图名与方案指纹，客户端切图前先校验地图，并在 `Join` 前确认本地方案指纹一致。若客户端与专用服务端的基础 `AssetRegistry.bin` 天然不同，可在两端统一配置相同的 `NetworkBaseCompatibilitySha256`；若同一款 Mod 需要为客户端与服务端分发不同二进制但保持同一玩法身份，可按产物配置 `+GameplayReleases=<整包 SHA-256>=<ReleaseId>=<玩法兼容 SHA-256>`。
 
-多人模式会在 `PreLogin` 阶段核对游戏、基础发布、生成契约与已准入的模组发行集合。服务器在 UE Welcome 之前发送目标地图与方案指纹；客户端在切图前检查地图，并在 Join 前确认本地方案并回传指纹，服务器仅接受已完成确认的连接。若不同目标的基础资源注册表存在差异，请将各端的 `NetworkBaseCompatibilitySha256` 设为同一份经批准的基础兼容摘要。如需以统一的玩法发行身份发布等效的客户端与服务器模组产物，可为每个精确产物分别添加一条 `+GameplayReleases=<整包 SHA-256>=<ReleaseId>=<玩法兼容 SHA-256>`；各端仍会校验自身归档。示例 `ModExtensions` 模式采用重新连接的切图路径。
+单机存档方面，`FModExtensionSave` 会在 World 准备阶段核对存档必需的 Mod，并原样保留当前未安装的可选 Mod 扩展数据块。在示例 `ModExtensions` 模式下，控制台命令 `ModWriteSave <槽位>` 与 `ModLoadSave <槽位>` 读写 `Saved/ModSaves`，写入时先发布至新槽位，若迁移失败则完整保留原存档文件。
 
-`FModExtensionSave` 在 World 扩展准备阶段校验存档要求，宿主负责提供版本迁移表、逻辑内容及持久对象解析，缺失的可选模组数据块会随存档保留传递。在单机 `ModExtensions` 模式中，`ModWriteSave <槽位>` 和 `ModLoadSave <槽位>` 使用 `Saved/ModSaves` 目录；写入会发布到新槽位，迁移失败时保留原始文件。
+### 缓存、卸载、PIE 调试与生命周期回调
 
-载荷提取至 `Saved/ModCache/<整包 SHA-256>`，并在复用前重新核对。每次挂载都会保留其 Cook 时的包根，且同一个 ModId 同时仅允许挂载一个版本。从监听目录移走或删除源归档会触发卸载流程，期间缓存内容仍保持可用。待包可安全释放后，加载器会卸载容器、释放 Shader 库并注销包根；若仍存在外部引用，则保留挂载并记录日志。当前版本接受位于独立包根下的未加密内容，并在存在时将包内 Cooked Asset Registry 追加到游戏索引中。
+解包后的载荷缓存在 `Saved/ModCache/<整包 SHA-256>` 下，每次复用前都会重新校验哈希。每个挂载的 Mod 独占自己的 `/<PluginName>/` 包根（同一 `ModId` 同时只能挂载一个版本），并在包含 Cooked `AssetRegistry` 时将其追加到引擎资产索引。从热监听目录移走或删除 `.mod` 源文件会触发平滑卸载：待会话租约与外部对象引用全部释放后，加载器依次卸载容器、释放 Shader 库并注销包根；若仍有残留引用，则记录日志并暂时保留挂载。
 
-Windows 环境下，PIE 使用宿主项目的 `Binaries/Win64/Mods` 目录及同一份 `[ModLoader]` 配置。请在 **项目设置 → 引擎 → Cooker** 中启用 **Allow Cooked Content in the Editor** 选项。使用 `Backend=Pak` 时，`ModLoader` 会在编辑器启动时初始化 Pak 平台文件；使用 `Backend=IoStore` 时，请以 `-UsePaks -UseIoStore` 参数启动编辑器。如需加载无版本号的 Cook 资产，请在 `Config/DefaultEngine.ini` 的 `[ConsoleVariables]` 节中设置 `s.AllowUnversionedContentInEditor=1`。
+在 Windows PIE 下调试时，`ModLoader` 复用同一份 `[ModLoader]` 配置，并扫描宿主工程的 `Binaries/Win64/Mods`：
 
-同一进程内的多个 PIE 世界共享已挂载的包，但各自持有独立的 Mod 实例。每个 PIE 地图就绪后，其实例都会收到启动加载结果。结束 PIE 时，加载器会先停止向会话分发结果，待世界销毁后再释放已加载的包，随后卸载容器并注销包根。若编辑器对象仍引用包内资产，加载器会报告相关引用并保留挂载，直至可以安全清理。
+- 在 **项目设置 → 引擎 → Cooker** 中勾选 **Allow Cooked Content in the Editor**。
+- `Backend=Pak` 时加载器会在编辑器启动阶段自动挂载 Pak 平台文件；`Backend=IoStore` 时请带 `-UsePaks -UseIoStore` 参数启动编辑器。
+- 若加载无版本信息的 Cook 资产，需在 `Config/DefaultEngine.ini` 的 `[ConsoleVariables]` 下添加 `s.AllowUnversionedContentInEditor=1`。
 
-`ModSDKTool`（MDT）根据宿主导出的生命周期声明生成 `ModInstance` 和 `ModInstanceSubSystem`，并保留其 `/Script/ModLoader` 类型路径。打包时会自动收集内容插件内的具体蓝图派生类。加载批次完成后，游戏会话为挂载成功的模组创建实例条目，并向活动条目逐项分发结果。C++ 子类可重写 `OnModLoadCompleted`，并通过调用 `Super::OnModLoadCompleted` 触发蓝图事件 `ReceiveModLoadCompleted`（在蓝图中显示为 **On Mod Load Completed** 事件）。两端接收同一份结果，失败项包含错误码与失败原因。
+同一编辑器进程内的多个 PIE 世界共享底层挂载容器，但各自拥有独立的 `UModInstance`。退出 PIE 时，加载器会先停止结果分发，等 PIE 世界销毁后再释放包并卸载无编辑器引用的容器。
 
-**On Mod Before Unload** 会在 Game Thread 上为即将卸载的模组的每个实例调用一次，此时其内容仍处于挂载状态。C++ 子类可重写 `OnModBeforeUnload`，并通过调用 `Super::OnModBeforeUnload` 派发该蓝图事件。模组应在此回调中恢复游戏状态并释放对模组资产的引用。宿主 C++ 可订阅 `IModLoaderModule::OnBeforeUnload()` 以获取已挂载的包记录。
+MDT 根据宿主导出的生命周期契约生成保留 `/Script/ModLoader` 路径的 `ModInstance` 与 `ModInstanceSubSystem`，打包器则会自动收集内容插件中的具体蓝图子类。挂载完成后，每个活动实例都会收到 **On Mod Load Completed**（C++ 重写 `OnModLoadCompleted` 并调用 `Super::OnModLoadCompleted` 以派发蓝图事件）；而在卸载开始前、包内资产仍然可用时，会在 Game Thread 触发一次 **On Mod Before Unload**（C++ 重写 `OnModBeforeUnload`），供 Mod 还原游戏状态并释放资产引用。宿主 C++ 也可订阅 `IModLoaderModule::OnBeforeUnload()` 获取即将卸载的包记录。
 
 ## 仅供框架集成的接口
 
-面向使用者的方法应放在第一个 `public:` 区域；仅供框架集成或 Unreal 生命周期调用的方法可放在第二个 `public:` 区域，详见[公开 API](API.zh-CN.md)。即使未来引入内部访问 Key，它也只是集成约定，而非授权边界。公开头文件不得暴露私有实现头文件，也不得将非反射 Key 用作 `UFUNCTION` 参数。跨模块访问必须具备明确且有文档记载的契约。
+请遵循[公开 API、错误与文档](API.zh-CN.md)的布局约定：面向外部使用者的方法放在类的第一个 `public:` 区域，仅供框架内部衔接或 Unreal 生命周期调用的方法紧接着放在第二个 `public:` 区域。即使未来引入内部访问令牌（Passkey），它也只是模块间的工程衔接手段而非安全隔离边界；公开头文件中不得暴露私有实现头，也不得将非反射令牌塞进 `UFUNCTION` 参数。所有跨模块调用都必须建立在明确且有文档记载的契约之上。

@@ -2,73 +2,93 @@
 
 [English](README.md) | 简体中文
 
-# ModBuildTool
+# ModBuildTool（MBT）
 
-MBT 驱动 UBT 使用生成的自动 Hook 源码副本，并依据目标回执核对桌面原生二进制。宿主与编译校验单元由 UBT 在所属模块编译。
+ModBuildTool（MBT）用于驱动启用了自动 C++ Hook 的 UnrealBuildTool（UBT）构建：将相关编译动作的源文件替换为改写后的副本，并在链接完成后核验受支持桌面目标的最终二进制映像。与之配合，[ModRuntime UHT 适配层](../../Source/ModRuntimeUht/README.zh-CN.md)负责把 MHT 生成的宿主与编译校验单元注册进所属 UE 模块编译，ModSDKTool（MDT）则负责把生成的 Client 源码编入共享 SDK Runtime（参见 [v4 生成清单 Schema](Protocol/generated-artifacts.schema.json)）。
 
-当前实现覆盖静态库构建、多符号校验、供 ModSDKTool（MDT）消费的公共产物清单，以及宿主库与成功链接记录的关联核对。[UHT 适配层](../../Source/ModRuntimeUht/README.zh-CN.md)为示例 UE 5.6 Win64 MSVC 目标调用 MHT 生成与 MBT 独立编译，并通过私有 External 模块规则将宿主库链接到所属模块；UE 5.6 的 PostBuildSteps 随后核对宿主库与实际链接产物并发布链接回执。MHT `scan` 报告不能作为 MBT 输入。`Built` 表示宿主库构建完成，`Linked` 表示其与可信链接记录及实际二进制字节的关联核对通过，二者均不证明游戏运行时行为。
+## 构建与命令行用法
 
-当前宿主 Target 均由 UBT 编译 MHT v4 生成的宿主单元。MBT 准备 Hook 编译动作，并通过 UBT 回执检查桌面目标最终二进制中的生成标记。各变体的 `host-link.json` 记录最终文件与回执的哈希。MDT 将生成的 Client 编入共享 UE Runtime。下文的独立归档命令适用于历史生产者输入。[当前生成格式](Protocol/generated-artifacts.schema.json) · [历史 v3 格式](Protocol/generated-artifacts-v3.schema.json)
-
-## 构建和命令
-
-从仓库根目录构建工具：
+在仓库根目录执行以下命令即可构建 MBT（也可在已配置的 CMake 构建目录中直接编译 `ModBuildTool` 目标）：
 
 ```powershell
 .\UnrealModFramework\Plugins\ModRuntime\Tools\Build.bat --target ModBuildTool
 ```
 
-也可在已配置的 CMake 构建目录中直接构建 `ModBuildTool` target。使用具体构建目录中的程序按以下方式调用：
+面向 UBT 目标构建的核心命令如下：
 
 ```text
 ModBuildTool build-ue-target --engine <引擎目录> --project <工程.uproject> --target <目标>
                              --platform <平台> --configuration <配置>
                              --architecture <架构> --mode <normal|rebuild|bootstrap>
+ModBuildTool finalize-ue-target --contexts watch.json --ue-target-receipt Target.target
+ModBuildTool refresh-ue-watches --contexts watch.json
+ModBuildTool hash-file --file <path>
+ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 --kind Executable
+```
+
+`build-ue-target` 调用引擎内置的 .NET 运行时，针对单个目标架构执行 UBT 构建：
+
+- `normal`：先导出待执行的编译动作，核对 MHT 生成的 Hook 源码映射与源文件哈希，将对应编译输入替换为改写副本后再交由 UBT 执行，同时记录目标文件哈希以支持增量复用。当导出快照所需但尚未编译的 Editor 二进制缺失时，`normal` 模式会自动引导构建已配置的 Editor Target。
+- `rebuild`：在导出编译动作前先向 UBT 下发完整清理重建请求。
+- `bootstrap`：带 `-MhtBootstrap` 参数调用 UBT 构建 Development Editor，跳过 Hook 改写直接编译宿主原函数。
+
+MBT 会把 UBT 后置校验步骤排在所有待执行链接动作之后，确保读取的是链接完毕的最终二进制；Target 规则读取的 `Config/ModHeaderTool.json` 及分目标生成目录与直接运行 UBT 完全一致。在 Windows 上，预构建步骤会直接复用当前正在运行的 `ModBuildTool.exe`，同时增量重编 MHT 与 MST；若切换分支后 MBT 自身源码有更新，请先重新运行一次根目录的 Setup。
+
+## 最终链接核对
+
+对于已完成完整生成的 `Win64`、`Linux`、`LinuxArm64` 与 `Mac` 单架构（`x64` 或 `arm64`）桌面构建，Target 规则会自动调用 `finalize-ue-target`。MBT 根据 UBT 产出的 `.target` 回执与 `.modules` 清单定位各个宿主模块所属的模块化动态库或单体可执行文件，核验其中确实包含本批次专属的 `UMF_HostBinding_<owner>_<generationId>` 符号，随后写出 `UMF.UbtHostLinkReceipt` v1 记录：
+
+```text
+Intermediate/ModTools/ModHeaderTool/HostTargets/<Target>/<Platform>/<Configuration>/<Architecture>/host-link.json
+```
+
+该文件记录了目标平台组合、生成批次与契约标识、UBT 回执哈希，以及每个宿主映像的路径、二进制类型、SHA-256 摘要和批次符号。桌面端检查覆盖 PE、ELF 与薄 Mach-O 格式（Apple 平台还会调用 Xcode `nm` 额外核对 Hook 链接符号）。正式对外发布前，请务必在 Stage 后的游戏包中实测 SDK 加载与调用（参见 [SDK 安装与验证](../ModSDKTool/README.zh-CN.md#安装与验证)及[共享 Runtime 打包游戏回归](../../../../../Test/SharedRuntime/README.zh-CN.md)）。
+
+在增量构建中，`refresh-ue-watches` 会将当前磁盘输入与变体目录 `watch.json` 指向的 v4 生成清单比对：一旦监视目录的文件集合或已追踪源码发生变动，MBT 就会更新 `.mht-watch.stamp`，促使 UBT 重新收集编译动作（见 [ExportMetadata.Build.cs](../../Source/Runtime/ExportMetadata/ExportMetadata.Build.cs)）。
+
+Apple 与移动端 Hook 测试用例的平台架构列表及接入注意事项详见[自动 Hook 构建](../../Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)。Live Coding、Hot Reload、预编译二进制分发及远程 Mac 构建请结合具体项目环境单独验证。
+
+## 旧版归档命令
+
+对于自行提供所属模块编译配方的旧版静态库归档生产者，MBT 保留了以下独立归档命令（返回状态中，`Built` 表示新编译完成，`UpToDate` 表示校验通过并命中缓存，`Linked` 表示与最终目标映像的关联核验通过）：
+
+```text
 ModBuildTool plan --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
 ModBuildTool verify-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool finalize-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --link-receipt Target.link.json
-ModBuildTool finalize-ue-target --contexts TargetContexts.json --ue-target-receipt Target.target
-ModBuildTool refresh-ue-watches --contexts TargetContexts.json
 ModBuildTool hash-context --file HostCompileContext.json
-ModBuildTool hash-file --file <path>
-ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x64 --anchor <symbol>
-ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 --kind Executable
+ModBuildTool inspect-archive --file <归档> --platform Win64 --architecture x64 --anchor <符号>
 ```
 
-`build-ue-target` 使用引擎自带的 .NET 运行时调用 UBT，每次构建一个目标架构。在 `normal` 模式下，MBT 会导出待执行动作、核对 MHT 的 Hook 源码映射与文件哈希、替换编译输入，再通过 UBT 执行更新后的计划，同时记录对象文件哈希供增量构建复用。`rebuild` 会在导出动作前向 UBT 传递重建请求。`bootstrap` 使用 UBT 的 `-MhtBootstrap` 构建 Development Editor，直接编译原函数；普通构建会按需自动准备引导 Editor。
-
-`plan` 仅校验输入，不执行编译也不创建目录，并返回当前输入指纹、所属模块、目标、宿主库位置及缓存状态。`build-host` 获取输出锁后检查缓存，命中时返回 `UpToDate`，否则独立编译并归档后返回 `Built`。`build-planned-host` 还会在持锁期间校验调用方传入的计划指纹。`verify-host` 在缓存或产物过期时返回非零退出码。退出码 `0` 表示成功，`1` 表示参数、输入、编译、I/O 或验证失败。JSON 结果写入 stdout，工具链诊断写入 stderr。
+其中，`plan` 仅校验输入而不触发编译或建目录；`build-host` 获取独占锁并执行归档编译；`build-planned-host` 在持锁状态下额外核对预期输入指纹；`verify-host` 在输入或产物过期时报错。所有命令将 JSON 结果写入 stdout、工具链诊断写入 stderr；退出码 `0` 代表成功，`1` 代表参数非法、构建/I/O 错误或缓存校验失败。
 
 ## 宿主编译上下文
 
-正式结构见 [host-context.schema.json](Protocol/host-context.schema.json)。UHT 适配层从实际 UBT 编译数据库中转交所属模块的真实 MSVC 配方，并核对生产者定义。其他接入同样必须提供真实的所属模块上下文，不能从系统默认编译器或手写近似 UE 环境推测。
+旧版静态库模式必须传入真实所属模块的编译配方并保留生产者导出宏定义（详见 [归档上下文 Schema](Protocol/host-context.schema.json)）：
 
-必需字段：
-
-| 字段 | 契约 |
+| 字段 | 契约要求 |
 | --- | --- |
-| `format` / `schemaVersion` | `UMF.ModHostContext` / `2` |
-| `ownerModule` | 真实的声明所属模块；编译单元必须与其一致 |
-| `moduleAPIMode` | `Producer`，保留所属模块的生产者宏定义 |
-| `registrationAnchor` | 未装饰的 C 标识符；必须写入静态库的符号索引 |
-| `owningBinary` | 可选的真实所属二进制 `id`、`path`、`kind`；`finalize-host` 必需 |
-| `target` | `name`、`type`、`configuration`、`linkType`、`platform`、`architecture` |
-| `workingDirectory` | 实际的工具链工作目录 |
-| `outputLibrary` | 位于生成根之外的 `.lib` 或 `.a`；相对路径基于上下文所在目录解析 |
-| `compiler` / `archiver` | 实际工具路径、参数数组及响应文件格式 |
-| `environment` | 覆盖继承环境的字符串映射；有效环境摘要参与缓存计算，不输出环境值 |
-| `dependencies` | 编译配方依赖、强制包含、输入清单及其他工具链相关文件 |
-| `lto` / `pch` / `unity` | 当前版本均须显式设为 `false` |
+| `format` / `schemaVersion` | `"UMF.ModHostContext"` / `2` |
+| `ownerModule` | 声明所属的真实 UE 模块名；待编译单元必须归属该模块 |
+| `moduleAPIMode` | `"Producer"`，确保保留所属模块的生产者 `*_API` 宏定义 |
+| `registrationAnchor` | 未修饰的纯 C 符号名；必须出现在产出静态库的符号索引中 |
+| `owningBinary` | 可选的最终二进制信息（`id`、`path`、`kind`: `"Executable"` 或 `"DynamicLibrary"`）；执行 `finalize-host` 时必填 |
+| `target` | 包含 `name`、`type`、`configuration`、`linkType`、`platform` 与 `architecture` |
+| `workingDirectory` | 启动编译器与归档器子进程时的真实工作目录 |
+| `outputLibrary` | 位于托管生成根目录之外的 `.lib` 或 `.a` 路径（相对路径基于上下文文件所在目录解析） |
+| `compiler` / `archiver` | 工具可执行文件 `path`、`arguments` 参数数组及 `responseFormat`（`"msvc"` 或 `"gnu"`） |
+| `environment` / `environmentMode` | `"Inherit"`（默认叠加）或 `"Explicit"`（纯净替换）环境变量表；仅将有效 `environmentHash` 写入回执而不泄露明文值 |
+| `dependencies` | 强制包含头、输入清单及其他工具链相关依赖文件 |
+| `lto` / `pch` / `unity` | 当前版本三项均须显式设为 `false` |
 
-编译器参数数组必须包含 `{source}`、`{object}` 和 `{dependencies}`，分别展开为本次真实路径。归档器参数必须包含 `{output}`，并以一个独立的 `{objects}` 数组元素展开当前全部对象路径。参数通过响应文件直接传递给工具，不经过 shell。
+编译器 `arguments` 必须包含 `{source}`、`{object}` 和 `{dependencies}` 三个占位符；归档器 `arguments` 必须包含 `{output}` 以及单独作为一个数组元素的 `{objects}`（展开为全部目标文件路径）。MBT 通过响应文件直接启动真实可执行程序，不经过 Shell（不支持 `.bat` 或 Shell 包装脚本）：
 
-MSVC 编译器配方使用 `dependencyFormat: "msvc-json"`，并显式添加 `/sourceDependencies` 与 `{dependencies}`；GNU/Clang 使用 `dependencyFormat: "make"`，例如通过 `-MD -MF {dependencies}` 输出完整依赖。适配层须保证系统头文件等真实编译依赖均被记录。
+- `"msvc"` 响应文件仅支持在 Windows 主机运行，采用带 BOM 的 UTF-16LE 编码与 Windows 引号规则（选项与紧随的参数值保持在同一行），搭配 `dependencyFormat: "msvc-json"`（`/sourceDependencies`）。
+- `"gnu"` 响应文件采用 UTF-8 编码与 GNU 引号规则，搭配 `dependencyFormat: "make"`（如 `-MD -MF {dependencies}`，须一并覆盖系统头文件依赖）。
 
-`responseFormat: "msvc"` 使用带 BOM 的 UTF-16LE 与 Windows 参数引用规则（选项及其独立值保留在同一行），仅在 Windows 宿主支持；`"gnu"` 使用 UTF-8 与 GNU 响应文件引用规则。工具路径必须指向真实可执行文件，不支持批处理或 shell 配方。
-
-以下参数模板片段仅用于说明占位语法，不能代替实际的 UE 编译配方：
+下面给出占位符结构示意（实际接入须使用真实的 UE 模块编译参数）：
 
 ```json
 {
@@ -86,90 +106,31 @@ MSVC 编译器配方使用 `dependencyFormat: "msvc-json"`，并显式添加 `/s
 }
 ```
 
-## 完整生成清单
+## 完整生成清单契约
 
-新生产者使用 [generated-artifacts.schema.json](Protocol/generated-artifacts.schema.json)，格式为 `UMF.GeneratedArtifacts`、版本 `3`、状态 `Complete`，且 `unresolvedTypeCount` 为零。MBT 仍兼容使用旧哈希字段名的 [v1](Protocol/generated-artifacts-v1.schema.json) 和 v2 清单。最终链接核对要求 v2 或 v3；`Bootstrap` 与扫描报告均会被拒绝构建。
+旧版归档命令支持状态为 `"Complete"` 且 `unresolvedTypeCount` 为 `0` 的 **v1–v3** `UMF.GeneratedArtifacts` 清单（其中 `finalize-host` 要求 **v2** 或 **v3**；见 [v1 Schema](Protocol/generated-artifacts-v1.schema.json) 与 [v3 Schema](Protocol/generated-artifacts-v3.schema.json)）。
 
-v2 和 v3 的 `hostBuildContexts` 为每个编译所属模块绑定上下文哈希（可通过 `hash-context` 计算已解析 JSON 的紧凑排序摘要），v1 的单上下文回退字段为 `buildContextHash`。MBT 会重验 v2 和 v3 中每项 `inputFiles` 的内容哈希并重新枚举 `watchedDirectories`；输入过期时，`GeneratedInputsStale` 会指出需要重新运行 MHT 的路径。
+在 v2 和 v3 清单中，`hostBuildContexts` 将每个编译所属模块映射到其紧凑排序 JSON 的摘要（可用 `hash-context` 计算），v1 则使用单上下文字段 `buildContextHash`。接收清单前，MBT 会逐一复核 `inputFiles` 哈希并重新遍历 `watchedDirectories`；一旦输入已发生变动，便会返回 `GeneratedInputsStale` 指明需要重跑 MHT 的具体路径。`generationId`、`inputHash`、`contractHash`、`projectionHash` 与 `nativeABIHash` 均为小写 SHA-256 字符串。
 
-`environmentMode: Explicit` 仅将声明的 `environment` 作为编译子进程环境；默认的 `Inherit` 模式则将这些值覆盖到继承环境中。计划和构建回执均会提供有效的 `environmentHash`。
+`generatedFiles` 列出无 `..`、解析符号链接后仍留在清单根目录内的唯一相对路径、`contentHash` 及可为 `null` 的 `ownerModule`。`compilationUnits` 显式列出需要编译的 `.cpp`/`.cc`/`.cxx` 源文件及归属模块——即便某个模块当前没有任何导出项，生成器也必须产出一个定义了 `registrationAnchor` 的空单元，防止误复用删掉导出前的陈旧静态库。
 
-`generationId`、`inputHash`、`contractHash`、`projectionHash` 和 `nativeABIHash` 均为小写 SHA-256 摘要。契约、投影和 ABI 摘要由生成器提供，MBT 不重新解析 C++ 类型，也不证明这些语义摘要的正确性。
+## 缓存、原子发布与静态库校验
 
-`generatedFiles` 列出相对于生成清单目录的路径、`contentHash` 与 `ownerModule`（共享契约文件的所属模块可为 `null`）。路径须唯一、不含 `..`，且解析符号链接后不得离开生成根目录；文件内容须逐项匹配摘要。
+v2 与 v3 清单中的每个文件均标有明确的 `role`（`HostBinding`、`HostRegistration`、`CompileVerification`、`HostHeader`、`SdkHeader`、`Contract`、`SdkResource` 或私有 `Diagnostic`）。`plan`、`build-host` 和 `finalize-host` 输出的 `publicArtifacts` 只会暴露当前模块及共享的 `SdkHeader`（`.h`/`.hpp`）、`Contract`（`.json`）与 `SdkResource`；宿主编译单元及 v1 未标注角色的文件一律保持私有。
 
-`compilationUnits` 显式列出 `ownerModule` 和 `source`。MBT 仅编译当前所属模块的 `.cpp`、`.cc` 或 `.cxx` 单元；这些文件必须已列入 `generatedFiles`，MBT 不会通过递归扫描猜测。空导出模块也必须由生成器提供包含稳定注册锚点的单元，以避免误用删除导出前的旧库。
+`requiredSymbols` 登记 `{ "ownerModule", "symbol" }` 数组（未修饰 C 符号名，可附带 `exportId`、`signatureHash` 与 `projectionHash`）。同一所属模块内不允许出现重复符号或重复 `exportId`，但 Host 与 Client 可各自记录同一逻辑 `exportId` 的对端入口。MBT 会并入 `registrationAnchor`，在单遍扫描静态库索引时核验全部必需符号（Mach-O 自动补齐平台 `_` 前缀），缺失时一次性报出完整缺失列表。
 
-## 缓存、发布与库检查
+输入指纹综合覆盖 MBT 可执行文件与版本、上下文与生成清单、全部生成源码、编译器与归档器、显式依赖、前次成功编译解析出的传递头文件依赖及 `environmentHash`。编译全程持有操作系统独占锁并使用独立临时目录：一旦缓存失效，便完整重编该模块所有单元并新建全新静态库（杜绝残留已删除成员），校验通过后先替换库文件，最后原子写入同目录的 `<library>.mbt.json` 凭证。静态库格式检查覆盖 `x64` 与 `arm64` 的 Win64 COFF、Linux ELF 和 macOS Mach-O，直接拒绝导入库成员、薄归档（thin archive）、LTO/PCH/Unity 产物及 C++20 模块单元。
 
-v2 和 v3 的每个生成文件都必须指定 `role`：`HostBinding`、`HostRegistration`、`CompileVerification`、`HostHeader`、`SdkHeader`、`Contract`、`SdkResource` 或私有 `Diagnostic`。`plan`、`build-host` 和 `finalize-host` 返回的 `publicArtifacts` 仅列出当前模块及共享的 `SdkHeader`、`Contract`、`SdkResource`，包含绝对 `sourcePath`、规范化 `relativePath`、内容哈希、角色和所属模块。SDK 头文件仅接受 `.h` / `.hpp`，契约仅接受 `.json`；宿主编译单元不能同时作为公共产物发布。v1 中未指定或未知的角色均保留为私有，不进入公共清单。
+### 旧版归档的最终链接核对
 
-`requiredSymbols` 为 `{ "ownerModule": "...", "symbol": "..." }` 记录数组，可选附带 `exportId`、`signatureHash` 和 `projectionHash`。符号必须使用未装饰的 C 标识符；重复的模块/符号对及同一所属模块内的重复 ExportId 会被拒绝，但 Host 和 Client 所属模块可为相同逻辑 ExportId 各自记录入口。MBT 会并入上下文中的稳定注册锚点，对当前模块的完整必需符号集合执行一次归档检查（macOS 检查时会加上平台 C 符号前缀）。零导出批次可使用空数组，但注册锚点仍必需。v1 清单可省略该数组，此时保留原有的单锚点检查。
+`finalize-host` 读取可信适配方产出的 `UMF.ModHostLinkReceipt` v1 链接记录（[链接记录 Schema](Protocol/host-link-receipt.schema.json)），将静态库与磁盘上的真实最终二进制逐项核对后输出 `UMF.ModHostLinkedArtifacts`（[关联清单 Schema](Protocol/linked-artifacts.schema.json)）：
 
-输入指纹覆盖 MBT 可执行文件、工具版本、原始上下文和生成清单、全部生成文件、编译器及归档器、显式依赖、上次成功编译报告的传递依赖，以及有效子进程环境。源码或既有头文件的变更会触发重新编译，并借此发现和登记新增的完整 include 依赖。
-
-输出旁的 `<library>.mbt.json` 是提交凭证，记录输入指纹、目标、生成批次、上下文摘要、库哈希、注册锚点和编译器依赖。缓存复用必须同时满足输入指纹匹配、文件摘要一致和归档检查通过；缺失、损坏或版本不符的凭证绝不会成为有效缓存。
-
-编译过程持有独占 OS 锁并使用本次进程专属的暂存目录（由本次进程创建并清理）。每次缓存失效都会重新编译该模块的生成单元，并从完整对象列表创建全新归档，避免已删除的归档成员残留。校验通过后先替换库文件，再原子提交凭证，确保中断导致的不一致无法通过后续验证。
-
-归档检查会核对常规归档容器、目标架构及索引中的全部必需符号，并在缺失时报告完整的缺失集合。支持 Win64 COFF、Linux ELF 和 macOS Mach-O 格式，覆盖 `x64` 和 `arm64` 架构。导入库成员、薄归档、未知对象格式和不匹配的架构均会被拒绝。LTO、PCH、Unity 与 C++ modules/header units 不在当前支持范围内。各平台支持均需在对应平台上实际编译与验证；当前的 Windows 验证结果不代表 Linux 或 macOS 已验收。
-
-## 获取角色与增加生命的清单片段
-
-MHT 输出 v3 清单，包含宿主桥、C ABI 入口、校验与 UE 视图实现四个宿主单元，以及归属 `<game>ModClient` 的一个独立客户端单元；对应的上下文锚点分别为 `UMF_ModHost_<owner>` 和 `UMF_ModClient_<game>`。具体的公共头文件、Host/Client 符号记录及 MDT 契约参见 [MHT ABI 协议](../ModHeaderTool/README.zh-CN.md)。
-
-这两个 API 只是普通清单数据，并未硬编码在 MBT 中。以下简化 v3 片段展示了 `ExportTest` 的记录方式（实际 MHT 符号名从生成描述中读取，MBT 会自动并入上下文的注册锚点）：
-
-```json
-{
-  "requiredSymbols": [
-    { "ownerModule": "ExportTest", "symbol": "UMF_UnrealModFrameworkDev_ExportTest_A_b88dc4c71053a716_Host", "exportId": "api/game.local_player_api/getlocalcharacter" },
-    { "ownerModule": "ExportTest", "symbol": "UMF_UnrealModFrameworkDev_ExportTest_A_b846156f4c92057a_Host", "exportId": "api/game.character/addhealth" }
-  ]
-}
-```
-
-MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，将生成的 JSON 契约标记为 `Contract`，并将实现作为私有编译单元。Host 与 Client 记录为每个 ExportId 绑定匹配的签名和投影哈希，内部 UE 视图头则使用私有的 `HostHeader` 角色。以上仅为片段，完整输入仍须列出所有内容哈希与编译单元，不可直接运行。
-
-构建结果会一并返回这两个入口、注册锚点、公共文件清单和 `OwnerBinaryOnly` 链接要求。MDT 根据公共清单复制文件并再次核对哈希；MBT 既不发布宿主私有源码，也不构建最终的开发者插件。
-
-## 最终链接核对
-
-`finalize-host` 消费 [host-link-receipt.schema.json](Protocol/host-link-receipt.schema.json)，输出 [linked-artifacts.schema.json](Protocol/linked-artifacts.schema.json)。在 UE 5.6 Win64 x64 适配层中，PostBuildSteps 会调用 `finalize-ue-target`，由 MBT 核对 UBT 目标回执和本次归档的唯一 PE 见证符号，并在宿主库旁写出链接记录与关联清单。其他链接适配层也可以向 `finalize-host` 提供可信链接记录。
-
-上下文须先声明 `owningBinary`，其 `id` 为 UBT 中稳定的二进制身份，`path` 相对上下文目录解析，`kind` 为 `Executable` 或 `DynamicLibrary`，从而明确区分 Editor 模块 DLL 与 monolithic 游戏可执行文件。
-
-链接记录采用 `UMF.ModHostLinkReceipt` v1 格式，包含以下字段：
-
-| 字段 | 要求 |
+| 链接记录字段 | 校验要求 |
 | --- | --- |
-| `status` | `Succeeded` |
+| `status` | 必须为 `"Succeeded"` |
 | `target` | 与编译上下文中的 `target` 对象完全一致 |
-| `binary` | 所属二进制的 `id`、`path`、`kind`、实际 `contentHash` 与唯一的 `ownerModules` 列表 |
-| `hostLibraries` | 按所属模块列出实际参与最终链接的宿主库，同一模块不得重复 |
-| 每个宿主库记录 | `ownerModule`、`path`、`contentHash`、`hostReceiptHash`、`contextHash`、`generationId`、`registrationAnchor`、`anchorRetained: true` |
+| `binary` | 所属二进制的 `id`、相对 `path`、`kind`、实际 `contentHash` 及不重复的 `ownerModules` |
+| `hostLibraries` | 按所属模块不重复列出实际参与链接的静态库，每项含 `path`、`contentHash`、`hostReceiptHash`、`contextHash`、`generationId`、`registrationAnchor` 与 `anchorRetained: true` |
 
-记录中的路径均相对于链接记录所在目录解析。MBT 要求当前宿主构建仍然有效，并逐项核对所属二进制身份、模块归属、宿主库路径与哈希、构建凭证哈希、上下文与批次身份、锚点保留声明以及实际二进制哈希。同时还会检查实际二进制镜像的 PE、ELF 或薄 Mach-O 类型与架构（ELF 区分 PIE 可执行文件与共享库，暂不支持 fat Mach-O 镜像）。核对期间若输入发生变化，则直接拒绝。
-
-核对成功后输出 `UMF.ModHostLinkedArtifacts` / `Linked`，包含公开文件、契约摘要、必需符号、实际二进制与库哈希，以及宿主构建凭证和链接记录的路径与哈希，供 MDT 进一步汇总。链接成功与锚点保留的真实性依赖可信适配层；MBT 仅核对关联关系与文件字节，不从任意 JSON 或二进制字符串推断链接成功，也不将 `Linked` 等同于运行时绑定就绪。
-
-## UE 5.6 集成
-
-MBT 驱动 UBT 使用生成的自动 Hook 源码副本，并依据目标回执核对桌面原生二进制。宿主与编译校验单元由 UBT 在所属模块编译。
-
-`build-ue-target --mode normal` 与 UHT 使用同一份 `Config/ModHeaderTool.json` 生成配置。Windows 上由本地 MBT 驱动构建时，工具预构建步骤复用正在运行的 MBT，并构建 MHT 和 MST。切换到包含新 MBT 源码的分支后，重新执行 Setup 可更新下一次运行使用的 MBT。
-
-以下更完整的动作图接入仍是后续契约：
-
-1. 创建 Makefile 时，从真实模块图生成各模块计划与所属二进制映射，在标准 UHT 后获取可用的生成头及真实编译上下文，再调用 MHT 执行完整生成。
-2. 复用缓存 Makefile 时，也必须在 UHT 检查后、动作失效判断前检查源码集合与依赖；普通非反射头文件的新增、删除和改动不能仅依赖 UHT 重跑。
-3. 调用 `plan`，将当前 `inputFingerprint` 写入 MBT 动作的有效命令或 `CommandVersion`；当 `upToDate=false` 时须明确使该动作失效，包括输入未变但库已损坏的情况。
-4. 动作执行 `build-planned-host --input-fingerprint ...`，在 `ProducedItems` 中声明库和凭证，设置 `bProducesImportLibrary=false`，首版禁止远程和 UBA 执行。
-5. 在真实所属 `UEBuildBinary` 的私有最终链接环境中加入宿主库和注册锚点的保留要求，避免沿通用 Runtime 公共依赖传播；同时将库作为最终链接动作的 `PrerequisiteItems`，形成明确的生产依赖。
-6. 为每个参与模块预留稳定的库路径与动作：无导出时生成空注册单元，首次新增导出与删除最后一项导出均无需改变动作图结构。变体按引擎、工具链、Target、配置、平台和架构隔离。
-7. 针对 Windows、Linux 和 macOS 分别在最终链接阶段实现符号保留。不得将宿主静态库标记为导入库，或错误加入仅生成 UE 导入库的动作中。模块输出、Clean、receipt 与插件裁剪也须包含宿主产物。
-8. 最终链接成功后，导出当前目标的可信链接记录并调用 `finalize-host`。按模块汇总全部必需的关联结果后，MDT 即可组织完整的 SDK 发布。
-
-在这份 UE 5.6 源码中，`GenerateHeaderFuncs` 仅在 Makefile 重建路径位于 UHT 之后执行，在缓存复用路径不会重新运行，因此不能作为唯一触发点。现有的 `.ubtplugin.csproj` UHT Exporter 入口也不等同于完整的 UBT 动作图扩展。
-
-导出快照需要工程二进制时，生成适配层可引导配置中的 `metadataEditorTarget`。手动准备 Editor 时，先执行 Development Editor 引导构建，再执行正式构建。Live Coding、Hot Reload、预编译分发和远程 Mac 均需要单独适配。
+MBT 要求当前宿主构建未过期，逐项核实二进制身份、模块归属、库与回执哈希、批次与上下文摘要，并解析检查最终二进制是否为架构匹配的 PE、ELF（严格区分 PIE 可执行文件与共享库）或薄 Mach-O 镜像（不支持 fat Mach-O；校验期间文件若发生变动直接报错）。

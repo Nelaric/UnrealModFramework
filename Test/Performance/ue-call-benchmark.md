@@ -1,4 +1,8 @@
-﻿# UE 调用性能基准（1000 次平均，单位 ns/次）
+﻿<!-- Copyright (c) 2026 Nelaric Contributors -->
+
+# UE 调用性能基准（1000 次平均，单位 ns/次）
+
+下表记录了提交 `fad1e1c` 在独立基准工程中的实测单次调用耗时快照，直观对比宿主原生调用（原生 C++ / 原生蓝图）与经由已挂载 `BenchmarkMod` 发起跨边界调用（Mod C++ / Mod 蓝图）的开销。顶部汇总行为各列已测 API 均值的算术平均；在本机复测时请通过 `--report` 指定独立输出路径，以免覆盖基线文件。两个独立 Mod 在打包游戏中共享 SDK Runtime 的加载与卸载行为由单独的回归用例验证（参见[运行调用性能基准](../../Docs/DevelopmentWorkflow.zh-CN.md#运行调用性能基准)与[共享 Runtime 回归](../SharedRuntime/README.zh-CN.md)）。
 
 | 原生 C++ | 原生蓝图 | Mod C++ | Mod 蓝图 |
 | ---: | ---: | ---: | ---: |

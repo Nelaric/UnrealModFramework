@@ -2,81 +2,47 @@
 
 English | [简体中文](README.zh-CN.md)
 
-# ModRuntime UHT adapter
+# ModRuntime UHT Adapter
 
-`ModRuntime.ubtplugin.csproj` is a UHT exporter that inherits the engine's target
-framework (.NET 8 on UE 5.6 and .NET 10 on UE 5.8). UBT discovers the project
-inside the enabled ModRuntime plugin, builds the assembly, and loads its
-`[UnrealHeaderTool]` class and `[UhtExporter]` entry point. It references assemblies
-from the active engine directly, requiring no project references or engine changes.
-The exporter is named `ModRuntime`, and the reflected runtime module `ModLoader`
-enables it in both Game and Editor manifests.
+When `ModRuntime` is enabled in a UE project, UnrealBuildTool (UBT) discovers `ModRuntime.ubtplugin.csproj`, builds the assembly against the active engine's target framework (falling back to .NET 8), and loads its `[UnrealHeaderTool]` plugin and `[UhtExporter]` entry point. Because the reflected `ModLoader` module participates in both Game and Editor targets, the exporter runs automatically across both target types.
 
-The adapter prepares the current UBT target's analysis inputs and runs MHT. MHT owns C++ projection and generation. ExportCodeGenerator handles Blueprint exports. UBT compiles and links the generated host units.
+In the overall build pipeline, this adapter bridges UBT/UHT and the native Mod tools:
+
+- **Adapter (`ModRuntimeUht`):** Gathers the active target's compile commands and snapshots, invokes ModHeaderTool (MHT), and registers generated host C++ wrappers back into UBT.
+- **ModHeaderTool (MHT):** Parses C++ declarations via `libclang` and emits host bindings, public contracts, and C ABI headers.
+- **ExportCodeGenerator:** Compiles and snapshots configured Blueprint exports in Editor commandlet runs.
+- **UBT & ModBuildTool (MBT):** Compile generated host bindings inside their owning modules, substitute rewritten Hook sources, and verify final desktop binaries.
 
 ## Native tool and default invocation
 
-Targets configured with `ExportMetadata.ConfigureTarget(this)` build ModHeaderTool,
-ModBuildTool, and ModSourceTool before UHT runs. When invoking UHT directly, prepare
-the tools first with the native build script. UHT searches for MHT in the following
-order:
+Calling `ExportMetadata.ConfigureTarget(this)` in a `.Target.cs` file registers a pre-build step that builds MHT, MBT, and ModSourceTool (MST). If your pipeline provisions prebuilt binaries separately, call `ExportMetadata.ConfigureTarget(this, buildNativeTools: false)` and ensure all three executables are in place before UBT starts (or run the native build script manually before invoking UHT directly).
+
+UHT locates MHT in the following priority order:
 
 1. The `UMF_MHT_EXECUTABLE` environment variable.
-2. `executable` in the project's optional `Config/ModHeaderTool.json`.
-3. `<plugin>/Binaries/ThirdParty/ModHeaderTool/<host>/MHT[.exe]` or
-   `ModHeaderTool[.exe]`, where `<host>` is `Win64`, `Linux`, or `Mac`.
-4. The documented local build at
-   `<plugin>/Tools/build/ModHeaderTool/ModHeaderTool[.exe]`.
+2. The `executable` field in the project's optional `Config/ModHeaderTool.json`.
+3. `<plugin>/Binaries/ThirdParty/ModHeaderTool/<host>/MHT[.exe]` or `ModHeaderTool[.exe]`, where `<host>` is `Win64`, `Linux`, or `Mac`.
+4. The local build output at `<plugin>/Tools/build/ModHeaderTool/ModHeaderTool[.exe]`.
 
-Without explicit configuration, the default mode is `scan`. The development project's
-`Config/ModHeaderTool.json` selects `generate`. In `scan` mode, a standard UHT
-invocation runs the following command:
+MBT is resolved in a matching order (`UMF_MBT_EXECUTABLE` → root `mbt` config field → `Tools/build/ModBuildTool/ModBuildTool[.exe]`), as is MST (`UMF_MOD_SOURCE_TOOL_EXECUTABLE` → root `sourceTool` config field → `Tools/build/ModSourceTool/ModSourceTool[.exe]`; see the [ModSourceTool guide](../../Tools/ModSourceTool/README.md)).
+
+### Default `scan` mode and metadata snapshots
+
+If `Config/ModHeaderTool.json` is absent or omits `mode`, the adapter defaults to `scan` mode (the sample project's config selects `generate`). During a standard UHT run in `scan` mode, the adapter executes:
 
 ```text
 ModHeaderTool scan <actual.uproject> <metadata-options.json>
 ```
 
-The authoritative metadata catalog defaults to
-`<project>/Intermediate/ModTools/ModHeaderTool/MetadataOptions.json`. Before
-generation, the adapter checks this snapshot with MHT. If the snapshot is missing,
-stale, or uses an older version, the adapter exports a fresh one with the active
-engine's `ModExportOptions` commandlet and publishes it after validation. Changes to
-tracked INI files such as `DefaultEngine.ini` trigger this check on the next
-incremental build. `scan` mode refreshes an existing default snapshot and can still
-scan a project with no snapshot when none of its declarations require one. Any
-`options` override pointing elsewhere is managed by the caller.
+MHT validates export macro syntax and field values, writes a JSON report to stdout, and lets UHT's output factory commit successful reports to `Intermediate/ModTools/ModHeaderTool/Scan/<Target>/<Platform>/<Configuration>/Scan.json`.
 
-On the build host, `metadataEditorTarget` names the Development Editor target that UBT
-builds in bootstrap mode when the commandlet needs project binaries. Projects that
-omit this setting can prepare the Editor with `-MhtBootstrap`.
+The authoritative metadata option catalog lives at `<project>/Intermediate/ModTools/ModHeaderTool/MetadataOptions.json` by default. Before running generation, the adapter asks MHT to validate this snapshot; if it is missing, out of date, or from an older schema, the adapter runs the engine's `ModExportOptions` commandlet to export and publish a fresh copy. Edits to tracked INI files such as `DefaultEngine.ini` automatically re-trigger this check on the next incremental build. (`scan` mode also refreshes an existing default snapshot, and can still scan a project with no snapshot if none of its declarations depend on configured options; custom paths set via `options` are managed by the caller.)
 
-UHT reads the JSON report from stdout, and its output factory commits successful
-reports to
-`Intermediate/ModTools/ModHeaderTool/Scan/<Target>/<Platform>/<Configuration>/Scan.json`
-under the project. `scan` mode validates marker syntax and parameters.
+When a commandlet needs project Editor binaries that have not been built yet, `metadataEditorTarget` tells UBT which Development Editor target to bootstrap automatically. Projects that omit `metadataEditorTarget` can bootstrap their Editor manually with `-MhtBootstrap`.
 
 ## Complete generation
 
-Set `mode` to `generate` and configure the game ID and type identities in `generation`. UBT records the
-actual platform, configuration, and architecture in the UHT manifest. The adapter
-expands the target compiler's response files before the regular action graph is
-written, and each variant stores its `BuildInput.json` and pinned
-`Ubt/compile_commands.json` in `HostTargets`. MHT validates the target, module,
-configuration, and CPU architecture of each parsed translation unit.
-
-Each target emits `UMF.GeneratedArtifacts` v4 with a role and owner for every compilation unit. UHT selects the host and verification units for UBT.
-
-The project generation root is
-`Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>`.
-Each run replaces that variant's `SDK`, `Host`, `Client`, `Contract`, `Diagnostics`,
-and `<gameId>.generated-artifacts.json` at fixed paths. The adapter verifies
-completeness, target identity, and the hash of every generated file. Removed outputs
-are cleaned up, while identical files retain their timestamps. The complete manifest
-is committed after all file replacements succeed, and `generationId` remains a
-content-based identity.
-
-The development host uses this configuration with tools and libclang discovered
-automatically from Setup. [Checked-in configuration](../../../../Config/ModHeaderTool.json)
+To generate full host bindings and SDK contracts, set `mode` to `generate` and populate `generation` with your game ID and type-identity map. The development host uses the configuration below, discovering tools and `libclang` automatically from Setup (see [Config/ModHeaderTool.json](../../../../Config/ModHeaderTool.json)):
 
 ```json
 {
@@ -96,33 +62,19 @@ automatically from Setup. [Checked-in configuration](../../../../Config/ModHeade
 }
 ```
 
-Paths in this adapter configuration are resolved relative to the project directory,
-while paths inside a build input retain MHT's own resolution rules. Both `options` and
-`timeoutSeconds` (1 to 86400, default 600) are optional. Automatic preparation uses the
-host `libclang` and matching resource headers. With the default configuration, the
-adapter reads `Tools/build/libclang-<system>-<arch>.path` relative to `Tools/build/`
-and falls back to a host LLVM installation. The same relative path file locates
-`libclang` inside a `Dist/ModRuntime` export; an explicit path in the environment or
-project configuration takes precedence.
+Relative paths in `Config/ModHeaderTool.json` resolve from the `.uproject` directory, whereas paths inside a low-level build input follow MHT's own resolution rules. Both `options` and `timeoutSeconds` (`1`–`86400`, default `600`) are optional. By default, the adapter locates the host `libclang` and matching Clang resource headers through `Tools/build/libclang-<system>-<arch>.path` (which works identically inside a `Dist/ModRuntime` export) before falling back to a system LLVM installation; explicit environment or config paths always take precedence.
 
-MBT discovery checks `UMF_MBT_EXECUTABLE`, the root `mbt` setting, and the local
-`Tools/build/ModBuildTool/ModBuildTool[.exe]` output under the ModRuntime plugin, in
-that order. ModSourceTool (MST) discovery checks `UMF_MOD_SOURCE_TOOL_EXECUTABLE`, the
-root `sourceTool` setting, and `Tools/build/ModSourceTool/ModSourceTool[.exe]` under
-the ModRuntime plugin, in that order.
+You can also override generation via environment variables: setting `UMF_MHT_BUILD_INPUT` forces `generate` mode with a custom build input, and `UMF_MHT_LIBCLANG` overrides the `libclang` binary path. After changing environment variables, force a fresh UHT run (for example, by passing `-ForceHeaderGeneration` to UBT).
 
-`UMF_MHT_BUILD_INPUT` selects `generate` mode and overrides the target configuration,
-while `UMF_MHT_LIBCLANG` overrides the configured library path. Changing environment
-settings requires a new UHT invocation (for example, by passing
-`-ForceHeaderGeneration` to UBT).
+### How target inputs and outputs are managed
 
-A target- or variant-level `buildInput` selects a caller-managed input whose
-compilation database and response files must match the active target. Clang also
-requires the headers produced by standard UHT CodeGen.
+UBT records the active platform, configuration, and CPU architecture in the UHT manifest. During normal builds, the adapter runs UBT's `GenerateClangDatabase` for the active target, expands compiler response files before the main action graph is written, and saves `BuildInput.json` plus `Ubt/compile_commands.json` under `Intermediate/ModTools/ModHeaderTool/HostTargets/<Target>/<Platform>/<Configuration>/<Architecture>/`. MHT verifies the target, module, configuration, and architecture of every translation unit it parses (caller-supplied `buildInput` overrides must likewise match the active target and include headers emitted by standard UHT CodeGen).
+
+Generated outputs are written to `Intermediate/ModTools/ModHeaderTool/Generated/<Target>/<Platform>/<Configuration>/<Architecture>/`, updating `SDK/`, `Host/`, `Client/`, `Contract/`, `Diagnostics/`, and the `UMF.GeneratedArtifacts` v4 manifest (`<gameId>.generated-artifacts.json`). Each run verifies completeness, target identity, and per-file hashes: obsolete files are removed, unchanged files keep their timestamps, and the v4 manifest is committed atomically at the end with a content-addressed `generationId`. The adapter registers Host and compile-verification C++ units with UBT and leaves `ClientSource` for ModSDKTool (MDT).
 
 ### Module selection
 
-Place an optional `<project>.modexport` next to the `.uproject`. With the file absent or empty (`{}`), MHT discovers modules recursively under the project's `Source` using their `*.Build.cs` rules. This example includes the Combat and Audio plugins, excludes GameEditor globally, and excludes CombatEditor within Combat.
+By default—when no `<project>.modexport` file exists beside the `.uproject` or when it contains `{}`—MHT recursively discovers all modules under the project's `Source/` tree via their `*.Build.cs` files. To include plugins or exclude specific modules, add `<project>.modexport`:
 
 ```json
 {
@@ -134,57 +86,50 @@ Place an optional `<project>.modexport` next to the `.uproject`. With the file a
 }
 ```
 
-A string in `Plugins` can name a plugin under the project's `Plugins` tree or give a path to a `.uplugin` descriptor. To set exclusions for one plugin, use an object with `Name` for a plugin name or `Path` for its descriptor. Relative paths start at the project directory.
+- Entries in `Plugins` can be plain strings (either a plugin name under `Plugins/` or a relative/absolute `.uplugin` path) or objects specifying `Name` or `Path` alongside plugin-scoped `ExcludeModules` (relative paths resolve from the `.uproject` directory).
+- Top-level `ExcludeModules` applies across the project and all selected plugins, whereas per-plugin `ExcludeModules` applies only to that plugin (if multiple entries resolve to the same plugin, their exclusions merge). Module names match case-insensitively, while UE still decides which plugins are enabled for the active target.
 
-Top-level `ExcludeModules` applies to the project and every selected plugin. An `ExcludeModules` list inside a plugin entry applies only to that plugin. Both lists match UE module names case-insensitively. When multiple entries resolve to the same plugin, their local exclusions are combined. UE determines which plugins participate in the target build.
-
-The standalone scan and automatic generation share this selection. For a module with export markers or configured Blueprint exports, UHT takes its C++ translation units from the active target's compilation database. Adding a module or a `.cpp` to the target makes it discoverable on the next build. `ModHeaderTool discover <project.uproject>` prints the selected modules and whether they contain markers. Caller-managed `buildInput` files continue to specify their exact inputs.
+Both `scan` and `generate` share these rules. For every selected module that contains export markers or owns a configured Blueprint export, UHT pulls its active C++ translation units from the target's compilation database—adding a new module or `.cpp` file picks it up automatically on the next build. Run `ModHeaderTool discover <project.uproject>` at any time to inspect which modules are selected and whether they contain markers.
 
 ### Host Blueprint API exports
 
-Configure `blueprintExports` in the project's `Config/ModHeaderTool.json`. Each entry
-supplies the saved Blueprint object path as `asset`, a stable `typeId`, and a
-Runtime `module` within the selected scope. UBT attaches the generated compilation units through UHT, so choose an owner with a UE reflection header. The development project includes an example entry for
-`BP_ModBlueprintAPIExportTest`. Set `PublicName` on the Blueprint API declaration
-before publishing; existing declarations with empty names or versions default to their
-current declaration name and `1.0.0`.
+To export APIs authored in a Blueprint asset, add an entry to `blueprintExports` in `Config/ModHeaderTool.json` with:
 
-During generation, the `ModExportBlueprints` commandlet compiles the saved asset and
-passes the compiled `UFunction` signature to MHT. The supported instance API profile
-is `World`, `GameThread`, and `ReturnError`, accepting value scalar inputs and
-returning either a single scalar output or `void`. Configured packages are added to
-the host cook. Use `-MhtBootstrap` to prepare the Editor when needed.
+- `asset`: the saved Blueprint object path
+- `typeId`: a stable public identifier kept across releases
+- `module`: an in-scope Runtime module that owns at least one UE reflected header (so UHT can attach generated C++ wrapper units to it)
 
-Once its object is ready, the game calls `UModAPIHostSubsystem::RegisterWorldProvider`
-and retains the registration handle. It then uses `SetWorldCallerPolicy` to specify
-authorized mods, types, and permissions. The generated `<SDK>API.h` provides
-`Acquire_<object reference type>`. A native mod calls it with its active `UModInstance`
-to connect the generated function tables and acquire a reference for typed SDK method
-calls. The host invokes the underlying Blueprint instance via `ProcessEvent`. Mod
-unload, world closure, or policy replacement revokes the corresponding callers.
+See `BP_ModBlueprintAPIExportTest` in the sample project. Before publishing a new API, set an explicit `PublicName` in the **蓝图Mod导出** panel (existing declarations with blank names or versions fall back to their declaration name and `1.0.0`).
+
+During generation, `ModExportBlueprints` compiles the saved asset, extracts the compiled Kismet `UFunction` signature, and hands the snapshot to MHT. Currently supported Blueprint instance APIs use `World`, `GameThread`, and `ReturnError`, taking pass-by-value boolean/numeric scalars and returning either one scalar or `void`. Configured Blueprint packages are automatically added to the host cook (`-MhtBootstrap` can prepare the Editor beforehand if needed).
+
+At runtime, once the Blueprint instance exists in a World, the host calls `UModAPIHostSubsystem::RegisterWorldProvider` (holding onto the returned handle) and configures authorized mods, types, and permissions with `SetWorldCallerPolicy`. On the mod side, the generated `<SDK>API.h` exposes `Acquire_<object reference type>`, which a C++ mod calls with its active `UModInstance` to connect the function tables and obtain a typed provider handle (reusable for the lifetime of that World until the mod unloads, the World closes, or the host replaces its policy):
+
+```cpp
+FModObject_T_f4f57c0936062c84 Provider;
+if (UUMFDevSDKLibrary::Acquire_FModObject_T_f4f57c0936062c84(*this, Provider))
+{
+	EUMFDevSDKCallOutcome Outcome;
+	int64 ErrorCode;
+	UUMFDevSDKLibrary::TestModAPIExport(Provider, 1.0, Outcome, ErrorCode);
+}
+```
+
+Under the hood, the host dispatches the call to the live Blueprint object via `ProcessEvent`.
 
 ### Host Blueprint Hook and Event exports
 
-Add the saved asset to `blueprintExports`. Declare the Hook or Event in **蓝图Mod导出**,
-then connect the execution input on the corresponding **Hook Point** or
-**Publish Event** node; unconnected declarations are skipped. A Hook's
-original-behavior graph takes and returns the same payload type, and the node exposes
-the result, status, cancellation, and commit state. Events support `Immediate` and
-`NextTick` delivery with optional immediate unsubscription. Payloads may use supported
-scalars, reflected value structs, or UObjects with a generated World view.
+After listing the saved Blueprint in `blueprintExports`, declare your Hook or Event in the **蓝图Mod导出** panel and wire the execution input pin on its **Hook Point** or **Publish Event** node inside a host graph—declarations without a connected execution pin are skipped during export.
 
-In C++, associate the export macro with a member signature on a type that has a World
-identity. An empty `MOD_EXPORT_HOOK()` wraps the original out-of-line definition when
-MBT builds the target. C++ Events can call the generated publisher directly or use
-`HostEndpoint` to emit a publishing member definition. See
-[Generated contracts and payload limits](../../Tools/ModHeaderTool/README.md#world-extension-artifacts).
+- **Hooks:** The Hook's original-behavior graph accepts a payload and returns the same type, while the **Hook Point** node outputs the final value, status code, cancellation flag, and commit flag.
+- **Events:** Support `Immediate` and `NextTick` delivery with optional immediate unsubscription.
+- **Payloads:** May be supported scalars, reflected value structs, or `UObject` types that have a generated World view.
+
+On the C++ side, place `MOD_EXPORT_HOOK()` or `MOD_EXPORT_EVENT(...)` on a member of a type with a configured World identity. An empty `MOD_EXPORT_HOOK()` automatically wraps the out-of-line `.cpp` definition when built through MBT, while C++ Events can either call generated helper functions directly or specify `HostEndpoint` to let MHT generate the member body (see [World extension artifacts](../../Tools/ModHeaderTool/README.md#world-extension-artifacts)).
 
 ### Automatic Hook builds
 
-Run MBT on the host that executes the UBT compile actions, with the UE SDK for the
-selected target installed. Each invocation builds one architecture. Apple target
-link checks use `python3` and Xcode's `nm`. This example builds the Linux Development
-Editor from the repository root.
+Run MBT on the machine executing UBT compile actions, with the target platform's UE SDK installed. Each `build-ue-target` run builds a single architecture (Apple target link verification also requires `python3` and Xcode's `nm`). For example, to build the Linux x64 Development Editor from the repository root:
 
 ```sh
 mbt=UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool
@@ -192,11 +137,9 @@ mbt=UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool
   --target UnrealModFrameworkDevEditor --platform Linux --configuration Development --architecture x64 --mode normal
 ```
 
-The standalone Hook fixtures exercise these UBT platform and architecture identifiers.
-The Win64 `arm64ec` fixture also requires the matching Windows SDK runtime library.
-[Hook target fixtures](../../../../../Scripts/test_hook_targets.py)
+Standalone CI fixtures ([Scripts/test_hook_targets.py](../../../../../Scripts/test_hook_targets.py)) exercise automatic Hook rewriting and linking across these UBT platform and architecture pairs (Win64 `arm64ec` additionally requires the matching Windows SDK runtime libraries):
 
-| UBT platform | Architecture |
+| UBT platform | Tested architectures |
 | --- | --- |
 | `Win64` | `x64`, `arm64`, `arm64ec` |
 | `Linux` | `x64` |
@@ -205,45 +148,22 @@ The Win64 `arm64ec` fixture also requires the matching Windows SDK runtime libra
 | `IOS`, `VisionOS` | `arm64`, `iossimulator` |
 | `TVOS` | `arm64`, `tvossimulator` |
 
-`UMF_MHT_LIBCLANG` selects the build host's `libclang`, and
-`UMF_MHT_CLANG_RESOURCE_DIR` selects its matching resource directory. A project can
-also configure a host-specific library path via `hostLibclang`. The compilation
-database supplies the target SDK, include paths, and architecture. [UE integration builds and automation coverage](../../../../../Docs/DevelopmentWorkflow.md#linux-build-scope)
+`UMF_MHT_LIBCLANG` and `UMF_MHT_CLANG_RESOURCE_DIR` select the build host's `libclang` and Clang resource headers (projects can also set a per-host library path via `hostLibclang`), while target SDK sysroots, include paths, and target triples come directly from UBT's compilation database (see [Linux build scope](../../../../../Docs/DevelopmentWorkflow.md#linux-build-scope)).
 
-MHT and MST identify the annotated member in Clang's AST and write its source copy.
-MBT substitutes that input in the matching UBT action (including nested response
-files) while preserving the original object and link outputs. The generated
-registration references a versioned symbol defined by the copy, so COFF and ELF links
-reject an unpatched original object. On Apple targets, the post-build step also checks
-Mach-O imports with Xcode `nm`, including links that use dynamic lookup. Both C++ and
-the Blueprint thunk enter the same public function. When a bootstrap Editor is needed,
-the tools invoke UBT with `-MhtBootstrap`, producing a Development Editor that calls
-the original function directly. The `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`
-test exercises both entry points.
-
-UBT compiles all generated host and verification units in their owning modules.
+Under the hood, MHT and MST locate the out-of-line C++ definition in Clang's AST and emit a rewritten source copy. MBT swaps that copy into the matching UBT compile action (including nested response files) while keeping original object and binary output paths intact. Because generated registration code references a generation-stamped symbol defined only in the rewritten copy, COFF and ELF linkers automatically fail if an unpatched object file slips through; on Apple targets, MBT additionally inspects Mach-O symbol tables with `nm` to catch unresolved dynamic-lookup Hook imports. Both C++ callers and Blueprint thunks enter the same public function, as verified by `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch` (whereas `-MhtBootstrap` Editor builds compile the original unhooked function directly).
 
 ## Host compilation and linking
 
-UHT registers host and verification units in each owner through `CompileOutput`. MDT places `ClientSource` in the shared SDK Runtime. MBT drives Hook source replacement, refreshes generation watches, and checks the generation-specific symbol in the final image identified by the UBT receipt and module manifest. Each target records its proof in `HostTargets/.../host-link.json`.
+For every reflected owner module listed in the v4 manifest, UHT registers generated `*.umfhost.cpp` wrapper units via `CompileOutput` so UBT compiles them with that module's exact build environment. Exporting modules simply declare a normal `ModAPI` dependency in `.Build.cs` (`ConfigureHost` and `ConfigureHostLibrary` remain as no-friction compatibility helpers for older build rules).
+
+Meanwhile, MDT packages the separate `ClientSource` into the shared SDK Runtime module. On supported single-architecture desktop builds, MBT runs after pending link actions, verifies each owner binary's generation-stamped symbol against the UBT `.target` receipt and `.modules` manifests, and writes `HostTargets/<Target>/<Platform>/<Configuration>/<Architecture>/host-link.json` (see [Final-link association](../../Tools/ModBuildTool/README.md#final-link-association) and [SDK installation](../../Tools/ModSDKTool/README.md#install-and-verify)).
 
 ## Build behavior and limits
 
-Native diagnostics are forwarded to UHT. Nonzero exit codes, invalid results, and
-timeouts fail UHT, and UE's managed process group owns child process lifetimes. With
-UBT host compilation, the adapter uses `CompileOutput` to register `*.umfhost.cpp`
-wrapper units in the owning module. UBT compiles the host units and MHT emits the
-standalone client source as a separate artifact.
-
-UHT no-output/reference, bootstrap, and `-Mode=GenerateClangDatabase` invocations skip
-native generation. Normal builds run MHT after preparation finishes. Complete
-generation is rejected under `-FailIfGeneratedCodeChanges` because MHT has no matching
-dry-run contract, whereas `scan` outputs retain UHT's normal change-checking behavior.
-
-UHT registers tool, configuration, metadata and source inputs as external dependencies. MBT refreshes the watch stamp when the set of inputs changes.
-
-UBT generates the adjacent `.ubtplugin.csproj.props` file containing `EngineDir`
-(ignored by Git). For a direct managed build:
+- **Process management and diagnostics:** Native tool diagnostics forward straight into UHT logs. Nonzero exit codes, malformed outputs, or timeouts fail the UHT pass immediately, and UE's `ManagedProcessGroup` cleans up child processes on cancellation.
+- **Skipped UHT modes:** Reference/no-output passes, `-MhtBootstrap` builds, and `-Mode=GenerateClangDatabase` invocations skip native MHT generation. Passing `-FailIfGeneratedCodeChanges` rejects `generate` mode (since MHT has no dry-run equivalent), while `scan` mode preserves UHT's standard change detection.
+- **Incremental dependency tracking:** UHT registers tool binaries, config files, snapshots, and source inputs via `AddExternalDependency`, and each target variant writes `watch.json` pointing to its v4 manifest. Before compilation, MBT checks watched directories and tracked files, touching `.mht-watch.stamp` whenever UBT needs to invalidate its cached action graph.
+- **Standalone C# build:** UBT automatically generates the gitignored `ModRuntime.ubtplugin.csproj.props` next to the project. To build the C# adapter manually, pass `EngineDir` explicitly:
 
 ```text
 dotnet build ModRuntime.ubtplugin.csproj -c Development -p:EngineDir=<UE>/Engine

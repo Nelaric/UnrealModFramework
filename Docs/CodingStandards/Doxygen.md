@@ -4,42 +4,42 @@ English | [简体中文](Doxygen.zh-CN.md)
 
 # Doxygen Comments
 
-This standard applies to project-authored C++ declarations and their API documentation. Follow it alongside [Epic's C++ coding standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) and the [public API contract rules](API.md). Write public API comments in English, including comments on Blueprint-exposed declarations.
+This standard governs API documentation comments on project-authored C++ declarations. Apply it alongside [Epic's C++ Coding Standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) and our [Public API, Errors, and Documentation](API.md) rules. Write all public API comments in **English**, including comments on Blueprint-exposed declarations.
 
 ## Purpose and coverage
 
-Comments explain intent and observable behavior rather than restating a declaration's spelling or implementation. Keep names descriptive and update comments whenever a contract changes.
+Good API comments explain *intent* and *observable contract behavior*, rather than repeating the function name in prose or narrating internal implementation steps. Keep symbol names self-explanatory, and update comments whenever a contract changes.
 
-- **Must** document every public type, consumer-facing method in the first `public:` section, enum and enum value, constant, mod extension contract, and Blueprint-exposed entry point. Document public properties and fields, including reflected properties, and document protected declarations when derived types rely on their contract. Methods in a second `public:` section reserved for framework integration or Unreal lifecycle calls do not require Doxygen comments, and no other access specifier may appear between the two `public:` sections. Doxygen automatically hides undocumented members without requiring a per-symbol exclusion list.
-- **Should** document private declarations only when their intent or invariant is not clear from the code. Use ordinary `//` comments for local implementation details when needed; they are not API documentation.
-- **Must** place each variable declaration on its own line so its meaning can be documented independently. Place each comment immediately before its declaration, except for the short trailing variable and enum comments described below. Document a public declaration once; do not repeat the same contract at its definition.
-- **Must** start each public header with a Doxygen `@file` comment immediately after the copyright notice so file-level declarations have a documentation context.
+- **Must** document every public type, consumer-facing method in the first `public:` section, enum and enum value, constant, mod extension contract, and Blueprint entry point. Also document public properties and fields (including `UPROPERTY` members), as well as `protected` declarations whose contract subclasses depend on. Methods placed in a second `public:` section for framework wiring or Unreal lifecycle overrides do not need Doxygen comments, and no `protected:` or `private:` access specifier may appear between the two `public:` sections. Doxygen hides undocumented members automatically without per-symbol exclusion lists.
+- **Should** document `private` declarations with Doxygen only when a subtle invariant is not obvious from the code itself. Use plain `//` comments for local implementation notes.
+- **Must** declare one variable per line so each field can be documented cleanly. Place every Doxygen comment immediately above its declaration (except for short trailing `///<` comments on fields and enum values). Write a declaration's contract once in the header—do not duplicate it above the `.cpp` definition.
+- **Must** place a Doxygen `@file` comment right below the copyright header in every public header file so file-scope declarations appear in the generated reference.
 
-## Form and line length
+## Comment forms and line limits
 
-Choose the form by the amount of text needed:
+Pick the comment style based on how much text is needed:
 
-| Form | Rule |
+| Form | When and how to use |
 | --- | --- |
-| `///<` after a variable or enum value | At most 25 characters of comment content on one line. Align the first `/` of every `///<` comment in the same enum to the same visual column. If any enum value needs more than 25 characters, switch every value in that enum to a leading comment. |
-| `///` on the line before a declaration | At most 75 characters of comment content on one line. No `@` tag is required. |
-| `/** ... */` before a declaration | Use when the description does not fit in a single 75-character line. Start every paragraph with a Doxygen `@` tag: typically `@brief` first, followed by `@details`, `@par`, or a specific tag. Do not substitute multiple untagged `///` lines. |
+| `///<` after a field or enum value | Single-line trailing comment with **at most 25 characters** of content. Within an enum, align the first `/` of every `///<` to the same visual column (counting tabs as 4-space stops). If *any* value in an enum needs more than 25 characters, switch *all* values in that enum to leading comments. |
+| `///` above a declaration | Single-line leading comment with **at most 75 characters** of content. Do not add `@brief` or other `@` tags. |
+| `/** ... */` above a declaration | Multi-line block used whenever the comment exceeds a single 75-character line. Begin every paragraph with an `@` tag—typically `@brief` first, followed by `@details`, `@par`, or parameter/return tags. Never stack multiple untagged `///` lines. |
 
-For every form, count spaces and Doxygen tags, but exclude indentation, the comment marker, and its separating space. Each physical comment-content line has a 75-character maximum, while `///<` has the stricter 25-character maximum. Count tabs as four-column stops when aligning enum comments. A blank comment line separates paragraphs; wrapped lines within the same paragraph do not repeat its tag. Place each tag on its own line and use `@` consistently for commands such as `@file`, `@param`, and `@return`. A comment directly preceding its declaration does not need `@class`, `@fn`, or `@var`. The [CI style check](BuildAndReview.md#local-checks) enforces these mechanical rules.
+Character counts include spaces and `@` tags inside the comment body, excluding leading indentation, the comment delimiter (`///`, `///<`, `/**`, `*`), and the single space after it. Every physical line of comment content caps at **75 characters** (`///<` caps at **25**). Separate paragraphs with a blank `*` line; continuation lines within the same paragraph do not repeat the paragraph's tag. Put each `@` tag at the start of its own line and always use `@` rather than `\` (e.g., `@file`, `@param`, `@return`). Comments placed directly above a declaration do not need `@class`, `@fn`, or `@var`. CI enforces these rules automatically (see [Build Scripts, Tooling, and Review](BuildAndReview.md)).
 
-The comment text in this example is exactly 75 characters:
+For example, the comment body below is exactly 75 characters and fits on a single `///` line:
 
 ```cpp
 /// The world keeps the settings chosen by its level until the map is unloaded.
 ```
 
-This sentence has exactly 80 characters and exceeds the limit on one line:
+By contrast, this 80-character sentence exceeds the single-line limit:
 
 ```text
 The map retains the world settings chosen by its level until this world unloads.
 ```
 
-Wrap the same sentence at a word boundary without changing its meaning:
+Switch to a tagged `/** ... */` block and wrap cleanly at a word boundary:
 
 ```cpp
 /** @brief The map retains the world settings chosen by its level
@@ -47,40 +47,40 @@ Wrap the same sentence at a word boundary without changing its meaning:
  */
 ```
 
-## What to explain
+## What to cover
 
-| Declaration | Required content when relevant |
+| Declaration | Contract details to include when applicable |
 | --- | --- |
-| Class or struct | The problem it solves, its responsibility, and how callers use it. |
-| Method or function | Purpose, valid calling thread, callback thread, preconditions, observable side effects, and failure behavior. |
-| Parameter | Meaning, unit, valid range, special values, and input or output role. |
-| Return value | Meaning of results and status values. Omit `@return` when the purpose statement already explains a simple result. |
-| Property, field, or constant | Meaning, unit, range, special values, ownership, or lifetime. |
-| Enum and value | The states or outcomes represented and the meaning of each value. |
-| Asynchronous operation | Cancellation handle, terminal callbacks, timeout and failure semantics, and behavior when cancellation comes too late. |
+| Class or struct | Problem it solves, core responsibility, and typical usage pattern. |
+| Method or function | Purpose, allowed calling thread, callback thread, preconditions, observable side effects, and failure behavior. |
+| Parameter | Meaning, units, valid bounds, sentinel values, and in/out direction. |
+| Return value | Meaning of returned data or status codes. Omit `@return` when `@brief` already makes a simple return value obvious, or when returning `void`. |
+| Property, field, or constant | Meaning, units, bounds, special values, ownership, and lifetime. |
+| Enum and enumerators | Overall state/outcome domain plus what each individual value means. |
+| Asynchronous operation | Cancellation handle, terminal callback guarantees, timeout/error rules, and behavior if cancelled after completion. |
 
 ## Common Doxygen tags
 
-Use these tags when they add useful contract information; they are not a checklist to include in every comment.
+Use tags only when they add genuine contract clarity—never treat this table as boilerplate to paste onto every function:
 
-| Tag | Use |
+| Tag | Purpose |
 | --- | --- |
-| `@file FileName.h` | Identify a public header so file-level declarations appear in the API documentation. |
-| `@brief Description` | Give the short summary of a multi-line comment. |
-| `@details Description` | Start a detailed prose paragraph after the summary. |
-| `@par [Title]` | Start another prose paragraph, optionally with a heading. Put its text on the following line. |
-| `@param Name Description` | Describe an input parameter; the name must match the declaration. |
-| `@param[out] Name Description` | Describe an output parameter. |
-| `@param[in,out] Name Description` | Describe a parameter read and modified by the function. |
-| `@tparam Name Description` | Explain a template parameter whose role or constraints are not evident. |
-| `@return Description` | Explain a return value when the purpose statement does not already make its meaning clear. Omit for `void`. |
-| `@pre Description` / `@post Description` | State a caller precondition or an observable guarantee after the call. |
-| `@note Description` | Add a useful usage detail that is not part of the main description. |
-| `@warning Description` | Call out a condition that may lead to incorrect use or data loss. |
-| `@see Reference` | Link a directly related type or operation. |
-| `@deprecated Description` | State that an API is deprecated and name its replacement or migration path. |
+| `@file FileName.h` | Registers a public header so file-level declarations appear in Doxygen output. |
+| `@brief Description` | Opens a multi-line comment with a concise summary. |
+| `@details Description` | Starts an extended explanation paragraph after `@brief`. |
+| `@par [Title]` | Starts an additional prose paragraph (with an optional heading), placing body text on the next line. |
+| `@param Name Description` | Documents an input parameter (`Name` must match the C++ signature). |
+| `@param[out] Name Description` | Documents an output parameter. |
+| `@param[in,out] Name Description` | Documents a parameter both read and mutated by the call. |
+| `@tparam Name Description` | Explains a non-obvious template parameter or constraint. |
+| `@return Description` | Explains a return value not already covered by `@brief` (omit for `void`). |
+| `@pre Description` / `@post Description` | States a caller precondition or an observable postcondition. |
+| `@note Description` | Highlights a helpful usage detail outside the main flow. |
+| `@warning Description` | Warns about misuse that could cause bugs, crashes, or data loss. |
+| `@see Reference` | Cross-references a closely related type or method. |
+| `@deprecated Description` | Marks a symbol deprecated and points callers to its replacement. |
 
-Place each tag on its own comment line. Do not add empty tags or repeat a parameter or symbol name as its description. Keep tag text within the 75-character comment-content limit by wrapping longer explanations onto continuation lines.
+Start each tag on a new line, never leave a tag empty, and never restate a parameter's identifier as its description. Wrap long tag descriptions onto continuation lines to stay within the 75-character content limit:
 
 ```cpp
 /** @brief Returns whether an activity may start with this player count.
@@ -102,7 +102,7 @@ enum class ETaskResult
 };
 ```
 
-Whenever any enum value needs more than 25 characters, use leading comments for every value in the enum. Any value needing more than 75 characters uses a tagged `/** ... */` block under the general rule.
+If even one enumerator needs more than 25 characters, convert the entire enum to leading comments (and use `/** ... */` for any value exceeding 75 characters):
 
 ```cpp
 enum class ETaskResult
@@ -117,4 +117,4 @@ enum class ETaskResult
 
 ## Review
 
-CI checks public-header `@file` comments, the presence of first-section method comments, Doxygen documentation errors, and mechanical comment style. Reviewers judge whether the English comments accurately describe the code contract, including relevant ownership and runtime behavior. Run the [documentation and text checks](BuildAndReview.md#local-checks) relevant to the change. A warning-free Doxygen build does not replace content review.
+CI checks `@file` headers, first-section method coverage, zero-warning Doxygen generation, and mechanical formatting. Reviewers verify that the English prose accurately captures the C++ contract, ownership model, and runtime behavior. Run the local documentation checks in [Build Scripts, Tooling, and Review](BuildAndReview.md) before opening a pull request.

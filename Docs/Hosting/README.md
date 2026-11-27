@@ -2,27 +2,34 @@
 
 English | [简体中文](README.zh-CN.md)
 
-# Organization documentation hosting
+# Organization Documentation Hosting
 
-Organization documentation is hosted at `https://docs.nelaric.com/<repository>/<section>/`. The API site for this project is served at `https://docs.nelaric.com/UnrealModFramework/API/` (`API` is case-sensitive), with generated pages and assets stored together in that directory.
+Nelaric project documentation is served under `https://docs.nelaric.com/<repository>/<section>/`. For UnrealModFramework, the API reference lives at `https://docs.nelaric.com/UnrealModFramework/API/` (`API` is case-sensitive), where all generated HTML pages and static assets are deployed together.
 
-## Active project publishing
+## Active publishing workflow
 
-This repository uses GitHub Actions as its Pages source. When `API_PAGES_ENABLED=true`, pushes to `main` and manual workflow runs build and publish the API site. The build job downloads the pinned Doxygen archive (retrying transient failures and falling back to a mirror if needed), verifies its SHA-256 digest before extraction, and uploads a Pages artifact named after the current run attempt. The deployment job checks artifact visibility by ID—retrying once after 15 seconds if the initial check fails—and then deploys by artifact name. [API Pages workflow](../../.github/workflows/pages.yml)
+This repository publishes its Pages site through GitHub Actions ([pages.yml](../../.github/workflows/pages.yml)). Once `API_PAGES_ENABLED=true` is set, pushes to `main` and manual workflow dispatches build and deploy the site:
 
-## GitHub Pages topology
+1. **Build job:** Downloads the pinned Doxygen archive (retrying transient network errors and falling back to a mirror if needed), verifies its SHA-256 digest before extraction, builds the site, and uploads a Pages artifact named after the current run attempt.
+2. **Deploy job:** Confirms artifact visibility by ID—waiting 15 seconds for one retry if needed—before deploying the site by artifact name.
 
-The organization site repository `Nelaric/nelaric.github.io` owns the custom domain `docs.nelaric.com`. Project repositories inherit this domain while retaining their repository-name path, so leave the custom domain of `Nelaric/UnrealModFramework` unset.
+## Preview locally
 
-The project's API Pages workflow builds the API landing pages, current public headers, and coding standards with Doxygen, copies the complete output into `API/` inside the Pages artifact, and adds a project-root redirect to `API/`. As a result, the existing GitHub Pages project-root URL continues to work as an entry point after migration, though direct links to individual HTML files at the former root are not redirected by this entry page.
+Install the Doxygen version pinned in `pages.yml` and run `python Scripts/run_doxygen.py` from the repository root, then open `.tools/api-docs/html/index.html` to inspect the [API entry page](../API/README.md), coding standards, and generated C++ reference. Local builds run in strict mode and fail on any documentation warning.
+
+## GitHub Pages domain topology
+
+The organization site repository `Nelaric/nelaric.github.io` owns the custom domain `docs.nelaric.com`. Individual project repositories inherit that custom domain automatically under their `/<repository>/` subpath, so leave the custom domain setting on `Nelaric/UnrealModFramework` blank.
+
+During packaging, the workflow places the complete Doxygen HTML output under `API/` inside the Pages artifact and writes a lightweight redirect page at the project root pointing to `API/`. That keeps the root project URL (`https://docs.nelaric.com/UnrealModFramework/`) working as a clean entry point, although old deep links to individual HTML files directly under the root are not redirected.
 
 ## Initial setup
 
-1. Use the public organization site repository `Nelaric/nelaric.github.io` (create it only if it does not already exist). For initial setup, copy the contents of `Setup/OrganizationPages/`—including `.nojekyll`—to its root directory. When adding this project to an established site, preserve the existing organization index and other project routes. These files serve as a deployment template; the `CNAME` file must contain only the plain domain name without a copyright comment, as required by GitHub.
-2. Publish the organization site with GitHub Pages from the root directory of its default branch, and set its custom domain to `docs.nelaric.com` before adding the DNS record. The provided root page indexes both UnrealModFramework and Nelaric Unreal Gameplay documentation.
-3. Add the record below in the authoritative DNS provider for `nelaric.com`. If Alibaba Cloud hosts the DNS zone, configure it in its public DNS resolution console. Note that the domain registrar and the authoritative DNS provider may differ.
-4. Set this project's Pages publishing source to GitHub Actions and leave its custom domain unset. Set the repository Actions variable `API_PAGES_ENABLED=true` and run the API Pages workflow from `main` to enable the build and deployment jobs.
-5. Once DNS validation and certificate issuance complete, enable Enforce HTTPS for the organization site. Verify the organization root, project root, API index, an individual API page, and its styles and scripts over HTTPS.
+1. Prepare the public organization repository `Nelaric/nelaric.github.io` (create it only if it does not exist yet). On a brand-new site, copy everything in `Setup/OrganizationPages/`—including `.nojekyll`—to its root directory; on an existing site, merge our route into the existing index without overwriting other projects. Note that GitHub requires `CNAME` to contain only the bare domain name with no copyright comment.
+2. Enable GitHub Pages on `Nelaric/nelaric.github.io` from the root of its default branch, and configure `docs.nelaric.com` as its custom domain *before* creating the DNS record. The template landing page indexes both UnrealModFramework and Nelaric Unreal Gameplay.
+3. Add the `CNAME` record below at the authoritative DNS provider for `nelaric.com` (for example, in the Alibaba Cloud Public DNS console if Alibaba Cloud hosts the zone—remember that the domain registrar and authoritative DNS host may be different providers).
+4. In `Nelaric/UnrealModFramework`, set the GitHub Pages source to **GitHub Actions**, leave its custom domain empty, set the Actions variable `API_PAGES_ENABLED=true`, and trigger the API Pages workflow on `main`.
+5. After DNS propagation and TLS certificate provisioning finish, turn on **Enforce HTTPS** on the organization site. Verify the organization root, project root redirect, `API/` landing page, an individual class/header page, and CSS/JS assets over HTTPS.
 
 | DNS field | Value |
 | --- | --- |
@@ -31,12 +38,12 @@ The project's API Pages workflow builds the API landing pages, current public he
 | Host record | `docs` |
 | Value | `nelaric.github.io` |
 | Request source | Default |
-| TTL | 600 seconds, or the provider's default |
+| TTL | 600 seconds (or provider default) |
 
-Enter only the host name as the DNS value; GitHub Pages supplies the repository and API paths. Future project sites should publish their own section directories while inheriting the organization's domain.
+Enter only `nelaric.github.io` as the `CNAME` target; GitHub Pages routes `/<repository>/<section>/` paths automatically. Future repositories should follow the same pattern, publishing their own section subdirectories while inheriting the organization domain.
 
 ## References
 
-- [GitHub: using a custom domain across multiple repositories](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/about-custom-domains-and-github-pages#using-a-custom-domain-across-multiple-repositories)
-- [GitHub: managing a custom domain](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site)
-- [Alibaba Cloud: adding public DNS records](https://help.aliyun.com/zh/dns/pubz-add-parsing-record)
+- [GitHub Docs: Using a custom domain across multiple repositories](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/about-custom-domains-and-github-pages#using-a-custom-domain-across-multiple-repositories)
+- [GitHub Docs: Managing a custom domain for your GitHub Pages site](https://docs.github.com/en/pages/configuring-a-custom-domain-for-your-github-pages-site/managing-a-custom-domain-for-your-github-pages-site)
+- [Alibaba Cloud: Adding public DNS records](https://help.aliyun.com/zh/dns/pubz-add-parsing-record)

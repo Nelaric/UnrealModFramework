@@ -4,42 +4,54 @@
 
 # 参与 UnrealModFramework 开发
 
-感谢你参与 UnrealModFramework 的建设。我们欢迎使用英语或中文提交问题报告、设计反馈、文档改进和代码贡献。
+感谢你关注并参与 UnrealModFramework。我们欢迎使用中文或英文提交缺陷报告、设计讨论、文档改进与代码贡献。
 
-`UnrealModFramework/` 目录包含框架的 Unreal 项目。提出新能力时，请说明宿主游戏集成或模组制作中遇到的问题以及预期流程。
+框架的宿主 Unreal 工程位于 `UnrealModFramework/` 目录。提议新功能时，建议从宿主游戏接入或 Mod 制作中的具体痛点出发，说明预期的开发与使用流程。
 
-## 创建 Issue 前
+## 提交 Issue 前
 
-请先搜索[现有 Issue](https://github.com/Nelaric/UnrealModFramework/issues)，并阅读[项目概览](README.zh-CN.md)与[编码规范](Docs/CodingStandards/README.zh-CN.md)，然后通过 [Issue 选择页](https://github.com/Nelaric/UnrealModFramework/issues/new/choose)选择合适的表单：
+请先搜索[现有 Issue](https://github.com/Nelaric/UnrealModFramework/issues) 避免重复，并浏览[项目概览](README.zh-CN.md)与[编码规范](Docs/CodingStandards/README.zh-CN.md)了解背景，随后在 [Issue 选择页](https://github.com/Nelaric/UnrealModFramework/issues/new/choose)选用对应的表单：
 
-- **缺陷报告**：说明复现步骤、预期行为与实际行为，以及相关环境信息。若涉及 Unreal Engine，请提供引擎版本、操作系统，以及受影响的组件与构建目标（例如 Game、Editor 或独立构建的制作插件）。
-- **能力提案**：说明开发者遇到的问题、使用场景、期望行为，以及该能力应由哪一层负责。可附上公开 API 草案（非必需）。
-- **文档问题**：附上对应页面或章节链接，并说明内容中不清晰、不正确或缺失之处。
+- **缺陷报告（Bug report）**：提供清晰的复现步骤、预期行为与实际结果，以及运行环境。涉及 Unreal Engine 时，请写明引擎版本、操作系统，以及受影响的模块与构建目标（如 Game、Editor 或独立构建的制作插件）。
+- **能力提案（Capability proposal）**：说明要解决的开发问题、使用场景、期望行为，以及该职责应归属哪一层；如有公开 API 设想可一并附上（非必需）。
+- **文档问题（Documentation issue）**：附上具体页面或小节链接，指出表述不清、过时或遗漏之处。
 
-不属于上述类别的话题可使用空白 Issue。每个 Issue 请聚焦于单个问题或提案，切勿在公开报告中包含私人信息。
+不属于以上三类的话题可使用空白 Issue。请让每个 Issue 聚焦单一问题或提案，切勿在公开内容中附带密钥、凭据或个人敏感信息。
 
-## 项目范围
+## 项目范围与职责边界
 
-项目开发基线为 Unreal Engine 5.6。本仓库包含开发宿主工程和游戏侧 `ModRuntime` 插件，独立的 `ModDevelopmentSDKEditor` 插件由 MDT 生成并构建。当前实现与规划能力详见[项目概览](README.zh-CN.md)和[模块边界](Docs/CodingStandards/Modules.zh-CN.md)。
+本项目以 Unreal Engine 5.6 为开发基线。仓库内包含开发宿主工程及 `ModRuntime` 插件；ModSDKTool（MDT）负责生成游戏侧 SDK 源码，并编译配套的作者侧 SDK 与独立的 `ModDevelopmentSDKEditor` 插件（参见[项目概览](README.zh-CN.md)与[模块与依赖边界](Docs/CodingStandards/Modules.zh-CN.md)）。
 
-提出改动时，请明确其归属：运行时、制作编辑器、共享模组包协议、导出/构建工具，还是宿主游戏 SDK。宿主游戏的特定行为应保持在可复用框架模块之外。若涉及运行时扩展改动，请注明受影响的清单或 SDK 契约版本、目标配置与宿主接入点；若涉及公开 API、原生模组 ABI、模组包兼容性或独立构建，请一并说明影响。
+规划改动时，请先厘清职责归属：游戏侧运行时、Mod 制作编辑器、`.mod` 包协议、导出与构建工具链，还是特定游戏的 SDK。可复用的框架模块不应混入具体游戏的业务规则。若改动涉及运行时扩展，请注明受影响的清单或 SDK 契约版本、构建目标及宿主接入点；若影响公开 API、原生 C ABI、`.mod` 包兼容性或独立插件构建，也请一并说明。
 
-## 创建 Pull Request 前
+## 准备 Pull Request
 
-贡献代码前，建议先创建 Issue，讨论改动是否必要、是否契合项目定位以及预期范围。提前达成共识有助于降低审查成本，也能提高 PR 被合入的几率。小型修复与文档勘误仍可直接提交 PR。
+对于非琐碎的代码改动，建议先通过 Issue 讨论需求是否契合框架定位及合理的改动边界，达成共识后再编码，这样审查会顺畅许多。小范围缺陷修复与文档修订可直接发起 PR。
 
-如果你不是本仓库成员，请先 Fork 仓库并在自己的 Fork 中创建分支，再从该分支向 `Nelaric/UnrealModFramework:main` 发起 PR。
+如果你没有本仓库的直接推送权限，请先 Fork 仓库，在自己的 Fork 中创建特性分支，再向 `Nelaric/UnrealModFramework:main` 提交 PR。
 
-请保持 PR 主题集中，并使用 [PR 模板](.github/pull_request_template.md)说明待解决的问题、所选方案、公开 API 或集成影响以及验证方式。如有相关 Issue 或能力提案请予以关联，仅当该 PR 完全解决对应问题时才使用自动关闭关键词。对于纯文档改动的设计与兼容性影响、不存在风险或规范例外的情况，以及无需特别提示审查者的情况，可在对应栏目填写 `None`；否则请向审查者指出需要重点关注的文件、设计决策、疑问或权衡。若申请项目规则例外，请写明具体规则、影响范围、理由以及评估过的替代方案。
+每个 PR 请保持主题单一，并按 [PR 模板](.github/pull_request_template.md)填写说明：
 
-所有代码贡献均须遵守 [Epic Games 的 Unreal Engine C++ 编码规范](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine)及[项目编码规范](Docs/CodingStandards/README.zh-CN.md)。项目规范同时规定了文本编码、本地检查，以及允许使用的 PR 标题、分支名和提交信息前缀（例如分支名 `docs/clarify-contribution-guide`、PR 标题或提交主题 `docs: clarify contribution guide`）。
+- 简述背景问题、实现方案、公开 API 或集成影响，以及验证步骤与结果。
+- 关联对应的 Issue 或提案；仅当 PR 完整解决该 Issue 时才使用自动关闭关键词。
+- 纯文档改动的“设计与兼容性”、无风险或无规范例外的“风险与例外”、无需额外提示的“审查者注意事项”可填写 `None`；其余情况请直接标出需要重点审阅的文件、设计权衡或待确认问题。
+- 如需申请项目编码规范例外，请列明所涉条款、影响范围、理由及评估过的替代方案。
 
-请按[构建脚本、工具与审查规范](Docs/CodingStandards/BuildAndReview.zh-CN.md)运行与改动相关的检查，并在 PR 中注明已执行的检查以及因工具或环境限制未能运行的检查。
+所有代码贡献均须同时遵循 [Epic Games 的 Unreal Engine C++ 编码规范](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine)与[本项目编码规范](Docs/CodingStandards/README.zh-CN.md)。后者对文件编码、本地检查脚本，以及分支名、提交标题和 PR 标题的前缀格式均有明确规定（例如分支名 `docs/clarify-contribution-guide`，提交或 PR 标题 `docs: clarify contribution guide`）。
 
-GitHub Actions 会检查命名、格式与文本规范、API 文档，以及 Linux 环境下的自动 Hook 目标生成与 MST 源码分析用例。可信 PR 编译工作流在验证准确的提交版本后，会触发 CircleCI 使用 Unreal Engine 5.6.1 编译 Linux Game 和 Editor 目标；其中 Editor Job 还会运行 Hook 分发自动化测试并构建独立制作插件。该流程同时支持 Fork PR 与源仓库 PR，贡献者无需 CircleCI 账号或额外 CI 配置。若 Fork PR 涉及修改受保护的 CI 工作流、自动化脚本、Unreal 或 CMake 构建脚本、可执行辅助脚本或插件描述文件，须由维护者在源仓库分支中处理。检查顺序与构建范围详见[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)。每项独立框架功能都必须配备自动化测试，但 CI 不强制设定数值化的代码覆盖率门槛。
+### 本地验证与 CI
 
-所有 PR 均以 `main` 为目标分支。仓库分支保护要求在合并前通过六项检查——命名、格式与文本、API 文档、Linux Game、Linux Editor 及 Linux 构建汇总——并获得最后一次推送者以外的维护者批准。维护者将从正确性、模块边界、API 契约、性能、安全性，以及与 Unreal Engine 5.6 及更高版本的兼容性等维度进行审查。
+提交审查前，请参照[构建脚本、工具与审查](Docs/CodingStandards/BuildAndReview.zh-CN.md)运行与改动相关的本地检查，并在 PR 描述中如实列出已执行的检查及受环境所限未能运行的项目。修改公开头文件注释或规范文档时，可在本地用 Doxygen 预览站点效果（见[本地预览](Docs/Hosting/README.zh-CN.md#本地预览)）；修改 SDK 运行时接入时，可按[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)执行共享 Runtime 的打包回归。每项独立的框架能力都应配备验证外部可观察行为的自动化测试，CI 不强制要求固定数值的行覆盖率。
+
+PR 提交后会自动运行两类流水线：
+
+1. **GitHub Actions**：检查分支/提交/PR 命名、代码格式、文本编码与换行符、Doxygen API 文档，并在 Linux 环境下运行跨平台自动 Hook 编译链接用例与 MST 源码分析测试。
+2. **可信 Linux PR 编译**：核验当前提交后触发 CircleCI，使用 Unreal Engine 5.6.1 并行编译 Linux Game 与 Editor 目标；其中 Editor 任务还会执行 Hook 分发自动化测试并独立构建 `ModDevelopmentSDKEditor`。该流程原生支持 Fork PR，贡献者无需注册或配置 CircleCI。
+
+出于安全隔离考虑，若 Fork PR 修改了受保护的 CI 工作流、自动化脚本、Unreal 或 CMake 构建脚本、可执行辅助脚本，或 `.uproject`/`.uplugin` 描述文件，可信编译策略会拒绝自动触发，需由维护者在源仓库分支中协助验证。完整检查顺序与编译范围详见[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)。
+
+所有 PR 均合入 `main`。分支保护要求命名、格式与文本、API 文档、Linux Game、Linux Editor 及 Linux 构建汇总共六项检查全部通过，并由非最后一次推送者的维护者批准。维护者将围绕正确性、模块边界、API 契约、性能、安全性及 UE 5.6+ 兼容性开展审查。
 
 ## 大文件与 Git LFS
 
-在新增大型二进制依赖、引入 Git LFS 跟踪或修改 LFS 规则前，请先创建 Issue，与维护者商定存储、许可及上传方案。本仓库未配置 Git LFS 存储端点，拥有 GitHub Fork 的推送权限也并不等同于拥有独立存储服务的访问权限。提交时请排除构建产物、缓存、本地 Agent 指令、凭据与个人配置，并保留 [NOTICE.md](NOTICE.md) 中的第三方归属说明。
+在引入体积较大的二进制依赖、启用 Git LFS 跟踪或调整 LFS 规则之前，请先创建 Issue 与维护者确认存储方案和许可合规性。本仓库未配置 Git LFS 远端服务，向个人 GitHub Fork 推送的权限也无法访问外部大文件存储。提交代码时请注意排除构建产物、缓存、本地 AI Agent 指令文件、密钥凭据和个人开发环境配置，并确保 [NOTICE.md](NOTICE.md) 中的第三方版权归属完整准确。

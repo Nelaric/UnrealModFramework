@@ -4,34 +4,32 @@ English | [简体中文](Cpp.zh-CN.md)
 
 # C++ Style and Headers
 
-Follow both the [Epic C++ standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) and the project rules below. Report any conflict in an issue instead of choosing one rule over the other. The project uses clang-format for layout; run the pinned version before submitting a PR.
+Follow both [Epic's C++ Coding Standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) and the project rules below. If the two ever disagree, report the conflict in an issue rather than picking one side ad hoc. Run the repository's pinned `clang-format` before opening a pull request.
 
-Use tabs for block indentation in C++ and UE C# build scripts, with a tab width of four characters. Spaces may be used to align text after non-tab characters. This follows Epic's indentation rule and is enforced by the formatter configuration.
+Indent code blocks in C++ and Unreal C# build scripts with tabs set to a 4-character stop; spaces are permitted after non-tab characters for alignment. Both match Epic's indentation rule and are enforced by our formatter config.
 
-## Names and types
+## Naming and types
 
-- Follow all applicable Unreal type prefixes and naming rules, including `A`, `U`, `F`, `I`, and `E` where required. These prefixes are independent of the optional project prefix.
-- Use `Mod::` as the single top-level namespace for project-owned non-reflected C++ types and APIs, adding a nested domain namespace where helpful—for example, `Mod::FModId` and `Mod::IModService`. Unreal Header Tool does not support namespaces for reflected types, so declare reflected types at global scope.
-- Types inside `Mod::` and its nested namespaces must not carry the `Nelaric` project prefix; use names such as `Mod::FModId`, not `Mod::FNelaricModId`, while keeping required Unreal type prefixes. The `Nelaric` project prefix is optional for modules, files, globally scoped types, and log categories. Use descriptive names and keep related declarations, files, and references consistent.
-- Names must not collide with existing engine, third-party, or project names. A project prefix may be used to distinguish colliding names; for example, `UNelaricModContext` and `UNelaricModComponent` distinguish framework types from Unreal's `UObject` and `UActorComponent`. Check type names, module names, and header filenames before introducing a new name.
-- Name modules and log categories consistently after their owning domain. Prefer names that describe mechanism or responsibility rather than a particular game's rules.
-- Follow Epic's standard-library guidance. Prefer UE containers and strings, and avoid C++ standard-library containers and strings except in interoperability code. Other standard-library facilities may be used where Epic permits them and they produce better results. UE-facing cross-module APIs use UE types; the external native mod C ABI uses fixed-width C-compatible types. Do not mix UE and standard-library conventions within the same API.
-- Prefer typed constants and `constexpr` over new macros. Use required UE macros normally. Any new project macro requires a documented justification and must follow Epic's uppercase `UE_` naming rule; cross-module feature switches must be defined centrally.
+- **Keep Unreal type prefixes:** Apply standard Unreal prefixes (`A`, `U`, `F`, `I`, `E`, etc.) wherever Epic's rules call for them, regardless of whether a name also uses a project prefix.
+- **Namespace non-reflected C++ APIs under `Mod::`:** Put project-owned non-reflected types and functions inside the top-level `Mod::` namespace, adding nested domain namespaces where helpful (for example, `Mod::FModId` or `Mod::Loader::IModLoaderModule`). Because Unreal Header Tool does not support namespaces on reflected types, keep `UCLASS`, `USTRUCT`, `UENUM`, and `UINTERFACE` declarations at global scope.
+- **Avoid redundant prefixes inside `Mod::`:** Never add `Nelaric` to names already inside `Mod::`—write `Mod::FModId`, not `Mod::FNelaricModId`, while keeping the `F`/`I`/`E` prefix. Outside `Mod::` (modules, source files, global reflected types, and log categories), the `Nelaric` prefix is optional; use it when needed to prevent collisions with Unreal or third-party symbols (such as `UNelaricModContext` or `UNelaricModComponent`). Always check existing engine, plugin, and project names before introducing a new identifier.
+- **Name by mechanism, not by game:** Name modules and log categories consistently after the domain responsibility they own rather than a specific game's mechanics.
+- **Prefer Unreal containers and strings:** Follow Epic's standard-library guidance—use UE containers and string types in UE modules, reserving `std::` containers and strings for external interoperability layers and standalone tools. Other C++ standard-library utilities are welcome where Epic allows them and they make the code clearer. Keep each boundary consistent: UE-facing cross-module APIs use UE types, while the external C ABI uses fixed-width C types.
+- **Prefer `constexpr` and typed constants over macros:** Use standard Unreal reflection and module macros normally, but avoid inventing new preprocessor macros when `constexpr` values, inline functions, or templates work. Any new project macro must be justified in review, follow Epic's uppercase `UE_` naming convention, and live in a central header if shared across modules.
 
-## Headers and dependencies
+## Header hygiene and dependencies
 
-- Public headers must be self-contained: a consumer should be able to include any public header on its own without relying on incidental include order. Include what the declaration needs and forward-declare where sufficient.
-- Place implementation-only includes and declarations in `Private`. A Runtime public header must not include a concrete optional integration or vendor SDK header.
-- Keep header dependencies minimal. Do not pull in a broad include solely to obtain a forward-declarable type.
-- Follow Unreal Header Tool requirements for reflected declarations, including the placement of generated headers. These requirements take precedence over mechanical include sorting.
+- **Self-contained public headers:** Every header under `Public/` must compile cleanly when included first in an otherwise empty translation unit. Include everything the header's own declarations directly need, and forward-declare wherever a pointer or reference suffices.
+- **Keep implementation details private:** Put internal headers and heavy includes under `Private/`. Public Runtime headers must never pull in optional integration headers or third-party vendor SDK headers.
+- **Respect UHT include order:** Follow Unreal Header Tool rules for reflected headers—especially keeping `*.generated.h` as the last `#include` in the header—even when mechanical include sorting would place it elsewhere.
 
-## UCLASS exports
+## `UCLASS` symbol exports
 
-- Every project-authored `UCLASS` must explicitly include `MinimalAPI` in its `UCLASS(...)` declaration. This applies across all modules and to classes in both `Public` and `Private`, including abstract, internal, editor, and test classes.
-- Do not place the owning module's `*_API` macro on a `UCLASS` class declaration. Whole-class export is forbidden; retain `MinimalAPI` even when adding cross-module functionality.
-- Export only individual non-inline methods that require cross-module C++ linkage by placing the owning module's `*_API` macro on those method declarations. Include constructors and other methods required for supported cross-module derivation where necessary. Do not export implementation-only methods merely because they are public or reflected.
-- `MinimalAPI` controls native symbol exports; it does not replace `UFUNCTION` or Blueprint exposure specifiers. Type visibility alone does not export non-inline method implementations. See Epic's [class specifiers](https://dev.epicgames.com/documentation/unreal-engine/class-specifiers) for the engine semantics.
+- **Always specify `MinimalAPI`:** Every project-authored `UCLASS`—whether in `Public` or `Private`, and including abstract, editor, internal, and test classes—must include `MinimalAPI` in its `UCLASS(...)` specifier list.
+- **Never export an entire `UCLASS`:** Do not place a module `*_API` macro on the `class` keyword of a `UCLASS`. Keep `MinimalAPI` even when methods on the class are called across modules.
+- **Export individual methods selectively:** Add the module's `*_API` macro only to the specific non-inline methods (and constructors or virtual overrides needed for supported cross-module subclassing) that require cross-module C++ linkage. Do not export internal helper methods just because they happen to be `public` or `UFUNCTION`.
+- **Understand what `MinimalAPI` controls:** `MinimalAPI` governs native C++ symbol exports only—it does not replace `UFUNCTION` or Blueprint visibility specifiers, and type metadata visibility alone does not export non-inline method bodies (see Epic's [Class Specifiers](https://dev.epicgames.com/documentation/unreal-engine/class-specifiers) documentation).
 
-## Source text
+## File encoding and line endings
 
-Code and human-written documentation use UTF-8 with BOM and CRLF. Tool configuration and executable scripts may use UTF-8 without BOM and LF where required for interoperability; see [Build scripts and tooling](BuildAndReview.md) for the list of exceptions. Do not mix newline styles within a file.
+C++ source/headers and human-written Markdown files use **UTF-8 with BOM** and **CRLF** line endings. Tooling configs, JSON descriptors, and scripts use **UTF-8 without BOM** and **LF** where required for cross-platform tool compatibility; see [Build Scripts, Tooling, and Review](BuildAndReview.md) for the exact breakdown. Never mix CRLF and LF in the same file.

@@ -4,42 +4,54 @@ English | [简体中文](CONTRIBUTING.zh-CN.md)
 
 # Contributing to UnrealModFramework
 
-Thank you for helping build UnrealModFramework. Issue reports, design feedback, documentation improvements, and code contributions are welcome in English or Chinese.
+Thank you for your interest in UnrealModFramework. Bug reports, design feedback, documentation improvements, and code contributions are welcome in either English or Chinese.
 
-The `UnrealModFramework/` directory contains the framework's Unreal project. When proposing a capability, describe the host-game integration or mod-authoring problem and the intended workflow.
+The framework's host Unreal project lives under `UnrealModFramework/`. When proposing a new capability, start from the concrete host-game integration or mod-authoring problem you want to solve and walk through the intended developer workflow.
 
 ## Before opening an issue
 
-Search [existing issues](https://github.com/Nelaric/UnrealModFramework/issues) and read the [project overview](README.md) and [coding standards](Docs/CodingStandards/). Use the [issue chooser](https://github.com/Nelaric/UnrealModFramework/issues/new/choose) to select the form that fits:
+Search [existing issues](https://github.com/Nelaric/UnrealModFramework/issues) first, and skim the [project overview](README.md) and [coding standards](Docs/CodingStandards/README.md) for context. Then pick the matching form from the [issue chooser](https://github.com/Nelaric/UnrealModFramework/issues/new/choose):
 
-- **Bug report:** Include reproduction steps, expected and actual behavior, and relevant environment details. If Unreal Engine is involved, include its version, operating system, and the affected component and build target, such as Game, Editor, or the independently built authoring plugin.
-- **Capability proposal:** Explain the developer problem and use case, desired behavior, and where the responsibility should live. A public API sketch is helpful but optional.
-- **Documentation issue:** Link the page or section and explain what is unclear, incorrect, or missing.
+- **Bug report:** Provide clear reproduction steps, expected versus actual behavior, and environment details. When Unreal Engine is involved, include the engine version, OS, affected component, and build target (such as Game, Editor, or the standalone authoring plugin).
+- **Capability proposal:** Describe the developer problem, target use case, desired behavior, and which layer should own it. A rough public API sketch is welcome but optional.
+- **Documentation issue:** Link to the relevant page or section and point out what is unclear, outdated, or missing.
 
-Blank issues remain available for topics that do not fit these forms. Keep each issue focused on a single problem or proposal, and omit private information from public reports.
+Blank issues remain open for topics that do not fit those templates. Keep each issue focused on a single topic, and never include credentials or private data in public reports.
 
 ## Project scope
 
-The development baseline is Unreal Engine 5.6. This repository contains the development host project and the game-side `ModRuntime` plugin, while MDT generates and builds the independent `ModDevelopmentSDKEditor` plugin. See the [project overview](README.md) and [module boundaries](Docs/CodingStandards/Modules.md) for current implementations and planned capabilities.
+Our development baseline is Unreal Engine 5.6. This repository houses the development host project and its `ModRuntime` plugin; ModSDKTool (MDT) generates the game-side SDK source and builds both the matching author SDK and the standalone `ModDevelopmentSDKEditor` plugin (see [README.md](README.md) and [Modules and Dependency Boundaries](Docs/CodingStandards/Modules.md)).
 
-When proposing a change, identify whether it belongs in the runtime, authoring editor, shared package protocol, export/build tooling, or a host-game SDK. Keep host-game-specific behavior outside reusable framework modules. For a runtime extension change, specify the affected manifest or SDK contract version, target configuration, and host integration point. Describe any impact on public APIs, the native mod ABI, package compatibility, or independent builds when relevant.
+When designing a change, make clear which boundary owns it: the game runtime, the authoring editor, the `.mod` package protocol, the export/build toolchain, or a game-specific SDK. Reusable framework modules must stay free of game-specific rules. If a change touches runtime extensions, note the affected manifest or SDK contract version, target configuration, and host integration point. Call out any impact on public APIs, the native mod C ABI, archive compatibility, or standalone plugin builds.
 
-## Before opening a pull request
+## Preparing a pull request
 
-Before contributing code, we recommend opening an issue to discuss whether the change is needed, how it fits the project, and what its scope should be. Reaching agreement early makes the resulting pull request easier to review and more likely to be accepted. Small fixes and documentation corrections can still go directly to a pull request.
+For non-trivial code changes, we recommend opening an issue first so we can align on whether the change belongs in the framework and how it should be scoped. Small bug fixes and documentation updates can go straight to a pull request.
 
-If you are not a member of this repository, fork it first, create a branch in your fork, and open a pull request from that branch to `Nelaric/UnrealModFramework:main`.
+If you do not have write access to this repository, fork it, create a topic branch in your fork, and open a pull request against `Nelaric/UnrealModFramework:main`.
 
-Keep each pull request focused. Use the [pull request template](.github/pull_request_template.md) to describe the problem, chosen approach, public API or integration impact, and verification steps. Link any related issue or capability proposal, and use a closing keyword only when the pull request fully resolves it. Write `None` for design and compatibility impact on documentation-only changes, for risks or exceptions when none apply, and for reviewer notes when no specific guidance is needed. Otherwise, point reviewers to the files, decisions, questions, or tradeoffs that need attention. When requesting an exception to a project rule, state the rule, affected scope, rationale, and alternatives considered.
+Keep each pull request focused on one cohesive change and fill out the [pull request template](.github/pull_request_template.md):
 
-All code contributions must follow [Epic Games' Unreal Engine C++ Coding Standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) and the [project coding standards](Docs/CodingStandards/README.md). The project standards also define text encoding, local checks, and allowed PR title, branch, and commit prefixes (for example, branch `docs/clarify-contribution-guide` and PR title or commit subject `docs: clarify contribution guide`).
+- Explain the problem, your approach, any public API or integration impact, and how you verified the result.
+- Link related issues or proposals, using an auto-closing keyword only when the PR resolves the issue completely.
+- Write `None` for design/compatibility impact on documentation-only changes, for risks/exceptions when none apply, and for reviewer notes when nothing needs special attention; otherwise, point reviewers directly to key files, tradeoffs, or open questions.
+- If you need an exception to a project coding guideline, state the rule, affected scope, rationale, and alternatives considered.
 
-Run the checks relevant to your change as described in [Build Scripts, Tooling, and Review](Docs/CodingStandards/BuildAndReview.md). In your pull request, list the checks you ran and note any you could not run.
+All code must follow [Epic Games' Unreal Engine C++ Coding Standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) alongside our [project coding standards](Docs/CodingStandards/README.md), which also cover file encodings, local checks, and naming rules for branches, commits, and PR titles (for example, branch `docs/clarify-contribution-guide` and title `docs: clarify contribution guide`).
 
-GitHub Actions checks naming, formatting and text conventions, API documentation, automatic Hook target generation, and MST source analysis on Linux. The trusted PR build workflow validates the exact submitted commit and triggers CircleCI Game and Editor builds with Unreal Engine 5.6.1 on Linux; the Editor job runs the Hook dispatch automation test and builds the independent authoring plugin. This workflow supports both fork and source-repository PRs, so contributors do not need a CircleCI account or additional CI setup. Fork PRs that modify protected CI workflows, automation scripts, Unreal or CMake build scripts, executable helper scripts, or plugin descriptors must be handled by a maintainer in a source-repository branch. See the [development and CI workflow](Docs/DevelopmentWorkflow.md) for check order and build scope. Independent framework capabilities require automated tests, though CI does not enforce a numeric code coverage threshold.
+### Verification and CI
 
-Pull requests target `main`. Repository branch protection requires six passing checks—naming, format and text, API documentation, Linux Game, Linux Editor, and the Linux build summary—along with approval from a maintainer other than the last pusher before merging. Maintainers review changes for correctness, module boundaries, API contracts, performance, security, and compatibility with Unreal Engine 5.6 and later.
+Run the local checks that apply to your change as listed in [Build Scripts, Tooling, and Review](Docs/CodingStandards/BuildAndReview.md), and record both what you ran and anything you could not run locally in the PR description. You can preview API documentation updates locally with Doxygen (see [Preview locally](Docs/Hosting/README.md#preview-locally)), and verify SDK runtime changes with the packaged shared-Runtime regression described in [Development and CI Workflow](Docs/DevelopmentWorkflow.md). Every independent framework capability requires behavior-focused automated tests, though CI does not enforce a numeric coverage percentage.
+
+On every pull request:
+
+1. **GitHub Actions** checks branch/commit/PR naming, formatting, text encodings, and Doxygen API docs, and runs Linux fixtures covering cross-platform Hook compilation/linking and MST source analysis.
+2. **Trusted Linux PR builds** validate the exact submitted commit and trigger CircleCI Game and Editor builds on Unreal Engine 5.6.1. The Editor job also runs the Hook dispatch automation test and builds `ModDevelopmentSDKEditor`. Contributors do not need a CircleCI account—both fork PRs and in-repo PRs are supported automatically.
+
+For security reasons, fork PRs that touch protected CI workflows, automation scripts, Unreal or CMake build files, executable helper scripts, or `.uproject`/`.uplugin` descriptors are blocked from triggering privileged builds and must be carried by a maintainer on a source-repository branch. See [Development and CI Workflow](Docs/DevelopmentWorkflow.md) for details.
+
+All pull requests target `main`. Merging requires six green status checks—naming, format and text, API documentation, Linux Game, Linux Editor, and the Linux build summary—plus approval from a maintainer who was not the last pusher. Maintainers review for correctness, module boundaries, API contracts, performance, security, and UE 5.6+ compatibility.
 
 ## Large files and Git LFS
 
-Before adding large binary dependencies, introducing Git LFS tracking, or changing LFS rules, open an issue to agree on storage, licensing, and upload arrangements with a maintainer. This repository does not configure a Git LFS endpoint, and permission to push to a GitHub fork does not grant access to a separate storage service. Keep generated builds, caches, local agent instructions, credentials, and personal configuration out of commits, and preserve third-party notices in [NOTICE.md](NOTICE.md).
+Do not add large binary assets, introduce Git LFS tracking, or edit LFS rules without opening an issue first to agree on storage and licensing with a maintainer. This repository has no Git LFS endpoint configured, and push access to a GitHub fork does not grant access to external artifact storage. Keep build outputs, caches, local AI agent instructions, credentials, and personal IDE settings out of commits, and keep third-party attributions in [NOTICE.md](NOTICE.md) up to date.

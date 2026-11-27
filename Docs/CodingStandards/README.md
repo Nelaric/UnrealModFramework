@@ -4,28 +4,34 @@ English | [简体中文](README.zh-CN.md)
 
 # UnrealModFramework Coding Standards
 
-These standards apply to every contribution to UnrealModFramework. Follow both [Epic Games' Unreal Engine C++ Coding Standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) and these project rules. If they conflict, open an issue identifying the exact requirements before proceeding. The pinned formatter's output governs layout only when it satisfies both standards.
+Every contribution to UnrealModFramework must follow both [Epic Games' Unreal Engine C++ Coding Standard](https://dev.epicgames.com/documentation/unreal-engine/epic-cplusplus-coding-standard-for-unreal-engine) and the project standards indexed here. If you find a conflict between the two, open an issue describing the exact rules before writing code around it. Output from our pinned formatter governs whitespace and layout only where it satisfies both standards.
 
-The development baseline is Unreal Engine 5.6. The repository contains the development host, the game-side `ModRuntime` plugin, and the embedded sources that MDT uses to generate and build `ModDevelopmentSDKEditor` independently. The runtime, authoring editor, shared protocol, and any game-specific SDK have separate ownership and dependency boundaries. A native mod C ABI is an interoperability boundary; it does not inherit UE C++ ABI conventions.
+Our baseline engine version is Unreal Engine 5.6. This repository contains the sample host project, the game-side `ModRuntime` plugin, and the embedded source files that ModSDKTool (MDT) compiles into the standalone `ModDevelopmentSDKEditor` plugin. The runtime, authoring editor, shared `.mod` protocol, and game-specific SDKs maintain strict ownership and dependency boundaries. Likewise, the native mod C ABI is an external interoperability boundary and never assumes Unreal C++ ABI compatibility.
 
-## Standards
+## Standards index
 
-- [C++ style and header hygiene](Cpp.md)
+- [C++ style and headers](Cpp.md)
 - [Modules and dependency boundaries](Modules.md)
 - [Public API, errors, and documentation](API.md)
 - [Doxygen comments](Doxygen.md)
 - [Runtime, concurrency, performance, and security](Runtime.md)
 - [Build scripts, tooling, and review](BuildAndReview.md)
 
-The [copyright notice rule](BuildAndReview.md#copyright-notices) applies to every project-authored file, subject to format-specific exceptions.
+The [copyright notice rule](BuildAndReview.md#copyright-notices) applies to every project-authored file, with documented exceptions for strict machine-readable formats.
 
-**Must** is mandatory. **Should** is the default unless a pull request explains a justified exception. **May** is optional. Public API refers to declarations intended for host-game integration or mod authors, including Blueprint entry points and C ABI contracts. A second `public:` section may expose framework integration methods without making them part of the consumer API.
+### Terminology
 
-## Compliance and conflicts
+- **Must** denotes a mandatory requirement.
+- **Should** denotes the expected default unless a pull request documents a sound reason to do otherwise.
+- **May** denotes an optional choice.
 
-1. Satisfy correctness and the requirements of the supported UE version first.
-2. Follow Epic's rules and this project's rules together. Report any conflict in an issue; neither set takes automatic precedence.
-3. Use the pinned formatter for whitespace and layout only where its output satisfies both standards.
-4. A pull request seeking an exception must identify the rule, reason, scope, and alternatives. Maintainer approval cannot override an Epic requirement or settle a conflict between the standards.
+Throughout these documents, **public API** means declarations meant for host-game integrators or mod authors—including Blueprint-exposed entry points and C ABI contracts. Classes may declare a second `public:` section for internal framework wiring or Unreal lifecycle hooks without turning those methods into consumer-facing API.
 
-These standards were adapted from [Nelaric Unreal Gameplay](https://github.com/Nelaric/nelaric-unreal-gameplay/tree/d976a66fc2e41dee11d605af5b387ed290453d6b/Docs/CodingStandards) at commit `d976a66fc2e41dee11d605af5b387ed290453d6b`. Rules specific to the source project's gameplay modules, CI services, and Git LFS storage were replaced to match this repository's structure.
+## Resolving conflicts and requesting exceptions
+
+1. Correctness and compatibility with supported Unreal Engine versions come first.
+2. Apply Epic's standard and these project rules together. Neither automatically overrides the other—if they clash, open an issue so we can resolve it explicitly.
+3. Let the pinned formatter handle layout only when its output complies with both standards.
+4. Any pull request requesting a rule exception must identify the rule, rationale, affected scope, and alternatives considered. Note that maintainer approval on a PR cannot waive an Epic requirement or silently settle a conflict between the two standards.
+
+These standards were adapted from [Nelaric Unreal Gameplay](https://github.com/Nelaric/nelaric-unreal-gameplay/tree/d976a66fc2e41dee11d605af5b387ed290453d6b/Docs/CodingStandards) at commit `d976a66fc2e41dee11d605af5b387ed290453d6b`, replacing rules specific to its gameplay modules, CI setup, and Git LFS storage with conventions tailored to UnrealModFramework.
