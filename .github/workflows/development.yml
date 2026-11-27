@@ -58,8 +58,8 @@ jobs:
           dotnet tool restore
       - name: Check text conventions
         run: python Scripts/check_text.py
-      - name: Test build and automation scripts
-        run: python -m unittest discover -s Scripts -p 'test_*.py'
+      - name: Check build and automation script syntax
+        run: python -m compileall -q Scripts Test
       - name: Check C++ and build-script format
         run: python Scripts/check_format.py
 

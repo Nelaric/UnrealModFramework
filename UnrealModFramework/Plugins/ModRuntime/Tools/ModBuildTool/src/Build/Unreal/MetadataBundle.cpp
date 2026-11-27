@@ -107,6 +107,12 @@ std::string Lower(std::string Value)
 	return Value;
 }
 
+bool IsUserConfig(const fs::path& File)
+{
+	const auto Name = Lower(Path::PathToUtf8(File.filename()));
+	return Name.ends_with(".ini") && (Name.starts_with("user") || Name == "defaulteditorperprojectusersettings.ini");
+}
+
 std::string Trim(std::string Value)
 {
 	const auto First = Value.find_first_not_of(" \t\r");
@@ -171,6 +177,10 @@ Json SourceInputs(const Roots& Files)
 		Walk(Files.Project.parent_path() / Directory,
 		     [&](const fs::path& Input)
 		     {
+			     if (IsUserConfig(Input))
+			     {
+				     return;
+			     }
 			     const auto Extension = Lower(Path::PathToUtf8(Input.extension()));
 			     if (Extension == ".ini" || Extension == ".json" || Extension == ".uplugin" || Extension == ".cs" ||
 			         Extension == ".csproj" || Extension == ".h" || Extension == ".hpp" || Extension == ".inl" ||
@@ -271,7 +281,8 @@ Json ConfigInputs(const Roots& Files, const Json& ConfigRoots, std::string_view 
 				     return;
 			     }
 			     const auto Key = Lower(Logical);
-			     if (Key.find("/custom/") != Key.npos || Key.find("editor.ini") != Key.npos ||
+			     if (IsUserConfig(Input) || Key.find("/custom/") != Key.npos || Key.find("editor.ini") != Key.npos ||
+			         Key.find("editor/") != Key.npos ||
 			         (bCrossArchitecture && (Key.find("arm64") != Key.npos || Key.find("x64") != Key.npos)))
 			     {
 				     throw std::runtime_error("Target-specific configuration cannot share these metadata semantics: " +

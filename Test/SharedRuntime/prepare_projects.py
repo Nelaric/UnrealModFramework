@@ -20,7 +20,8 @@ FIXTURES = ROOT / "Test/ReleaseFixtures"
 def stage_host(destination):
     game = ROOT / "UnrealModFramework"
     for directory in ("Content", "Config", "Source"):
-        shutil.copytree(game / directory, destination / directory)
+        shutil.copytree(game / directory, destination / directory, ignore=shutil.ignore_patterns(
+            "User*.ini", "DefaultEditorPerProjectUserSettings.ini"))
     descriptor = destination / (GAME + ".uproject")
     project = json.loads((game / (GAME + ".uproject")).read_text(encoding="utf-8"))
     project["Plugins"].extend({"Name": name, "Enabled": True} for name in (

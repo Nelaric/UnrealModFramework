@@ -90,6 +90,12 @@ def exercise(mbt, root):
             raise AssertionError(f"Expected metadata rejection {expected!r}, got {result.returncode}: {result.stderr}")
 
     verify()
+    user = consumer / "Config/UserGame.ini"
+    user.write_text("[View]\nLayout=Local\n", encoding="utf-8")
+    verify()
+    user.write_text("[ModExportMetadata]\n+APIPermissions=Local\n", encoding="utf-8")
+    verify("Target-specific configuration")
+    user.unlink()
     verify("does not match", commit="0" * 40)
     verify("does not cover", platform="Mac")
     verify("manifest.json", metadata=root)
