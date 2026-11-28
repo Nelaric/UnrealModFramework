@@ -103,7 +103,7 @@ class ResultTests(unittest.TestCase):
             patch.dict(os.environ, CI_IDENTITY=json.dumps(candidate), ACTIONS_READ_TOKEN=""),
             patch.object(ci, "job_durations", return_value=durations),
             patch.object(ci, "artifact_sizes", return_value={"12": 10}) as sizes,
-            patch.object(ci, "validate_live_pr"),
+            patch.object(ci, "validate_live_pr") as check_candidate,
             patch.object(ci, "summary") as report,
             patch.object(ci, "output") as outcome,
         ):
@@ -124,6 +124,35 @@ class ResultTests(unittest.TestCase):
                 ci.aggregate()
             outcome.assert_called_with("passed", "false")
             self.assertIn("Missing or expired Metadata artifact", "\n".join(report.call_args.args[0]))
+            check_candidate.assert_not_called()
+
+    def test_publish_checks_the_live_candidate_once_before_posting_status(self):
+        candidate = {
+            "repository": ci.REPOSITORY, "pr": 129, "engine": True,
+            "commit": "a" * 40, "head": "b" * 40, "base": "c" * 40,
+        }
+        pr = {
+            "state": "open", "merge_commit_sha": candidate["commit"], "head": {"sha": candidate["head"]},
+            "base": {"ref": "main", "sha": candidate["base"], "repo": {"full_name": ci.REPOSITORY}},
+        }
+        prefix = f"/repos/{ci.REPOSITORY}"
+        reads = [(f"{prefix}/pulls/129", "read"), (f"{prefix}/git/ref/heads/main", "read")]
+        with (
+            patch.dict(os.environ, CI_IDENTITY=json.dumps(candidate), PASSED="true",
+                       PUBLIC_READ_TOKEN="read", STATUS_TOKEN="status"),
+            patch.object(ci, "engine_run", return_value=True),
+            patch.object(ci, "summary") as report,
+        ):
+            with patch.object(ci, "api", side_effect=[pr, {"object": {"sha": candidate["base"]}}, {}]) as api:
+                ci.publish()
+                self.assertEqual([request.args[:2] for request in api.call_args_list],
+                                 reads + [(f"{prefix}/statuses/{candidate['commit']}", "status")])
+                self.assertEqual(api.call_args.args[2]["state"], "success")
+            with patch.object(ci, "api", side_effect=[pr, {"object": {"sha": "d" * 40}}]) as api:
+                with self.assertRaisesRegex(ValueError, "Main has moved"):
+                    ci.publish()
+                self.assertEqual([request.args for request in api.call_args_list], reads)
+                self.assertIn("Candidate is stale or unverifiable", report.call_args.args[0][0])
 
 
 class EditorReportTests(unittest.TestCase):

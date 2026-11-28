@@ -336,12 +336,7 @@ def aggregate():
                     checkpoint = "Missing or Invalid"
         duration = f"{durations[name]:.2f}" if name in durations else "—"
         lines.append(f"| {name} | {state} | {duration} | {tests} | {metadata} | {checkpoint} | {size} | {reused} | {replayed} |")
-    if candidate.get("engine"):
-        try:
-            validate_live_pr(candidate, check_base=True)
-        except (OSError, ValueError, KeyError) as error:
-            issues.append(f"Candidate is stale or unverifiable ({error})")
-    else:
+    if not candidate.get("engine"):
         issues.append("Authorized candidate identity is missing")
     lines.extend(["", "### Build Timing", "", "| Job | Phase | Seconds |", "| --- | --- | ---: |"])
     for name, phase, seconds in timings:
@@ -358,7 +353,6 @@ def aggregate():
         lines.append("")
     if issues:
         lines.extend(f"- {issue.replace(chr(10), ' ')}" for issue in issues)
-    lines.extend(["", f"**Final Result** {'Failure' if issues else 'Success'}"])
     summary(lines)
     if not issues:
         output("artifact-ids", " ".join(consumed_artifacts))
@@ -369,7 +363,11 @@ def publish():
     require(engine_run(), "Status publication requires an authorized Development build")
     candidate = json.loads(os.environ["CI_IDENTITY"])
     require(candidate["engine"] and candidate["repository"] == REPOSITORY, "Wrong public status repository")
-    validate_live_pr(candidate, check_base=True)
+    try:
+        validate_live_pr(candidate, check_base=True)
+    except (OSError, ValueError, KeyError) as error:
+        summary([f"- Candidate is stale or unverifiable ({str(error).replace(chr(10), ' ')})"])
+        raise
     success = os.environ["PASSED"] == "true"
     api(f"/repos/{REPOSITORY}/statuses/{candidate['commit']}", os.environ["STATUS_TOKEN"], {
         "state": "success" if success else "failure",

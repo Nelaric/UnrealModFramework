@@ -26,7 +26,6 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: read
 
 defaults:
   run:
@@ -131,8 +130,6 @@ jobs:
     needs: code-quality
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    permissions:
-      contents: read
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -733,7 +730,6 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
           ACTIONS_READ_TOKEN: ${{ github.token }}
-          PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
         run: python3 Scripts/CI/development.py aggregate
       - name: Create Status Publisher Token
         id: publisher
@@ -763,6 +759,11 @@ jobs:
       - name: Enforce Development Result
         if: always()
         env:
-          PASSED: ${{ steps.aggregate.outputs.passed }}
-          PUBLISHED: ${{ steps.publish.outcome }}
-        run: test "$PASSED" = true && test "$PUBLISHED" = success
+          PASSED: ${{ job.status == 'success' && steps.aggregate.outputs.passed == 'true' && steps.publish.outcome == 'success' }}
+        run: |
+          if [ "$PASSED" = true ]; then
+            printf '**Final Result** Success\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '**Final Result** Failure\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

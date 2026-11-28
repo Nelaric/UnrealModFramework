@@ -19,7 +19,7 @@ from zipfile import BadZipFile, ZipFile
 from development import (
     COMMAND_FILE, CONTROL, EDITORS, ENGINE_CONFIGURATION, ENGINE_VERSION, PLATFORMS, UMFCI_REPOSITORY,
     api, build_commands, engine_release_tag, engine_run, is_digest, json_object, numeric, open_api,
-    output, require, sha256, validate_live_pr, verify_checkout,
+    output, require, sha256, verify_checkout,
 )
 
 UMFCI_API = f"/repos/{UMFCI_REPOSITORY}"
@@ -116,7 +116,6 @@ class Target:
 
     def configure(self):
         verify_checkout(self.source, self.candidate)
-        validate_live_pr(self.candidate)
         _, runner, host, arch, _ = PLATFORMS[self.key]
         native = {"amd64": "x64", "x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}
         require(
@@ -352,7 +351,6 @@ class Target:
         self.metrics_update(reused_actions=game["reused_actions"], reexecuted_actions=game["reexecuted_actions"])
 
     def seal(self, kind):
-        validate_live_pr(self.candidate)
         directory = self.work / kind
         record = json_object(self.evidence / f"{kind}.json")
         write_json(directory / "envelope.json", {
@@ -393,8 +391,6 @@ class Target:
             "metrics": lambda: output("value", json.dumps(json_object(self.metrics), separators=(",", ":"), ensure_ascii=True)),
         }
         started = time.monotonic()
-        if name in {"install", "resume-game"}:
-            validate_live_pr(self.candidate)
         if name in actions:
             actions[name]()
         else:

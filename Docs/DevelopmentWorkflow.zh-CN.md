@@ -15,7 +15,7 @@
 
 ## Development CI
 
-[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发，对测试合并提交运行 Code Quality。Native Tools 依赖 Code Quality。同仓库 PR 的四个 Editor 和六个 Game Prepare 也依赖 Code Quality，并使用受保护的 `development-engine` 环境。Fork PR 运行无引擎任务。每个 Game 同时等待自己的 Game Prepare 和指定 Editor。Windows 和 Linux ARM64 使用同系统 X64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。Development Result 汇总 18 个上游 Job。
+[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发。Code Quality 固定后续 Job 使用的测试合并提交。Native Tools 依赖 Code Quality。同仓库 PR 的四个 Editor 和六个 Game Prepare 也依赖 Code Quality，并使用受保护的 `development-engine` 环境。Fork PR 运行无引擎任务。每个 Game 同时等待自己的 Game Prepare 和指定 Editor。Windows 和 Linux ARM64 使用同系统 X64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。Development Result 汇总 18 个上游 Job，并在状态回传前核对一次当前 PR 和 `main`。
 
 Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界面模式运行 `Nelaric.*` Automation Tests。Game Prepare 执行所有不依赖 Metadata 的 Action。Game 在另一台原生 Runner 上安装同一份锁定的私有 SDK，恢复项目 Checkpoint、导入 Metadata，并完成 Monolithic Development 目标。Development Result 记录测试数量、Artifact 字节数、阶段耗时、Action 复用次数和不可移植原因。
 

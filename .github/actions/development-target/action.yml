@@ -47,7 +47,6 @@ runs:
       id: sdk
       env:
         GH_TOKEN: ${{ inputs.sdk-token }}
-        PUBLIC_READ_TOKEN: ${{ github.repository == inputs.repository && github.token || '' }}
       shell: bash
       run: python Scripts/CI/build_target.py configure
     - name: Checkout UMFCI Installer
@@ -74,7 +73,6 @@ runs:
     - name: Install Engine SDK
       env:
         GH_TOKEN: ${{ inputs.sdk-token }}
-        PUBLIC_READ_TOKEN: ${{ github.repository == inputs.repository && github.token || '' }}
       shell: bash
       run: python Scripts/CI/build_target.py install
     - name: Prepare Toolchain
@@ -102,8 +100,6 @@ runs:
       run: python Scripts/CI/build_target.py validate-metadata
     - name: Seal Metadata Artifact
       if: inputs.phase == 'editor'
-      env:
-        PUBLIC_READ_TOKEN: ${{ github.repository == inputs.repository && github.token || '' }}
       shell: bash
       run: python Scripts/CI/build_target.py seal-metadata
     - name: Start Metadata Upload Timing
@@ -152,8 +148,6 @@ runs:
       run: python Scripts/CI/build_target.py validate-checkpoint
     - name: Seal Build Checkpoint
       if: inputs.phase == 'prepare'
-      env:
-        PUBLIC_READ_TOKEN: ${{ github.repository == inputs.repository && github.token || '' }}
       shell: bash
       run: python Scripts/CI/build_target.py seal-checkpoint
     - name: Start Checkpoint Upload Timing
@@ -224,8 +218,6 @@ runs:
       run: python Scripts/CI/build_target.py import-metadata
     - name: Resume Pending Build Actions
       if: inputs.phase == 'resume'
-      env:
-        PUBLIC_READ_TOKEN: ${{ github.repository == inputs.repository && github.token || '' }}
       shell: bash
       run: python Scripts/CI/build_target.py resume-game
     - name: Verify Link Receipt And Binary Architecture
