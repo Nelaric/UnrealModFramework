@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModPackageArchive.h"
 
+#include "ModNativeTarget.h"
 #include "ModPackageExtensions.h"
 
 #include "Algo/AllOf.h"
@@ -57,6 +58,7 @@ struct FArchiveContents
 {
 	FString CookPlatform;
 	TSharedPtr<FJsonObject> Profile;
+	TOptional<Native::FTarget> NativeTarget;
 	TArray<FEntry> Entries;
 };
 
@@ -320,16 +322,36 @@ bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, con
 	{
 		return false;
 	}
+	const TCHAR* HostArchitecture = Native::GetHostArchitecture();
+	FString Architecture;
+	const bool bHasArchitecture = Cook.HasField(TEXT("targetArchitecture"));
+	if (bHasArchitecture &&
+	    (!Cook.TryGetStringField(TEXT("targetArchitecture"), Architecture) ||
+	     !Native::ResolveTarget(HostTarget, Architecture).IsSet() ||
+	     !Architecture.Equals(HostArchitecture, ESearchCase::CaseSensitive)))
+	{
+		return Fail(Result, ELoadError::Incompatible, TEXT("The cook target architecture does not match this host."));
+	}
 	if (!Package.Extensions.NativeExtensionFile.IsEmpty())
 	{
-#if PLATFORM_WINDOWS && PLATFORM_CPU_X86_FAMILY && PLATFORM_64BITS
 		if (!Policy.bAllowNativeExtensions || Package.Backend != EBackend::Pak)
 		{
 			return Fail(Result, ELoadError::Incompatible, TEXT("This host has not enabled native Pak extensions."));
 		}
-#else
-		return Fail(Result, ELoadError::Incompatible, TEXT("Independent extensions require a Win64 x64 host."));
-#endif
+		// The initial native archive format had an implicit Win64 x64 target.
+		if (!bHasArchitecture && HostTarget == TEXT("Win64"))
+		{
+			Architecture = TEXT("x64");
+		}
+		Contents.NativeTarget = Native::ResolveTarget(HostTarget, Architecture);
+		if (!Contents.NativeTarget.IsSet() || !Architecture.Equals(HostArchitecture, ESearchCase::CaseSensitive))
+		{
+			return Fail(Result, ELoadError::Incompatible, TEXT("The native extension requires a matching desktop target."));
+		}
+		if (!Native::IsLibraryName(Package.Extensions.NativeExtensionFile, Contents.NativeTarget.GetValue()))
+		{
+			return Fail(Result, ELoadError::InvalidArchive, TEXT("The native extension filename has an invalid target suffix."));
+		}
 	}
 	return true;
 }
@@ -777,10 +799,17 @@ bool PrepareArchive(const FLoadPolicy& Policy, FPreparationBudget Budget, FLoadR
 		return false;
 	}
 	OutPackage.StageRoot = FPaths::Combine(CacheDirectory, TEXT("Content"), Contents.CookPlatform);
-	if (!Result.Package.Extensions.NativeExtensionFile.IsEmpty())
+	if (Contents.NativeTarget.IsSet())
 	{
 		Result.Package.NativeExtensionPath =
 		    FPaths::Combine(CacheDirectory, TEXT("Native"), Result.Package.Extensions.NativeExtensionFile);
+		IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
+		TUniquePtr<IFileHandle> NativeFile(Files.OpenRead(*Result.Package.NativeExtensionPath));
+		if (!NativeFile || !Native::MatchesImage(*NativeFile, Contents.NativeTarget.GetValue()))
+		{
+			return Fail(Result, ELoadError::Incompatible,
+			            TEXT("The native extension binary format or architecture does not match its cook target."));
+		}
 	}
 	for (FNativeContainer& Container : OutPackage.Containers)
 	{

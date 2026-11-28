@@ -107,7 +107,8 @@ set(embed_development_editor "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedDevelopment
 include("${development_editor_file_list}")
 set(development_editor_inputs "")
 foreach(resource IN LISTS development_editor_files)
-    list(APPEND development_editor_inputs "${development_editor_resources}/${resource}")
+    development_editor_source_path("${resource}" source_path)
+    list(APPEND development_editor_inputs "${source_path}")
 endforeach()
 
 set(development_editor_cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>/DevelopmentEditorResources.cpp")

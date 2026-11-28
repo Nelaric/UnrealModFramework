@@ -1,8 +1,6 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModPackageBuilder.h"
 
-#include "Algo/AllOf.h"
-
 #include "AssetRegistry/ARFilter.h"
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -19,6 +17,7 @@
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
+#include "ModNativeTarget.h"
 #include "ModPackagingSettings.h"
 #include "ModProjectPackage.h"
 #include "Modules/ModuleManager.h"
@@ -412,16 +411,7 @@ bool ReadExtensionManifest(const FModPackageRequest& Request, const TMap<FName, 
 	if (!Request.NativeExtensionFile.IsEmpty())
 	{
 		const FString FileName = FPaths::GetCleanFilename(Request.NativeExtensionFile);
-		if (Version != 2 || Request.bUseIoStore || Request.TargetPlatform != TEXT("Win64") || FileName.Len() > 128 ||
-		    !FileName.EndsWith(TEXT(".dll"), ESearchCase::CaseSensitive) || FileName.Contains(TEXT("..")) ||
-		    !Algo::AllOf(FileName,
-		                 [](TCHAR Char)
-		                 {
-			                 return (Char >= TEXT('a') && Char <= TEXT('z')) ||
-			                        (Char >= TEXT('A') && Char <= TEXT('Z')) ||
-			                        (Char >= TEXT('0') && Char <= TEXT('9')) || Char == TEXT('_') ||
-			                        Char == TEXT('-') || Char == TEXT('.');
-		                 }))
+		if (Version != 2)
 		{
 			return false;
 		}
@@ -586,6 +576,11 @@ bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory, co
 	    *AutomationTool, *ProjectFile, *Request.CookConfiguration, *Request.TargetPlatform, *PluginFile,
 	    *Request.BaseReleaseVersion, *Request.BaseReleaseDirectory, *FPaths::Combine(WorkDirectory, TEXT("Stage")),
 	    *FPaths::Combine(WorkDirectory, TEXT("Cooked"), Request.GetCookPlatform()));
+	const FString Architecture = Request.GetCookArchitecture();
+	if (!Architecture.IsEmpty())
+	{
+		Arguments += TEXT(" -clientarchitecture=") + Architecture;
+	}
 	Arguments += Request.bUseIoStore ? TEXT(" -iostore") : TEXT(" -skipiostore");
 	if (Request.bIncludeEngineContent)
 	{
@@ -599,6 +594,13 @@ bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory, co
 FString FModPackageRequest::GetCookPlatform() const
 {
 	return TargetPlatform == TEXT("Win64") ? TEXT("Windows") : TargetPlatform;
+}
+
+FString FModPackageRequest::GetCookArchitecture() const
+{
+	return TargetArchitecture.IsEmpty() && !NativeExtensionFile.IsEmpty() && TargetPlatform == TEXT("Win64")
+	           ? TEXT("x64")
+	           : TargetArchitecture;
 }
 
 TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
@@ -627,6 +629,11 @@ TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
 	Json->SetStringField(TEXT("baseReleaseVersion"), BaseReleaseVersion);
 	Json->SetStringField(TEXT("baseReleaseDirectory"), BaseReleaseDirectory);
 	Json->SetStringField(TEXT("targetPlatform"), TargetPlatform);
+	const FString Architecture = GetCookArchitecture();
+	if (!Architecture.IsEmpty())
+	{
+		Json->SetStringField(TEXT("targetArchitecture"), Architecture);
+	}
 	Json->SetStringField(TEXT("cookConfiguration"), CookConfiguration);
 	Json->SetStringField(TEXT("outputFile"), OutputFile);
 	Json->SetBoolField(TEXT("useIoStore"), bUseIoStore);
@@ -653,13 +660,19 @@ bool FModPackageRequest::FromSettings(const UModPackagingSettings& Settings, FMo
 	OutRequest.BaseReleaseDirectory =
 	    FullPath(Settings.BaseReleaseDirectory.Path.IsEmpty() ? TEXT("Releases") : Settings.BaseReleaseDirectory.Path);
 	OutRequest.TargetPlatform = Settings.TargetPlatform;
+	OutRequest.TargetArchitecture = Settings.TargetArchitecture;
 	OutRequest.CookConfiguration = Settings.CookConfiguration;
 	OutRequest.bUseIoStore = Settings.bUseIoStore;
 	OutRequest.bIncludeEngineContent = Settings.bIncludeEngineContent;
 	OutRequest.TimeoutMinutes = Settings.TimeoutMinutes;
 	const FString OutputDirectory = Settings.ResolveOutputDirectory();
-	OutRequest.OutputFile = FPaths::Combine(OutputDirectory, OutRequest.PluginName + TEXT("-") + Settings.ModVersion +
-	                                                             TEXT("-") + Settings.TargetPlatform + TEXT(".mod"));
+	FString FileName = OutRequest.PluginName + TEXT("-") + Settings.ModVersion + TEXT("-") + Settings.TargetPlatform;
+	const FString Architecture = OutRequest.GetCookArchitecture();
+	if (!Architecture.IsEmpty())
+	{
+		FileName += TEXT("-") + Architecture;
+	}
+	OutRequest.OutputFile = FPaths::Combine(OutputDirectory, FileName + TEXT(".mod"));
 	return OutRequest.Validate(OutError);
 }
 
@@ -719,12 +732,19 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 		}
 		OutRequest.ExtensionsFile = FullPath(OutRequest.ExtensionsFile);
 	}
+	if (Json->HasField(TEXT("targetArchitecture")) &&
+	    (!Json->TryGetStringField(TEXT("targetArchitecture"), OutRequest.TargetArchitecture) ||
+	     OutRequest.TargetArchitecture.IsEmpty()))
+	{
+		OutError = LOCTEXT("InvalidTargetArchitecture", "目标架构必须为 x64 或 arm64。");
+		return false;
+	}
 	if (Json->HasField(TEXT("nativeExtensionFile")))
 	{
 		if (!Json->TryGetStringField(TEXT("nativeExtensionFile"), OutRequest.NativeExtensionFile) ||
 		    OutRequest.NativeExtensionFile.IsEmpty())
 		{
-			OutError = LOCTEXT("InvalidNativeExtensionPath", "原生扩展 DLL 路径无效。");
+			OutError = LOCTEXT("InvalidNativeExtensionPath", "原生扩展共享库路径无效。");
 			return false;
 		}
 		OutRequest.NativeExtensionFile = FullPath(OutRequest.NativeExtensionFile);
@@ -746,14 +766,34 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 
 bool FModPackageRequest::Validate(FText& OutError) const
 {
+	if (TargetPlatform != TEXT("Win64") && TargetPlatform != TEXT("Linux") && TargetPlatform != TEXT("LinuxArm64") &&
+	    TargetPlatform != TEXT("Mac"))
+	{
+		OutError = LOCTEXT("BadPlatform", "请选择 Win64、Linux、LinuxArm64 或 Mac 目标平台。");
+		return false;
+	}
+	const FString Architecture = GetCookArchitecture();
+	const TOptional<Native::FTarget> NativeTarget = Native::ResolveTarget(TargetPlatform, Architecture);
+	if ((!Architecture.IsEmpty() || !NativeExtensionFile.IsEmpty()) && !NativeTarget.IsSet())
+	{
+		OutError = LOCTEXT("BadTargetArchitecture", "请选择与目标平台匹配的 x64 或 arm64 架构。");
+		return false;
+	}
 	if (!NativeExtensionFile.IsEmpty())
 	{
-		const int64 Size = IFileManager::Get().FileSize(*NativeExtensionFile);
-		if (Size <= 0 || Size > 64ll * 1024 * 1024 || ExtensionsFile.IsEmpty() || SdkContractFile.IsEmpty() ||
-		    TargetPlatform != TEXT("Win64") || bUseIoStore)
+		if (ExtensionsFile.IsEmpty() || SdkContractFile.IsEmpty() || bUseIoStore)
 		{
-			OutError = LOCTEXT("MissingNativeExtensionInputs",
-			                   "原生扩展需要 Win64 Pak、SDK 契约、版本 2 扩展清单和已编译的 DLL。");
+			OutError = LOCTEXT("MissingNativeExtensionInputs", "原生扩展需要 Pak、SDK 契约和版本 2 扩展清单。");
+			return false;
+		}
+		const FString FileName = FPaths::GetCleanFilename(NativeExtensionFile);
+		IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
+		TUniquePtr<IFileHandle> Library(Files.OpenRead(*NativeExtensionFile));
+		if (!Library || Library->Size() <= 0 || Library->Size() > 64ll * 1024 * 1024 ||
+		    !Native::IsLibraryName(FileName, NativeTarget.GetValue()) ||
+		    !Native::MatchesImage(*Library, NativeTarget.GetValue()))
+		{
+			OutError = LOCTEXT("InvalidNativeExtension", "原生扩展的文件名、大小、二进制格式或架构与目标不符。");
 			return false;
 		}
 	}
@@ -810,11 +850,6 @@ bool FModPackageRequest::Validate(FText& OutError) const
 	    BaseReleaseVersion.Contains(TEXT("..")))
 	{
 		OutError = LOCTEXT("BadRelease", "请填写游戏标识和基础发布版本，仅使用字母、数字、点、下划线或短横线。");
-		return false;
-	}
-	if (TargetPlatform != TEXT("Win64") && TargetPlatform != TEXT("Linux") && TargetPlatform != TEXT("Mac"))
-	{
-		OutError = LOCTEXT("BadPlatform", "请选择 Win64、Linux 或 Mac 目标平台。");
 		return false;
 	}
 	const FString Registry =
@@ -957,6 +992,11 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	Profile->SetStringField(TEXT("configurationSha256"), ConfigurationHash);
 	Profile->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString());
 	Profile->SetStringField(TEXT("targetPlatform"), Request.TargetPlatform);
+	const FString Architecture = Request.GetCookArchitecture();
+	if (!Architecture.IsEmpty())
+	{
+		Profile->SetStringField(TEXT("targetArchitecture"), Architecture);
+	}
 	Profile->SetStringField(TEXT("cookPlatform"), Request.GetCookPlatform());
 	Profile->SetStringField(TEXT("cookConfiguration"), Request.CookConfiguration);
 	Profile->SetStringField(TEXT("backend"), Request.bUseIoStore ? TEXT("IoStore") : TEXT("Pak"));

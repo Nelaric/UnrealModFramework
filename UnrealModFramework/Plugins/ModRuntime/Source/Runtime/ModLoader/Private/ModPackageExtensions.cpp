@@ -217,8 +217,7 @@ bool Private::ReadExtensions(const FJsonObject& Manifest, FLoadResult& Result)
 	{
 		if ((*Extensions)->HasField(TEXT("nativeExtension")) &&
 		    (!(*Extensions)->TryGetStringField(TEXT("nativeExtension"), Out.NativeExtensionFile) ||
-		     !IsId(Out.NativeExtensionFile) || !Out.NativeExtensionFile.EndsWith(TEXT(".dll")) ||
-		     Out.NativeExtensionFile.Contains(TEXT("/")) || Out.NativeExtensionFile.Contains(TEXT(".."))))
+		     !IsId(Out.NativeExtensionFile) || Out.NativeExtensionFile.Contains(TEXT(".."))))
 		{
 			return Fail(Result, ELoadError::InvalidArchive, TEXT("Invalid independent extension DLL name."));
 		}

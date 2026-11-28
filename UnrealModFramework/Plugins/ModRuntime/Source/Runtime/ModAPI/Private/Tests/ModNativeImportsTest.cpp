@@ -1,7 +1,7 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModNativeImports.h"
 
-#if PLATFORM_WINDOWS && PLATFORM_CPU_X86_FAMILY && PLATFORM_64BITS && WITH_DEV_AUTOMATION_TESTS
+#if PLATFORM_WINDOWS && PLATFORM_64BITS && WITH_DEV_AUTOMATION_TESTS
 #include "HAL/FileManager.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
@@ -63,14 +63,16 @@ bool FModNativeImportsTest::RunTest(const FString&)
 		FMemory::Memcpy(Bytes.GetData() + SectionOffset + NameOffset, Name, FCStringAnsi::Strlen(Name) + 1);
 		return TestTrue(TEXT("Write PE import table fixture"), FFileHelper::SaveArrayToFile(Bytes, *Path));
 	};
+	constexpr uint16 HostMachine = PLATFORM_CPU_ARM_FAMILY ? IMAGE_FILE_MACHINE_ARM64 : IMAGE_FILE_MACHINE_AMD64;
+	constexpr uint16 OtherMachine = PLATFORM_CPU_ARM_FAMILY ? IMAGE_FILE_MACHINE_AMD64 : IMAGE_FILE_MACHINE_ARM64;
 	FString Error;
 	for (const bool bDelayed : {false, true})
 	{
-		if (WriteImage("kernel32.dll", bDelayed, IMAGE_FILE_MACHINE_AMD64))
+		if (WriteImage("kernel32.dll", bDelayed, HostMachine))
 		{
 			TestTrue(TEXT("A Windows system import is accepted"), Mod::Extension::ValidateNativeImports(Path, Error));
 		}
-		if (WriteImage("UnrealEditor-Core.dll", bDelayed, IMAGE_FILE_MACHINE_AMD64))
+		if (WriteImage("UnrealEditor-Core.dll", bDelayed, HostMachine))
 		{
 			TestFalse(TEXT("A direct or delayed UE import is rejected"),
 			          Mod::Extension::ValidateNativeImports(Path, Error));
@@ -78,7 +80,7 @@ bool FModNativeImportsTest::RunTest(const FString&)
 			         Error.Contains(TEXT("UnrealEditor-Core.dll")));
 		}
 	}
-	if (WriteImage("kernel32.dll", false, IMAGE_FILE_MACHINE_ARM64))
+	if (WriteImage("kernel32.dll", false, OtherMachine))
 	{
 		TestFalse(TEXT("A different architecture is rejected"), Mod::Extension::ValidateNativeImports(Path, Error));
 	}

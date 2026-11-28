@@ -23,7 +23,8 @@ public:
 		IMAGE_DOS_HEADER Dos{};
 		if (!Read(0, Dos) || Dos.e_magic != IMAGE_DOS_SIGNATURE || Dos.e_lfanew < static_cast<int32>(sizeof(Dos)) ||
 		    !Read(Dos.e_lfanew, Nt) || Nt.Signature != IMAGE_NT_SIGNATURE ||
-		    Nt.FileHeader.Machine != IMAGE_FILE_MACHINE_AMD64 || !(Nt.FileHeader.Characteristics & IMAGE_FILE_DLL) ||
+		    Nt.FileHeader.Machine != (PLATFORM_CPU_ARM_FAMILY ? IMAGE_FILE_MACHINE_ARM64 : IMAGE_FILE_MACHINE_AMD64) ||
+		    !(Nt.FileHeader.Characteristics & IMAGE_FILE_DLL) ||
 		    Nt.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC ||
 		    Nt.OptionalHeader.NumberOfRvaAndSizes > IMAGE_NUMBEROF_DIRECTORY_ENTRIES ||
 		    Nt.FileHeader.SizeOfOptionalHeader <

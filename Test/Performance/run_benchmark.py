@@ -24,6 +24,7 @@ GAME = "PerformanceBenchmark"
 EDITOR_TARGET = GAME + "Editor"
 TEST = "Nelaric.UnrealModFramework.Performance.CallBenchmark"
 DEVELOPMENT_EDITOR = FRAMEWORK / "Tools/ModSDKTool/Resources/DevelopmentEditor"
+ABI_INCLUDE = FRAMEWORK / "Source/Runtime/ModLoader/Public"
 MOD = "BenchmarkMod"
 BUILD_ATTEMPTS = 20
 TRACE_FLAGS = ("-NoTraceServer", "-TraceAutoStart=0")
@@ -120,9 +121,17 @@ class Unreal:
         self.work = work
         self.short_work = short_work
         self.host = work / "Host" / f"{GAME}.uproject"
-        self.platform = {"Windows": "Win64", "Linux": "Linux", "Darwin": "Mac"}[platform.system()]
-        self.with_mod = self.platform == "Win64" and platform.machine().lower() in {"amd64", "x86_64"}
-        self.cook_platform = "Windows" if self.platform == "Win64" else self.platform
+        machine = platform.machine().lower()
+        self.architecture = {"amd64": "x64", "x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}.get(machine)
+        if not self.architecture:
+            raise RuntimeError(f"Unsupported benchmark architecture: {machine}")
+        self.platform = {"Windows": "Win64", "Linux": "Linux", "Darwin": "Mac"}.get(platform.system())
+        if not self.platform:
+            raise RuntimeError(f"Unsupported benchmark platform: {platform.system()}")
+        self.game_platform = self.platform
+        if self.platform == "Linux" and self.architecture == "arm64":
+            self.game_platform = "LinuxArm64"
+        self.cook_platform = "Windows" if self.platform == "Win64" else self.game_platform
         editor = {
             "Win64": "Win64/UnrealEditor.exe",
             "Linux": "Linux/UnrealEditor",
@@ -132,9 +141,8 @@ class Unreal:
         self.commandlet = self.editor.with_name("UnrealEditor-Cmd.exe") if self.platform == "Win64" else self.editor
         suffix = ".exe" if self.platform == "Win64" else ""
         platform_name = {"Win64": "win", "Linux": "linux", "Mac": "mac"}[self.platform]
-        arch = "arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "x64"
         dotnet = self.engine / "Binaries" / "ThirdParty" / "DotNet"
-        candidates = sorted(dotnet.glob(f"*/{platform_name}-{arch}/dotnet{suffix}"))
+        candidates = sorted(dotnet.glob(f"*/{platform_name}-{self.architecture}/dotnet{suffix}"))
         if not candidates or not self.editor.is_file():
             raise RuntimeError(f"UE Editor and bundled .NET are required under {self.engine}")
         self.dotnet = candidates[-1]
@@ -181,9 +189,10 @@ class Unreal:
         return log
 
     def build(self, stage, project, target, *flags):
+        target_platform = self.platform if target.endswith("Editor") else self.game_platform
         self.run(
-            stage, [self.dotnet, self.ubt, target, self.platform, "Development",
-                    f"-Project={project}", "-NoHotReload", "-NoHotReloadFromIDE", "-WaitMutex", "-NoUBA", "-NoEngineChanges",
+            stage, [self.dotnet, self.ubt, target, target_platform, "Development",
+                    f"-Project={project}", f"-Architecture={self.architecture}", "-NoHotReload", "-NoHotReloadFromIDE", "-WaitMutex", "-NoUBA", "-NoEngineChanges",
                     f"-Log={self.work / (stage + '-ubt.log')}", *flags],
         )
 
@@ -223,6 +232,7 @@ class Unreal:
         self.copy_mod_runtime(author)
         development = author.parent / "Plugins/ModDevelopmentSDKEditor"
         shutil.copytree(DEVELOPMENT_EDITOR / "Source", development / "Source")
+        shutil.copy2(ABI_INCLUDE / "ModNativeTarget.h", development / "Source/DevelopmentEditor/Private/Packaging")
         write_json(development / "ModDevelopmentSDKEditor.uplugin", {
             "FileVersion": 3, "Version": 1, "CanContainContent": False,
             "Modules": [{"Name": "DevelopmentEditor", "Type": "Editor", "LoadingPhase": "Default"}],
@@ -246,7 +256,8 @@ class Unreal:
                                 "-nocompile", "-nocompileeditor", "-nop4", "-unattended", "-utf8output",
                                 f"-unrealexe={self.commandlet}", "-WaitForUATMutex", "-cook", "-stage", "-pak",
                                 "-skipiostore", "-nodebuginfo",
-                                f"-platform={self.platform}", "-clientconfig=Development",
+                                f"-platform={self.game_platform}", f"-clientarchitecture={self.architecture}",
+                                "-clientconfig=Development",
                                 "-map=/Game/BenchmarkMap+/Game/BenchmarkSublevel+/Engine/Maps/Entry",
                                 f"-AdditionalCookerOptions={' '.join(TRACE_FLAGS)} -ddc=InstalledNoZenLocalFallback "
                                 "-package=/Game/BP_NativeBenchmark+"
@@ -266,12 +277,17 @@ class Unreal:
 
     def build_extension(self):
         source = PROJECT / "Native"
-        include = FRAMEWORK / "Source/Runtime/ModLoader/Public"
         build = self.short_work / "Native"
-        self.run("extension-configure", ["cmake", "-S", source, "-B", build, "-A", "x64",
-                                         f"-DUMF_ABI_INCLUDE={include}"])
+        options = ["-DCMAKE_BUILD_TYPE=Release", f"-DUMF_ABI_INCLUDE={ABI_INCLUDE}"]
+        if self.platform == "Win64":
+            options += ["-A", "ARM64" if self.architecture == "arm64" else "x64"]
+        elif self.platform == "Mac":
+            mac_arch = "arm64" if self.architecture == "arm64" else "x86_64"
+            options.append(f"-DCMAKE_OSX_ARCHITECTURES={mac_arch}")
+        self.run("extension-configure", ["cmake", "-S", source, "-B", build, *options])
         self.run("extension-build", ["cmake", "--build", build, "--config", "Release"])
-        return build / "Release/BenchmarkExtension.dll"
+        suffix = {"Win64": ".dll", "Linux": ".so", "Mac": ".dylib"}[self.platform]
+        return build / "Release" / f"BenchmarkExtension{suffix}"
 
     def package_mod(self, author, release):
         declaration = (PROJECT / "Native/BenchmarkContract.h").read_text(encoding="utf-8-sig")
@@ -287,7 +303,8 @@ class Unreal:
         settings = {
             "format": "UMF.ModPackageBuildRequest", "schemaVersion": 3, "modVersion": "1.0.0",
             "gameId": GAME, "baseReleaseVersion": "1.0.0", "baseReleaseDirectory": str(release),
-            "targetPlatform": "Win64", "cookConfiguration": "Development", "useIoStore": False,
+            "targetPlatform": self.game_platform, "targetArchitecture": self.architecture,
+            "cookConfiguration": "Development", "useIoStore": False,
             "includeEngineContent": False, "extensionsFile": str(extensions), "sdkContractFile": str(contract),
             "nativeExtensionFile": str(library), "outputFile": str(mod_file), "timeoutMinutes": 55,
         }
@@ -313,17 +330,15 @@ class Unreal:
         self.command("host-assets", self.host, "-run=/Script/PerformanceBenchmarkEditor.BenchmarkAssetsCommandlet")
         self.build("host-game", self.host, GAME)
         stage, release, registry = self.stage_game()
-        mod_arguments = []
-        if self.with_mod:
-            author = self.prepare_mod()
-            self.command("mod-assets", author, "-run=/Script/BenchmarkModEditor.BenchmarkModAssetsCommandlet")
-            mod_file = self.package_mod(author, release)
-            mod_arguments = [f"-BenchmarkModFile={mod_file}", f"-BenchmarkRegistry={registry}"]
+        author = self.prepare_mod()
+        self.command("mod-assets", author, "-run=/Script/BenchmarkModEditor.BenchmarkModAssetsCommandlet")
+        mod_file = self.package_mod(author, release)
+        mod_arguments = [f"-BenchmarkModFile={mod_file}", f"-BenchmarkRegistry={registry}"]
         return self.run_automation(stage, mod_arguments)
 
     def run_automation(self, stage, mod_arguments):
         suffix = {"Win64": ".exe", "Linux": "", "Mac": ".app/Contents/MacOS/" + GAME}[self.platform]
-        candidates = [stage / GAME / "Binaries" / self.platform / (GAME + suffix), stage / (GAME + suffix)]
+        candidates = [stage / GAME / "Binaries" / self.game_platform / (GAME + suffix), stage / (GAME + suffix)]
         if self.platform == "Linux":
             candidates.insert(0, stage / (GAME + ".sh"))
         executable = next((path for path in candidates if path.is_file()), candidates[0])
@@ -355,11 +370,10 @@ class Unreal:
         if any(cell != "未测试" and not re.fullmatch(r"[0-9]+\.[0-9]{3}", cell)
                for row in timings for cell in row):
             raise RuntimeError("Benchmark report contains an invalid timing cell")
-        if self.with_mod:
-            for index, row in enumerate(timings, start=1):
-                for native, mod in zip(row[:2], row[2:]):
-                    if (native == "未测试") != (mod == "未测试"):
-                        raise RuntimeError(f"Host and Mod coverage differs for API {index:03d}")
+        for index, row in enumerate(timings, start=1):
+            for native, mod in zip(row[:2], row[2:]):
+                if (native == "未测试") != (mod == "未测试"):
+                    raise RuntimeError(f"Host and Mod coverage differs for API {index:03d}")
         return result
 
 

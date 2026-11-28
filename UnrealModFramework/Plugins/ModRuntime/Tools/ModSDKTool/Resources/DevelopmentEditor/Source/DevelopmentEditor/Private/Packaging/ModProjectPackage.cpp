@@ -9,6 +9,7 @@
 #include "Interfaces/IProjectManager.h"
 #include "Misc/MonitoredProcess.h"
 #include "Misc/Paths.h"
+#include "ModNativeTarget.h"
 #include "ModPackageBuilder.h"
 #include "Modules/ModuleManager.h"
 #include "PackageMigrationContext.h"
@@ -138,22 +139,15 @@ FString FindPackagingDotnet(const FString& EngineDirectory)
 {
 #if PLATFORM_WINDOWS
 	const TCHAR* ExecutableName = TEXT("dotnet.exe");
-	const TCHAR* HostDirectory = TEXT("/win-x64/");
+	const TCHAR* Platform = TEXT("win");
 #elif PLATFORM_MAC
 	const TCHAR* ExecutableName = TEXT("dotnet");
-#if PLATFORM_CPU_ARM_FAMILY
-	const TCHAR* HostDirectory = TEXT("/mac-arm64/");
-#else
-	const TCHAR* HostDirectory = TEXT("/mac-x64/");
-#endif
+	const TCHAR* Platform = TEXT("mac");
 #else
 	const TCHAR* ExecutableName = TEXT("dotnet");
-#if PLATFORM_CPU_ARM_FAMILY
-	const TCHAR* HostDirectory = TEXT("/linux-arm64/");
-#else
-	const TCHAR* HostDirectory = TEXT("/linux-x64/");
+	const TCHAR* Platform = TEXT("linux");
 #endif
-#endif
+	const FString HostDirectory = FString::Printf(TEXT("/%s-%s/"), Platform, Native::GetHostArchitecture());
 	TArray<FString> DotnetPaths;
 	IFileManager::Get().FindFilesRecursive(DotnetPaths,
 	                                       *FPaths::Combine(EngineDirectory, TEXT("Binaries/ThirdParty/DotNet")),

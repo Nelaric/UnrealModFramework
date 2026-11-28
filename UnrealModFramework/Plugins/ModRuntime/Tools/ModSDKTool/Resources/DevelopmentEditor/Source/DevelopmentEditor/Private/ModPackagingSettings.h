@@ -54,14 +54,20 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (FilePathFilter = "json"))
 	FFilePath SdkContractFile;
 
-	/// Independently compiled Win64 callback DLL to include in the package.
-	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (FilePathFilter = "dll"))
+	/// Independently compiled shared library for the selected desktop target.
+	UPROPERTY(Config, EditAnywhere, Category = "Mod",
+	          meta = (ToolTip = "选择与目标和架构匹配的 .dll、.so 或 .dylib 文件。"))
 	FFilePath NativeExtensionFile;
 
 	/// Target UAT platform.
 	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
 	          meta = (DisplayName = "目标平台", GetOptions = "GetTargetPlatforms"))
 	FString TargetPlatform = TEXT("Win64");
+
+	/// CPU architecture for the target build and its cook receipt.
+	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
+	          meta = (DisplayName = "目标架构", GetOptions = "GetTargetArchitectures"))
+	FString TargetArchitecture;
 
 	/// Target UAT configuration.
 	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
@@ -104,6 +110,9 @@ private:
 
 	UFUNCTION()
 	TArray<FString> GetTargetPlatforms() const;
+
+	UFUNCTION()
+	TArray<FString> GetTargetArchitectures() const;
 
 	UFUNCTION()
 	TArray<FString> GetCookConfigurations() const;

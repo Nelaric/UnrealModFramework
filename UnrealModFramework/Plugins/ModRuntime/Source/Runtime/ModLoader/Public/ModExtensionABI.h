@@ -124,7 +124,7 @@ extern "C"
 	typedef uint32_t(UMF_EXTENSION_CALL* UMF_ExtensionCallbackV1)(uint64_t User, const UMF_ExtensionCallV1* Call,
 	                                                              UMF_ExtensionReplyV1* Reply);
 
-	/// An exact SDK contract and subscription owned by this DLL session.
+	/// An exact SDK contract and subscription owned by this native extension session.
 	typedef struct UMF_ExtensionRegistrationV1
 	{
 		uint32_t StructSize;
@@ -162,7 +162,7 @@ extern "C"
 		UMF_ExtensionCloseV1 Close;
 	} UMF_ExtensionSessionV1;
 
-	/// Registers the DLL's World callbacks and returns its session teardown.
+	/// Registers the extension's World callbacks and returns its session teardown.
 	typedef uint32_t(UMF_EXTENSION_CALL* UMF_ExtensionEntryV1)(const UMF_ExtensionHostV1* Host, uint64_t Session,
 	                                                           UMF_ExtensionSessionV1* Out);
 

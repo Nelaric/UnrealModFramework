@@ -14,14 +14,14 @@
 - 三段式数字形式的 Mod 版本号，例如 `1.0.0`。
 - 来自目标游戏 SDK 的游戏标识和基础发布版本。基础发布目录中应包含 `<基础发布版本>/<Cook 平台>/AssetRegistry.bin`；若目录留空，则默认使用作者工程的 `Releases` 目录。`Win64` 对应的 Cook 平台名为 `Windows`。
 - 与目标游戏发布保持一致的目标平台、烘焙配置（Development 或 Shipping）和 Pak/IoStore 选项。供 ModLoader 加载的包应关闭“允许新增引擎内容”并使用独立包根；作者工程还必须具备对应平台的 UE Cooker、目标 SDK 以及 Mod 实际引用的公开类型和资产。
-- 输出目录，留空时默认使用 `Saved/PackagedMods`。输出文件命名为 `<插件名>-<Mod版本>-<目标平台>.mod`，且不会覆盖已有文件。
+- 输出目录，留空时默认使用 `Saved/PackagedMods`。输出文件命名为 `<插件名>-<Mod版本>-<目标平台>.mod`。指定架构时，在 `.mod` 前加入 `-<目标架构>`。输出文件一经生成即不可覆盖。
 
 以上选项同样可在 **项目设置 → 插件 → Mod 打包** 中调整，并保存在本地项目的 EditorPerProjectUserSettings 中。
 
 ## 打包当前工程内容
 
 1. 获取目标游戏的基础发布和 SDK。在作者工程勾选 **打包当前工程内容**，选择与发行匹配的平台、烘焙配置和容器后端。
-2. 使用 SDK 提供的 C 头文件将原生回调编译成独立 C 或 C++ DLL。为 Win64 x64 Pak 发行版打包时，选择该 DLL、版本 2 扩展清单和游戏 SDK 契约。
+2. 使用 SDK 提供的 C 头文件将原生回调编译成独立的 C 或 C++ 共享库。为 Pak 发行版打包时，选择共享库、目标架构、版本 2 扩展清单和游戏 SDK 契约。
 3. 打包器将工程资产由 `/Game` 迁移到 `/<工程名>/`，再执行 DLC Cook。使用资产引用可随迁移自动重映射。蓝图使用的原生父类、函数及反射类型须由游戏及其作者 SDK 提供。
 4. 将生成的 `.mod` 放入实际游戏可执行文件同级的 `Mods` 目录。Modular 和 Monolithic 在发行及 SDK 身份匹配时使用相同的包和注册协议。
 
@@ -41,7 +41,7 @@
 UnrealEditor-Cmd <作者工程.uproject> -run=ModPackage -Request=<Request.json> -unattended -NullRHI
 ```
 
-请求格式为 `UMF.ModPackageBuildRequest` v1，包含 `pluginName`、`modVersion`、`gameId`、`baseReleaseVersion`、`baseReleaseDirectory`、`targetPlatform`、`outputFile`、`useIoStore`、`includeEngineContent` 和 `timeoutMinutes`。该请求由编辑器自动生成，可从已完成任务的目录中查看其结构。其中的路径均相对于作者工程解析；请求所在目录将作为本次任务的工作目录，且不能预先存在 `Stage` 子目录。
+请求格式为 `UMF.ModPackageBuildRequest` v1，包含 `pluginName`、`modVersion`、`gameId`、`baseReleaseVersion`、`baseReleaseDirectory`、`targetPlatform`、`outputFile`、`useIoStore`、`includeEngineContent` 和 `timeoutMinutes`。原生打包还需提供 `targetArchitecture`、`nativeExtensionFile`、`extensionsFile` 和 `sdkContractFile`。编辑器会将生成的请求保存在任务目录。其中的路径均相对于作者工程解析；请求所在目录将作为本次任务的工作目录，且不能预先存在 `Stage` 子目录。
 
 打包工程内容时使用请求 `schemaVersion: 3`，省略 `pluginName`，并填写 `cookConfiguration`。版本 1 内容插件请求也可填写 `cookConfiguration`，默认值为 Shipping。每次运行使用全新的任务目录。
 
@@ -78,9 +78,22 @@ UnrealEditor-Cmd <作者工程.uproject> -run=ModPackage -Request=<Request.json>
 
 ### 独立原生回调
 
-包含 SDK 提供的 `ModExtensionABI.h` 和 `<GameId>.modextensionsabi.h`，并使用 `UMF_EXTENSION_EXPORT` 与 `UMF_EXTENSION_CALL` 导出 `UMF_RegisterExtensionsV1`。注册前须先校验宿主表版本和结构体大小，再使用生成头文件中的精确 ID 和签名注册回调，同时将这些契约加入包的 schema 2 扩展清单。打包时在设置中选择已编译的 x64 DLL，或在构建请求中填写 `nativeExtensionFile`，打包器会将其作为带哈希索引的载荷打入包内。目标宿主需在 Win64 x64 Pak 发布的 `[ModLoader]` 配置中启用 `bAllowNativeExtensions=True`。通过生成的宿主函数表调用游戏 API。UObject 和 UE C++ 类由宿主拥有。将私有原生依赖静态链接进扩展。加载器允许直接或延迟导入 Windows 系统库。
+包含 SDK 提供的 `ModExtensionABI.h` 和 `<GameId>.modextensionsabi.h`，并使用 `UMF_EXTENSION_EXPORT` 与 `UMF_EXTENSION_CALL` 导出 `UMF_RegisterExtensionsV1`。注册前先校验宿主表版本和结构体大小，再使用生成头文件中的精确 ID 和签名注册回调。将同一契约加入包的 schema 2 扩展清单，通过生成的宿主函数表调用游戏 API。UObject 和 UE C++ 类由宿主管理。
 
-- 注册入口会在 Game Thread 上为每个 World 调用一次，由宿主签发会话和独占注册令牌。可选的 `Close` 回调会在所有在途调用排空之后、DLL 引用释放之前执行；DLL 必须在 `Close` 返回前结束自身派发的所有后台工作。
+在作者 Editor 选择目标平台和架构，或在构建请求中填写 `targetPlatform` 和 `targetArchitecture`。用 `nativeExtensionFile` 指定已编译的共享库，并选择 Pak。目标宿主在 `[ModLoader]` 中启用 `bAllowNativeExtensions=True`。每个包只包含一份对应目标的共享库。
+
+| 目标平台 | 架构 | 共享库 |
+| --- | --- | --- |
+| `Win64` | `x64` 或 `arm64` | PE `.dll` |
+| `Linux` | `x64` | ELF `.so` |
+| `LinuxArm64` | `arm64` | ELF `.so` |
+| `Mac` | `x64` 或 `arm64` | 单架构 Mach-O `.dylib` |
+
+归档清单和 Cook 回执都会记录目标架构。打包器和宿主分别核对库的二进制格式及 CPU。旧 Win64 原生包省略架构时按 x64 处理。其他目标的原生打包请求必须显式填写架构。
+
+将私有原生依赖静态链接进扩展。Windows 允许直接或延迟导入系统 DLL。Linux 允许受支持的 glibc 和 GNU 运行库，并按其版本要求核对未定义符号。请保留动态符号表，并使用 `-Wl,-z,defs` 链接。macOS 使用双层命名空间，依赖库必须位于 `/usr/lib/` 或 `/System/Library/`。使用 `-Wl,-undefined,error` 链接，并按宿主的库验证策略为 dylib 签名。[Apple Hardened Runtime](https://developer.apple.com/documentation/security/hardened-runtime)
+
+- 注册入口会在 Game Thread 上为每个 World 调用一次，由宿主签发会话和独占注册令牌。可选的 `Close` 回调会在所有在途调用排空之后、共享库引用释放之前执行。扩展必须在 `Close` 返回前结束自身派发的所有后台工作。
 - 输入、输出、对象和续调令牌仅在当前回调期间有效。`Wrap` 须使用生成头文件中声明的精确大小调用一次 `Next`。`Replace` 与 `Wrap` 返回 `UMF_ExtensionWrite` 及完整结果；在获得授权的前提下，`Pre` 可返回 `UMF_ExtensionStop` 及取消结果。
 - 结构体线格式采用生成 C 头文件中定义的无填充小端布局，布尔值占 1 字节，对象值以 64 位不透明句柄表示。回调可通过 `FindHostQuery` 接通生成的客户端 API，并使用 `ObjectContext` 与句柄调用只读方法。
 
@@ -92,6 +105,6 @@ Manifest 格式为 `UMF.ModPackage`，其版本与 Header 主版本一致，用�
 
 载荷中的 `Content/<Stage相对路径>` 保留 UE 原生 Cook 产物，`Metadata/CookReceipt.json` 记录资源包根、Stage 路径、构建配置及发布来源信息。结果格式为 `UMF.ModPackageBuildResult` v1，状态 `Packaged` 表示打包与字节级校验已完成，并附带最终文件的 SHA-256。
 
-携带 UE 模块的旧包（归档 v2 或含 `nativeCode` 字段）需要迁移。将动态代码迁移到 `UMF_RegisterExtensionsV1`，并重新打包资产和独立 DLL。`Native/` 存放唯一已声明的 DLL，归档索引通过 SHA-256 校验其内容。
+携带 UE 模块的旧包（归档 v2 或含 `nativeCode` 字段）需要迁移。将动态代码迁移到 `UMF_RegisterExtensionsV1`，并重新打包资产和独立共享库。`Native/` 存放唯一已声明的共享库，归档索引通过 SHA-256 校验其内容。
 
 Manifest 与构建结果均记录 `shippingValidated: false`。当打包器依据提供的 SDK 契约校验过扩展清单时，Manifest 的 `exportRequirements` 为 `SdkVerified`，否则为 `NotVerified`。宿主在准入挂载时仍会核对实际的宿主扩展契约与授予权限。

@@ -115,7 +115,7 @@ struct FLoadPolicy
 	float PreparationTimeoutSeconds = 120.0f;
 	/// Overrides the default of enforcing only a populated allowlist.
 	TOptional<bool> bEnforcePackageAllowlist;
-	/// Enables hash-verified independent Win64 extension DLLs.
+	/// Enables hash-verified independent native extensions for desktop Pak packages.
 	bool bAllowNativeExtensions = false;
 	/// Selection for this load and its directory watcher.
 	FPackageSelection Selection;
@@ -152,7 +152,7 @@ struct FMountedPackage
 	FGameplayRelease GameplayRelease;
 	/// Whether the admission policy requires this package to be present.
 	bool bRequiredByHost = false;
-	/// Verified absolute path of an optional independent extension DLL.
+	/// Verified absolute path of an optional independent shared library.
 	FString NativeExtensionPath;
 	/// SHA-256 from the verified native payload index.
 	FString NativeExtensionDigest;

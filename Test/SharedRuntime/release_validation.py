@@ -172,7 +172,8 @@ class Validation:
         save(description, extension)
         save(request, {"format": "UMF.ModPackageBuildRequest", "schemaVersion": 3, "modVersion": "1.0.0",
                        "gameId": GAME, "baseReleaseVersion": version, "baseReleaseDirectory": str(release),
-                       "targetPlatform": PLATFORM, "cookConfiguration": CONFIG, "useIoStore": False,
+                       "targetPlatform": PLATFORM, "targetArchitecture": ARCH,
+                       "cookConfiguration": CONFIG, "useIoStore": False,
                        "includeEngineContent": False, "extensionsFile": str(description),
                        "sdkContractFile": str(sdk / "Contract/SdkContract.json"),
                        "nativeExtensionFile": str(extensions / f"{name}Extension.dll"),
