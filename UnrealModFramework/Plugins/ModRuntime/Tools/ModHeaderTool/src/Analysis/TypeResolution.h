@@ -27,7 +27,12 @@ class TypeResolution
 public:
 	static const ModuleInput* OwnerModule(const GenerationInput& Input, const fs::path& File);
 	static ResolvedType& ResolveRecord(GenerationModel& Model, ClangLibrary& Clang, CXCursor Record,
-	                                   const ExportMacro& Macro, const std::string& ExportModule = {});
+	                                   const ExportMacro& Macro, const std::string& ExportModule = {},
+	                                   std::string_view DeclaredScope = {});
+	static TypeIdentity DiscoverIdentity(GenerationModel& Model, ClangLibrary& Clang, CXCursor Record,
+	                                     const ExportMacro& Macro, const fs::path& File, std::string_view Module,
+	                                     std::string_view Scope, bool bEngine);
+	static std::string InferExportScope(ClangLibrary& Clang, CXCursor Record, const ExportMacro& Macro);
 	static APIType ResolveType(GenerationModel& Model, ClangLibrary& Clang, CXType Type, const API& API, bool bInput);
 
 private:

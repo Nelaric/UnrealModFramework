@@ -25,20 +25,18 @@ bool SourceReportBinder::SameFile(const Json& Report, const char* Key, const fs:
 	return fs::equivalent(Path::PathFromUtf8(Report.at(Key).get<std::string>()), File, Error);
 }
 
-void SourceReportBinder::BindSourceErrors(API& API, GenerationModel& Model, const Json& Member,
-                                          const Json& ClassifiedReasons, const Json& Report, const fs::path& Database)
+void SourceReportBinder::BindSourceErrors(API& API, GenerationModel& Model, const Json& Report,
+                                          const fs::path& Database)
 {
 	const auto& Definition = Report.at("definition");
 	const auto Function = Definition.at("function").get<std::string>();
 	const auto Signature = Definition.at("signature").get<std::string>();
-	const auto Source =
-	    Model.SourceErrorCatalog.parent_path() / Path::PathFromUtf8(Member.at("source").get<std::string>());
-	if (Report.value("format", "") != "UMF.SourceErrorReport" || Report.value("schemaVersion", 0) != 1 ||
-	    Report.value("errorCodeEncodingVersion", 1) != Model.ErrorCodeEncodingVersion ||
+	if (Report.value("errorCodeEncodingVersion", 0) != Model.ErrorCodeEncodingVersion ||
 	    Report.at("memberId") != API.Id || Report.at("target") != Model.Input.Target ||
 	    Report.at("module") != API.Module || API.DeclarationUsr.empty() || Definition.at("usr") != API.DeclarationUsr ||
-	    Function + " : " + Signature != API.SourceSignature || !SameFile(Definition.at("location"), "file", Source) ||
-	    !SameFile(Report, "catalog", Model.SourceErrorCatalog) || !SameFile(Report, "compilationDatabase", Database))
+	    Function + " : " + Signature != API.SourceSignature ||
+	    (!API.DefinitionFile.empty() && !SameFile(Definition.at("location"), "file", API.DefinitionFile)) ||
+	    !SameFile(Report, "compilationDatabase", Database))
 	{
 		throw std::runtime_error("ModSourceTool report does not match the bound export and Target: " + API.Id);
 	}
@@ -62,21 +60,29 @@ void SourceReportBinder::BindSourceErrors(API& API, GenerationModel& Model, cons
 	{
 		const auto Key = Failure.at("key").get<std::string>();
 		const auto& Value = Failure.at("code");
-		const auto& Reasons = Failure.contains("classification") ? ClassifiedReasons : Member.at("reasons");
-		const auto& Reason = Reasons.at(Key);
 		if (!Value.is_number_integer() || Value.get<std::uint64_t>() == 0 ||
-		    Value.get<std::uint64_t>() > std::numeric_limits<std::uint32_t>::max() || Value != Reason.at("code"))
+		    Value.get<std::uint64_t>() > std::numeric_limits<std::uint32_t>::max())
 		{
-			throw std::runtime_error("ModSourceTool returned an invalid catalog code for " + API.Id + '/' + Key);
+			throw std::runtime_error("ModSourceTool returned an invalid structured code for " + API.Id + '/' + Key);
 		}
 		const auto Code = Value.get<std::uint32_t>();
-		Codes.emplace(Key, Code);
+		if (const auto [Existing, bInserted] = Codes.emplace(Key, Code); !bInserted && Existing->second != Code)
+		{
+			throw std::runtime_error("Conflicting source error identity: " + API.Id + '/' + Key);
+		}
 		if (Model.ErrorCodeEncodingVersion == Tools::ErrorCodes::StructuredErrorCodeVersion)
 		{
 			const auto Macro = Failure.at("macro").get<std::string>();
-			if (!Tools::ErrorCodes::IsErrorMacro(Macro) || Reason.at("macro") != Macro)
+			if (!Tools::ErrorCodes::IsErrorMacro(Macro))
 			{
 				throw std::runtime_error("ModSourceTool returned an invalid macro for " + API.Id + '/' + Key);
+			}
+			for (const auto& [PublishedName, PublishedCode] : Model.SourceErrorMacros)
+			{
+				if (PublishedCode == Code && PublishedName != Macro)
+				{
+					throw std::runtime_error("Conflicting source error code: " + PublishedName + " and " + Macro);
+				}
 			}
 			const auto [Entry, bInserted] = Model.SourceErrorMacros.emplace(Macro, Code);
 			if (!bInserted && Entry->second != Code)

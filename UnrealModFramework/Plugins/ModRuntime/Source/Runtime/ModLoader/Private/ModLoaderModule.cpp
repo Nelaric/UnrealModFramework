@@ -14,7 +14,6 @@
 #include "ModPackageArchive.h"
 #include "ModPackageMount.h"
 #include "Modules/ModuleManager.h"
-#include "Modules/ModuleManifest.h"
 #include "Templates/UnrealTemplate.h"
 
 #if WITH_EDITOR
@@ -355,8 +354,7 @@ private:
 
 		for (int32 Index = 0; Index < Results.Num(); ++Index)
 		{
-			if (Results[Index].IsSuccess() && AdmitPackage(Policy, Results[Index]) &&
-			    CheckNativeCode(Prepared[Index].NativeCode, Results[Index]))
+			if (Results[Index].IsSuccess() && AdmitPackage(Policy, Results[Index]))
 			{
 				Candidates.Add(&Results[Index].Package);
 				Pending.Add(Index);
@@ -399,28 +397,8 @@ private:
 			Reject(Error);
 			return;
 		}
-		TSet<FName> NativeNames;
-		for (int32 Candidate : Order)
-		{
-			const int32 Index = Pending[Candidate];
-			if (Index == INDEX_NONE)
-			{
-				continue;
-			}
-			for (const auto& Module : Prepared[Index].NativeCode.Modules)
-			{
-				const FName Name(*Module.Name);
-				if (NativeNames.Contains(Name))
-				{
-					Reject(TEXT("Multiple selected archives declare UE module ") + Name.ToString());
-					return;
-				}
-				NativeNames.Add(Name);
-			}
-		}
 		TMap<FString, int32> Committed;
 		TArray<FString> NewPackages;
-		bool bNewNativeCode = false;
 		for (int32 Candidate : Order)
 		{
 			const int32 Index = Pending[Candidate];
@@ -448,15 +426,10 @@ private:
 			if (!Result.bAlreadyMounted)
 			{
 				NewPackages.Add(Result.Package.ModId);
-				bNewNativeCode |= !Prepared[Index].NativeCode.Modules.IsEmpty();
 			}
 		}
 		if (!Error.IsEmpty())
 		{
-			if (bNewNativeCode)
-			{
-				RequireRestart(Error);
-			}
 			for (int32 Index = NewPackages.Num() - 1; Index >= 0; --Index)
 			{
 				const FString& Id = NewPackages[Index];
@@ -722,81 +695,6 @@ private:
 		return Private::ValidatePolicy(Policy, Result) && Private::CheckBackend(Policy.Backend, bPIE, Result);
 	}
 
-	bool CheckNativeCode(const Private::FNativeModuleSet& Code, FLoadResult& Result) const
-	{
-		if (Code.Modules.IsEmpty())
-		{
-			return true;
-		}
-		if (const FString* Resident = ResidentNativeArchives.Find(Result.Package.ModId))
-		{
-			return *Resident == Result.Package.ArchiveSha256 ||
-			       Fail(Result, ELoadError::RestartRequired, TEXT("Restart before replacing a resident UE module."));
-		}
-		FModuleManifest HostManifest;
-		FModuleManifest ModManifest;
-		const FString ExpectedManifest = FModuleManifest::GetFileName(Code.Directory, true);
-		if (FPaths::GetCleanFilename(ExpectedManifest) != Code.ManifestName ||
-		    !FModuleManifest::TryRead(FModuleManifest::GetFileName(FPlatformProcess::GetModulesDirectory(), false),
-		                              HostManifest) ||
-		    !FModuleManifest::TryRead(ExpectedManifest, ModManifest) || Code.BuildId != HostManifest.BuildId ||
-		    Code.BuildId != ModManifest.BuildId || Code.Modules.Num() != ModManifest.ModuleNameToFileName.Num())
-		{
-			return Fail(Result, ELoadError::Incompatible,
-			            TEXT("The UE module manifest does not match the host build."));
-		}
-		const FModuleManager& Manager = FModuleManager::Get();
-		for (const Private::FNativeModule& Module : Code.Modules)
-		{
-			const FString* FileName = ModManifest.ModuleNameToFileName.Find(Module.Name);
-			if (!FileName || *FileName != Module.FileName)
-			{
-				return Fail(Result, ELoadError::InvalidArchive,
-				            TEXT("A UE module is missing from the binary manifest."));
-			}
-			if (Manager.IsModuleLoaded(FName(*Module.Name)) || Manager.ModuleExists(*Module.Name))
-			{
-				return Fail(
-				    Result, ELoadError::Conflict,
-				    FString::Printf(TEXT("UE module '%s' is already supplied by another package."), *Module.Name));
-			}
-		}
-		return true;
-	}
-
-	bool LoadNativeCode(const Private::FNativeModuleSet& Code, FLoadResult& Result)
-	{
-		if (Code.Modules.IsEmpty() || ResidentNativeArchives.Contains(Result.Package.ModId))
-		{
-			return true;
-		}
-		FModuleManager& Manager = FModuleManager::Get();
-		Manager.AddBinariesDirectory(*Code.Directory, true);
-		for (const Private::FNativeModule& Module : Code.Modules)
-		{
-			FString ModuleFile;
-			if (!Manager.ModuleExists(*Module.Name, &ModuleFile) ||
-			    !FPaths::IsSamePath(ModuleFile, FPaths::Combine(Code.Directory, Module.FileName)))
-			{
-				return Fail(Result, ELoadError::RestartRequired,
-				            FString::Printf(TEXT("UE did not discover '%s' at the verified DLL path."), *Module.Name));
-			}
-		}
-		for (const Private::FNativeModule& Module : Code.Modules)
-		{
-			EModuleLoadResult Failure = EModuleLoadResult::Success;
-			if (!Manager.LoadModuleWithFailureReason(FName(*Module.Name), Failure, ELoadModuleFlags::LogFailures))
-			{
-				return Fail(Result, ELoadError::RestartRequired,
-				            FString::Printf(TEXT("Could not load UE module '%s' (module error %d)."), *Module.Name,
-				                            static_cast<int32>(Failure)));
-			}
-			UE_LOG(LogModLoader, Display, TEXT("Loaded UE module %s for mod %s."), *Module.Name, *Result.Package.ModId);
-		}
-		ResidentNativeArchives.Add(Result.Package.ModId, Result.Package.ArchiveSha256);
-		return true;
-	}
-
 	void Commit(const FPreparedPackage& Prepared, FLoadResult& Result)
 	{
 		if (bNeedsRestart)
@@ -829,12 +727,7 @@ private:
 			return;
 		}
 #endif
-		if (!CheckNativeCode(Prepared.NativeCode, Result))
-		{
-			return;
-		}
-		if (Private::MountPrepared(Prepared, Result, Record.Resources,
-		                           [this, &Prepared, &Result] { return LoadNativeCode(Prepared.NativeCode, Result); }))
+		if (Private::MountPrepared(Prepared, Result, Record.Resources))
 		{
 			Record.Package = Result.Package;
 			Record.SourcePath = Result.Path;
@@ -904,7 +797,6 @@ private:
 				Policy.GameplayReleases.Add(FString(), FGameplayRelease());
 			}
 		}
-		GConfig->GetBool(ConfigSection, TEXT("bAllowNativeModules"), Policy.bAllowNativeModules, GGameIni);
 		GConfig->GetBool(ConfigSection, TEXT("bAllowNativeExtensions"), Policy.bAllowNativeExtensions, GGameIni);
 		bool bEnforcePackageAllowlist = false;
 		if (GConfig->GetBool(ConfigSection, TEXT("bEnforcePackageAllowlist"), bEnforcePackageAllowlist, GGameIni))
@@ -1103,8 +995,6 @@ private:
 	bool bRescanWhenSessionEnds = false;
 	TArray<FLoadResult> StartupResults;
 	TMap<FString, FMountedRecord> Mounted;
-	// Registered UClasses can keep native function pointers after their content is unmounted.
-	TMap<FString, FString> ResidentNativeArchives;
 	TQueue<FDeferredCompletion, EQueueMode::Mpsc> DeferredCompletions;
 	bool bLoading = false;
 	bool bBroadcasting = false;

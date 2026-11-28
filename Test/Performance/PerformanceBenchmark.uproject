@@ -5,13 +5,10 @@
   "DisableEnginePluginsByDefault": true,
   "Modules": [
     { "Name": "PerformanceBenchmark", "Type": "Runtime", "LoadingPhase": "Default" },
+    { "Name": "BenchmarkMod", "Type": "Runtime", "LoadingPhase": "Default" },
     { "Name": "PerformanceBenchmarkEditor", "Type": "Editor", "LoadingPhase": "Default" }
   ],
   "Plugins": [
-    { "Name": "ModRuntime", "Enabled": true },
-    { "Name": "Niagara", "Enabled": true },
-    { "Name": "AnimationData", "Enabled": true },
-    { "Name": "ACLPlugin", "Enabled": true },
-    { "Name": "FullBodyIK", "Enabled": true }
+    { "Name": "ModRuntime", "Enabled": true }
   ]
 }

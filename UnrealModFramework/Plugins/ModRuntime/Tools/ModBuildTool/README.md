@@ -23,7 +23,8 @@ You can also build the `ModBuildTool` target directly inside an existing CMake b
 ```text
 ModBuildTool build-ue-target --engine <path> --project <project.uproject> --target <target>
                              --platform <platform> --configuration <configuration>
-                             --architecture <architecture> --mode <normal|rebuild|bootstrap>
+                               --architecture <x64|arm64> --mode <normal|rebuild>
+                               --commit <sha> --engine-commit <sha> --metadata <bundle>
 ModBuildTool plan --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json
 ModBuildTool build-planned-host --context HostCompileContext.json --generated-manifest MyGame.generated-artifacts.json --input-fingerprint <plan.inputFingerprint>
@@ -37,7 +38,7 @@ ModBuildTool inspect-archive --file <archive> --platform Win64 --architecture x6
 ModBuildTool inspect-binary --file <image> --platform Win64 --architecture x64 --kind Executable
 ```
 
-`build-ue-target` uses the engine's bundled .NET runtime to run UBT for a single target architecture. In `normal` mode, MBT exports outdated actions, verifies the MHT Hook source map and source hashes, substitutes generated inputs into the compile actions, and executes the updated plan through UBT while recording object hashes for incremental reuse. `rebuild` passes UBT's rebuild request before exporting actions. `bootstrap` runs UBT with `-MhtBootstrap` for the Development Editor to compile the original functions; a normal build prepares its bootstrap Editor automatically when needed.
+`prepare-metadata` exports a bundle from a native Development Editor. `validate-metadata` checks the inputs for one target. `build-ue-target` validates the bundle, exports UBT actions, verifies the generated Hook inputs, substitutes matching compile actions, and checks the final link receipt. `rebuild` requests a UBT rebuild. `test-ue-target` checks normal Editor linkage and actual automation execution. [Command examples](../../../../../Docs/DevelopmentWorkflow.md#build-locally)
 
 `plan` validates inputs without compiling or creating directories. `build-host` acquires the archive lock and returns `Built` or `UpToDate`. `build-planned-host` additionally verifies the expected fingerprint from an earlier plan while holding the archive lock. `verify-host` fails when inputs or artifacts are stale. Exit code `0` indicates success, while exit code `1` indicates invalid input, a build or I/O failure, or stale verification. JSON results are written to stdout and child diagnostics to stderr.
 
@@ -108,7 +109,7 @@ The `UMF.ModHostLinkedArtifacts` / `Linked` output includes public files, contra
 
 MBT drives UBT with generated Hook source replacements and verifies the final desktop images against their target receipts. UBT compiles the generated host and verification units in their owning modules.
 
-`build-ue-target --mode normal` uses the same `Config/ModHeaderTool.json` generation settings as UHT. When the local MBT executable drives a Windows build, the tool pre-build step reuses that executable and builds MHT and MST. Run Setup again after switching to a branch with newer MBT sources so the next invocation uses the updated driver.
+UBT supplies the target graph and compilation actions to the exporter. Prepare the native tools before calling MBT. Nested UBT invocations reuse those executables.
 
 The following broader action-graph integration remains a future contract:
 

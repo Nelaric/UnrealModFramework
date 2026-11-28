@@ -8,7 +8,6 @@
 #include "ShooterCharacter.generated.h"
 
 class AShooterWeapon;
-class UInputAction;
 class UInputComponent;
 class UPawnNoiseEmitterComponent;
 
@@ -31,14 +30,6 @@ class TP_FIRSTPERSON_API AShooterCharacter : public ATP_FirstPersonCharacter, pu
 	TObjectPtr<UPawnNoiseEmitterComponent> PawnNoiseEmitter;
 
 protected:
-	/** Fire weapon input action */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> FireAction;
-
-	/** Switch weapon input action */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> SwitchWeaponAction;
-
 	/** Name of the first person mesh weapon socket */
 	UPROPERTY(EditAnywhere, Category = "Weapons")
 	FName FirstPersonWeaponSocket = FName("HandGrip_R");

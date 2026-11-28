@@ -19,7 +19,6 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
-#include "NiagaraFunctionLibrary.h"
 #include "TimerManager.h"
 
 namespace Benchmark
@@ -32,7 +31,7 @@ bool FCallContext::DispatchCpp(int32 Case, uint64& Elapsed, UObject* WorldContex
 	using AIHelper = UAIBlueprintHelperLibrary;
 	static const FName Tag(TEXT("Benchmark"));
 	static const FName Level(TEXT("BenchmarkSublevel"));
-	static const FName Bone(TEXT("pelvis"));
+	const FName Bone = Mesh->GetBoneName(0);
 	static const FName Parameter(TEXT("Roughness"));
 	const auto Channel = UEngineTypes::ConvertToTraceType(ECC_Visibility);
 	const auto Draw = EDrawDebugTrace::None;
@@ -43,7 +42,7 @@ bool FCallContext::DispatchCpp(int32 Case, uint64& Elapsed, UObject* WorldContex
 	auto* SamplePawn = Case == 68 ? SparePawn : Player;
 	auto* MontageAsset = Montage.Get();
 	auto* TextureAsset = Texture.Get();
-	auto* NiagaraAsset = Niagara.Get();
+	auto* EmitterAsset = Emitter.Get();
 	const FCollisionQueryParams& Query = FCollisionQueryParams::DefaultQueryParam;
 	const FCollisionResponseParams& Response = FCollisionResponseParams::DefaultResponseParam;
 	const uint64 Started = FPlatformTime::Cycles64();
@@ -678,8 +677,8 @@ bool FCallContext::DispatchCpp(int32 Case, uint64& Elapsed, UObject* WorldContex
 		Audio->Play(0.0f);
 		break;
 	case 200:
-		Result = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		    WorldContext, NiagaraAsset, ActorStart, Zero, FVector::OneVector, false, true, ENCPoolMethod::None, false);
+		Result = Gameplay::SpawnEmitterAtLocation(WorldContext, EmitterAsset, ActorStart, Zero, FVector::OneVector,
+		                                          false, EPSCPoolMethod::None, true);
 		break;
 	default:
 		return false;

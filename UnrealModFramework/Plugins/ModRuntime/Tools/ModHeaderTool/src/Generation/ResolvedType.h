@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <set>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -14,6 +15,8 @@ namespace Mod::HeaderTool
 struct ResolvedType
 {
 	TypeIdentity Identity;
+	std::filesystem::path DeclarationFile;
+	std::string ReflectedPath;
 	std::string Module;
 	std::string HeaderInclude;
 	std::string BlueprintClass;

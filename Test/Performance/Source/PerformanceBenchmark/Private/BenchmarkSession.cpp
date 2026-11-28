@@ -2,6 +2,8 @@
 #include "BenchmarkSession.h"
 
 #include "Animation/AnimInstance.h"
+#include "BenchmarkContract.h"
+#include "BenchmarkModInstance.h"
 #include "Blueprint/AIBlueprintHelperLibrary.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "Components/CapsuleComponent.h"
@@ -23,12 +25,11 @@
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
-#include "ModInstance.h"
+#include "ModExtensionSubsystem.h"
 #include "ModLoader.h"
 #include "NavMesh/NavMeshBoundsVolume.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
-#include "NiagaraFunctionLibrary.h"
 #include "TimerManager.h"
 #include "UnrealEngine.h"
 #include "UObject/UObjectIterator.h"
@@ -37,6 +38,22 @@ namespace Benchmark
 {
 namespace
 {
+const FName BenchmarkHook(TEXT(BENCHMARK_HOOK_ID));
+
+const Mod::Extension::FGeneratedRegistration RegisterBenchmarkHook(
+    [](TArray<Mod::Extension::FDefinition>& Out)
+    {
+	    auto& Definition = Out.AddDefaulted_GetRef();
+	    Definition.Id = BenchmarkHook;
+	    Definition.Version = TEXT("1.0.0");
+	    Definition.Signature = TEXT(BENCHMARK_HOOK_SIGNATURE);
+	    Definition.Kind = Mod::Extension::EKind::Hook;
+	    Definition.Scalar = Mod::Extension::EScalar::Int32;
+	    Definition.bOn = true;
+	    Definition.Operations = Mod::Extension::EOperation::Wrap;
+	    Definition.Permission = BenchmarkHook;
+    });
+
 constexpr const TCHAR* Names[] = {
 #define BENCHMARK_API(Id, Qualified) TEXT(Qualified),
 #include "BenchmarkCatalog.inl"
@@ -130,13 +147,12 @@ bool FSession::Initialize()
 	NavigationPawn->SpawnDefaultController();
 	AI = Cast<AAIController>(NavigationPawn->GetController());
 	Mesh = Player->GetMesh();
-	Mesh->SetSkeletalMeshAsset(LoadObject<USkeletalMesh>(
-	    nullptr, TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple")));
+	Mesh->SetSkeletalMeshAsset(
+	    LoadObject<USkeletalMesh>(nullptr, TEXT("/Engine/EngineMeshes/SkeletalCube.SkeletalCube")));
 	Mesh->SetAnimInstanceClass(UAnimInstance::StaticClass());
 	Anim = Mesh->GetAnimInstance();
-	Sequence.Reset(
-	    LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle.MM_Idle")));
-	if (!AI || !Anim || !Sequence.IsValid())
+	Sequence.Reset(LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Fixtures/BenchmarkAnimation.BenchmarkAnimation")));
+	if (!AI || !Mesh->GetSkeletalMeshAsset() || !Anim || !Sequence.IsValid())
 	{
 		Fail(TEXT("Could not initialize the AI controller or animation fixtures"));
 		return false;
@@ -172,8 +188,7 @@ bool FSession::Initialize()
 	Audio->SetSound(Sound);
 	Audio->SetVolumeMultiplier(0.005f);
 	Audio->RegisterComponent();
-	Niagara.Reset(
-	    LoadObject<UNiagaraSystem>(nullptr, TEXT("/Niagara/DefaultAssets/Templates/Systems/RadialBurst.RadialBurst")));
+	Emitter.Reset(LoadObject<UParticleSystem>(nullptr, TEXT("/Game/Fixtures/BenchmarkEmitter.BenchmarkEmitter")));
 	Streaming = UGameplayStatics::GetStreamingLevel(&World, TEXT("BenchmarkSublevel"));
 	auto* SaveFixture = NewObject<UBenchmarkSave>(Driver);
 	SaveFixture->Payload.Init(7, 4096);
@@ -189,11 +204,11 @@ bool FSession::Initialize()
 	UVParams.bReturnFaceIndex = true;
 	World.LineTraceSingleByChannel(CollisionUV, Start, End, ECC_Visibility, UVParams);
 	const bool bSaveReady = UGameplayStatics::SaveGameToSlot(Save.Get(), SlotName, 0);
-	if (!Widget.IsValid() || !Texture.IsValid() || !Sound || !Niagara.IsValid() || !Streaming || !bSaveReady)
+	if (!Widget.IsValid() || !Texture.IsValid() || !Sound || !Emitter.IsValid() || !Streaming || !bSaveReady)
 	{
 		Fail(FString::Printf(
-		    TEXT("Fixture initialization: widget=%d texture=%d sound=%d Niagara=%d streaming=%d save=%d"),
-		    Widget.IsValid(), Texture.IsValid(), Sound != nullptr, Niagara.IsValid(), Streaming != nullptr,
+		    TEXT("Fixture initialization: widget=%d texture=%d sound=%d emitter=%d streaming=%d save=%d"),
+		    Widget.IsValid(), Texture.IsValid(), Sound != nullptr, Emitter.IsValid(), Streaming != nullptr,
 		    bSaveReady));
 		return false;
 	}
@@ -252,16 +267,26 @@ bool FSession::PrepareMod()
 	Policy.BaseReleaseVersion = TEXT("1.0.0");
 	Policy.BaseRegistrySha256 = Digest;
 	Policy.Backend = Mod::Loader::EBackend::Pak;
-	Policy.bAllowNativeModules = true;
+	Policy.bAllowNativeExtensions = true;
 	const auto Load = Mod::Loader::IModLoaderModule::Get().LoadPackage(Package, Policy);
 	if (!Load.IsSuccess() || Load.bAlreadyMounted)
 	{
 		Fail(FString::Printf(TEXT("Benchmark .mod could not be mounted: %s"), *Load.Detail));
 		return false;
 	}
-	for (TObjectIterator<UModInstance> It; It; ++It)
+	auto* Extensions = World.GetSubsystem<UModExtensionSubsystem>();
+	Mod::Extension::FWorldPolicy WorldPolicy;
+	WorldPolicy.EnabledMods.Add(TEXT("benchmarkmod"));
+	WorldPolicy.Grants.Add(TEXT("benchmarkmod"), {BenchmarkHook, FName(BenchmarkHook.ToString() + TEXT(".Wrap"))});
+	FString Error;
+	if (!Extensions || !Extensions->Prepare(MoveTemp(WorldPolicy), Error))
 	{
-		if (It->GetOuter() == World.GetGameInstance() && It->GetModId() == TEXT("benchmarkmod"))
+		Fail(FString::Printf(TEXT("Could not open the benchmark extension: %s"), *Error));
+		return false;
+	}
+	for (TObjectIterator<UBenchmarkModInstance> It; It; ++It)
+	{
+		if (It->GetWorld() == &World && It->GetModId() == TEXT("benchmarkmod"))
 		{
 			Mod = *It;
 			break;
@@ -270,21 +295,6 @@ bool FSession::PrepareMod()
 	if (!Mod.IsValid())
 	{
 		Fail(TEXT("Mounted Mod has no benchmark instance"));
-		return false;
-	}
-	UFunction* GetSampleAddress = Mod->FindFunction(TEXT("GetSampleAddress"));
-	ModNativeCall = Mod->FindFunction(TEXT("MeasureCpp"));
-	if (!GetSampleAddress || !ModNativeCall)
-	{
-		Fail(TEXT("Mounted Mod is missing its measurement functions"));
-		return false;
-	}
-	int64 SampleAddress = 0;
-	Mod->ProcessEvent(GetSampleAddress, &SampleAddress);
-	ModSample = reinterpret_cast<FBlueprintSample*>(static_cast<UPTRINT>(SampleAddress));
-	if (!ModSample)
-	{
-		Fail(TEXT("Mounted Mod did not provide Blueprint measurement state"));
 		return false;
 	}
 	return true;
@@ -472,6 +482,10 @@ bool FSession::WriteReport() const
 
 bool FSession::Finish()
 {
+	if (auto* Extensions = World.GetSubsystem<UModExtensionSubsystem>(); bModRequired && Extensions)
+	{
+		Extensions->Stop();
+	}
 	UGameplayStatics::DeleteGameInSlot(SlotName, 0);
 	if (bFailed)
 	{

@@ -14,10 +14,7 @@ class AShooterPickup;
 class UCameraComponent;
 class UDamageType;
 class UDataTable;
-class UEnhancedInputComponent;
-class UEnhancedInputLocalPlayerSubsystem;
-class UInputAction;
-class UInputMappingContext;
+class UInputComponent;
 class UShooterBulletCounterUI;
 class UShooterUI;
 class USkeletalMesh;
@@ -47,9 +44,7 @@ private:
 
 	void Fire();
 	void SwitchWeapon();
-	void BindWeaponInput(APlayerController& PlayerController, UEnhancedInputLocalPlayerSubsystem& Subsystem,
-	                     const UInputMappingContext& MappingContext, const UInputAction& FireAction,
-	                     const UInputAction& SwapAction);
+	void BindWeaponInput(APlayerController& PlayerController);
 	void SpawnPracticeActors(TSubclassOf<AShooterPickup> PickupClass, UDataTable& WeaponData, USkeletalMesh& Manny);
 	void OnShotActorSpawned(AActor* Actor);
 
@@ -62,7 +57,6 @@ private:
 	                    AController* InstigatorController, AActor* DamageCauser);
 
 	TWeakObjectPtr<APlayerController> Controller;
-	TWeakObjectPtr<UEnhancedInputLocalPlayerSubsystem> InputSubsystem;
 	TArray<TWeakObjectPtr<UCameraComponent>> PreviousCameras;
 	TArray<TWeakObjectPtr<AActor>> ShotActors;
 	FDelegateHandle ShotActorSpawnedHandle;
@@ -74,10 +68,7 @@ private:
 	TObjectPtr<USkeletalMeshComponent> FirstPersonMesh;
 
 	UPROPERTY()
-	TObjectPtr<UEnhancedInputComponent> Input;
-
-	UPROPERTY()
-	TObjectPtr<UInputMappingContext> Mapping;
+	TObjectPtr<UInputComponent> Input;
 
 	UPROPERTY()
 	TObjectPtr<UShooterBulletCounterUI> BulletCounter;

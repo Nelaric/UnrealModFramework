@@ -3,7 +3,6 @@
 
 #include "Common/Files/File.h"
 #include "Common/Files/Path.h"
-#include "Common/Hash/Hash.h"
 #include "ModSourceTool/src/Analysis/ArgumentValue.h"
 #include "ModSourceTool/src/Analysis/Guard.h"
 #include "ModSourceTool/src/Analysis/GuardClassification.h"
@@ -259,7 +258,8 @@ void Analyzer::FindDefinition(CXCursor Cursor, std::vector<CXCursor>& Definition
 	{
 		return;
 	}
-	if (Cursor.kind == CXCursor_Namespace || Cursor.kind == CXCursor_LinkageSpec)
+	if (Cursor.kind == CXCursor_Namespace || Cursor.kind == CXCursor_LinkageSpec || Cursor.kind == CXCursor_ClassDecl ||
+	    Cursor.kind == CXCursor_StructDecl)
 	{
 		for (const auto Child : Children(Cursor))
 		{
@@ -268,6 +268,8 @@ void Analyzer::FindDefinition(CXCursor Cursor, std::vector<CXCursor>& Definition
 	}
 	else if ((Cursor.kind == CXCursor_CXXMethod || Cursor.kind == CXCursor_FunctionDecl) &&
 	         ClangApi.clang_isCursorDefinition(Cursor) && QualifiedName(Cursor) == Request.Function &&
+	         (Request.DeclarationUsr.empty() ||
+	          ClangApi.String(ClangApi.clang_getCursorUSR(Cursor)) == Request.DeclarationUsr) &&
 	         (Request.Signature.empty() ||
 	          ClangApi.String(ClangApi.clang_getTypeSpelling(
 	              ClangApi.clang_getCanonicalType(ClangApi.clang_getCursorType(Cursor)))) == Request.Signature))
@@ -666,42 +668,14 @@ Json Analyzer::Exit(CXCursor At, CXCursor Condition, std::string Guard, const Tr
 	        {"pathConditions", std::move(Guards)}};
 }
 
-Json Analyzer::DerivedReason(const BodyAnalysis& Analysis, std::string_view Kind, const std::string& Description,
-                             std::string_view Exception) const
+Json Analyzer::DerivedReason(const BodyAnalysis&, std::string_view Kind, const std::string& Description,
+                             std::string_view) const
 {
-	const auto Name = QualifiedName(Analysis.Definition);
-	const auto Signature =
-	    ClangApi.String(ClangApi.clang_getTypeSpelling(ClangApi.clang_getCursorType(Analysis.Definition)));
-	const auto Identity =
-	    Mod::BuildTool::Hash::HashBytes(Json::array({Kind, Name, Signature, Exception, Description}).dump());
-	std::string Macro = "MOD_ERROR_";
-	for (const char Ch : Name + "_" + std::string(Kind) + "_" + Description)
-	{
-		if (Macro.size() >= 96)
-		{
-			break;
-		}
-		if ((Ch >= 'a' && Ch <= 'z') || (Ch >= 'A' && Ch <= 'Z') || (Ch >= '0' && Ch <= '9'))
-		{
-			Macro += Ch >= 'a' && Ch <= 'z' ? static_cast<char>(Ch - 'a' + 'A') : Ch;
-		}
-		else if (!Macro.ends_with('_'))
-		{
-			Macro += '_';
-		}
-	}
-	if (!Macro.ends_with('_'))
-	{
-		Macro += '_';
-	}
-	for (const char Ch : std::string_view(Identity).substr(0, 10))
-	{
-		Macro += Ch >= 'a' && Ch <= 'f' ? static_cast<char>(Ch - 'a' + 'A') : Ch;
-	}
-	auto Result = GuardClassification::ClassifiedReason((std::string(Kind) + '/' + Identity).c_str(), Macro.c_str(),
-	                                                    Kind == "Throw" ? "802" : "801");
-	Result["description"] = Description;
-	return Result;
+	auto Reason = Kind == "Throw"
+	                  ? GuardClassification::ClassifiedReason("NativeException", "MOD_ERROR_NATIVE_EXCEPTION")
+	                  : GuardClassification::ClassifiedReason("DeclaredFailure", "MOD_ERROR_DECLARED_FAILURE");
+	Reason["description"] = Description;
+	return Reason;
 }
 
 CXType Analyzer::ExceptionType(CXType Type) const
@@ -841,7 +815,7 @@ CXCursor Analyzer::ProjectDefinition(const std::string& Usr, CXCursor Call, Body
 	{
 		bIndexedProject = true;
 		const auto Database = Json::parse(Mod::BuildTool::File::ReadFile(Request.Database));
-		std::set<fs::path> Seen{Request.Source};
+		std::set<fs::path> Seen{Request.Source, Request.TranslationUnit};
 		for (const auto& Entry : Database)
 		{
 			const auto File = (Mod::BuildTool::Path::PathFromUtf8(Entry.at("directory").get<std::string>()) /
@@ -856,6 +830,7 @@ CXCursor Analyzer::ProjectDefinition(const std::string& Usr, CXCursor Call, Body
 			{
 				auto Other = Request;
 				Other.Source = File;
+				Other.TranslationUnit = File;
 				const auto Command = CompilationDatabase::LoadCompileCommand(ClangApi, Other);
 				auto Parsed = TranslationUnitParser::ParseUnit(ClangApi, ClangIndex, Command, File);
 				const auto Top = Children(ClangApi.clang_getTranslationUnitCursor(Parsed.get()));
@@ -1137,6 +1112,31 @@ void Analyzer::EmitReturn(CXCursor Return, CXCursor Value, const Json& Expected,
 	Analysis.Failures.push_back(std::move(Failure));
 }
 
+bool Analyzer::AnalyzeDeclaredFailure(CXCursor Return, CXCursor Value, BodyAnalysis& Analysis, const Trace& Trace) const
+{
+	const auto Call = Unwrap(Value);
+	if (Call.kind != CXCursor_CallExpr ||
+	    QualifiedName(ClangApi.clang_getCursorReferenced(Call)) != "Mod::ExportMetadata::SourceFailure" ||
+	    ClangApi.clang_Cursor_getNumArguments(Call) != 3)
+	{
+		return false;
+	}
+	const auto Key = ClangApi.clang_Cursor_getArgument(Call, 0);
+	const auto Number = ConstantValue(ClangApi.clang_Cursor_getArgument(Call, 1), Trace);
+	const std::unique_ptr<void, decltype(ClangApi.clang_EvalResult_dispose)> Name(ClangApi.clang_Cursor_Evaluate(Key),
+	                                                                              ClangApi.clang_EvalResult_dispose);
+	if (!Name || ClangApi.clang_EvalResult_getKind(Name.get()) != CXEval_StrLiteral || !Number ||
+	    !Number->is_number_integer())
+	{
+		Fail(Return, "MOD_SOURCE_FAILURE requires a symbolic name and an integral constant code.");
+	}
+	const std::string Macro = ClangApi.clang_EvalResult_getAsStr(Name.get());
+	auto Failure = Exit(Return, Call, Macro, Trace, Analysis, "return");
+	Failure["classifications"] = Json::array({{{"key", Macro}, {"macro", Macro}, {"code", *Number}}});
+	Analysis.Failures.push_back(std::move(Failure));
+	return true;
+}
+
 void Analyzer::AnalyzeValue(CXCursor Return, CXCursor Value, const Json& Expected, BodyAnalysis& Analysis,
                             Trace Trace) const
 {
@@ -1283,7 +1283,7 @@ bool Analyzer::AnalyzeStatement(CXCursor Statement, BodyAnalysis& Analysis, Trac
 		if (Parts.size() == 1)
 		{
 			ObserveExpression(Parts.front(), Analysis, Trace);
-			if (Analysis.FailureReturn)
+			if (!AnalyzeDeclaredFailure(Statement, Parts.front(), Analysis, Trace) && Analysis.FailureReturn)
 			{
 				AnalyzeValue(Statement, Parts.front(), *Analysis.FailureReturn, Analysis, Trace);
 			}

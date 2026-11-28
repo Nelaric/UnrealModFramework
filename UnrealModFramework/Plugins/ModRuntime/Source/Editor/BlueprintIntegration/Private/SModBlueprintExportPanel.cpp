@@ -1,6 +1,9 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "SModBlueprintExportPanel.h"
 
+#include "Widgets/Input/SEditableTextBox.h"
+#include "Widgets/Layout/SExpandableArea.h"
+
 #include "ModBlueprintExportGraphSchema.h"
 #include "ModBlueprintExports.h"
 
@@ -167,6 +170,48 @@ void SModBlueprintExportPanel::Construct(const FArguments& InArgs, TWeakPtr<FBlu
 	    .AlphaSortItems(false)
 	    .UseSectionStyling(true);
 
+	const auto GetIdentity = [this](bool bModule)
+	{
+		const UModBlueprintExports* Exports = UModBlueprintExports::Find(GetBlueprint());
+		if (!Exports)
+		{
+			return FText::GetEmpty();
+		}
+		if (bModule)
+		{
+			return Exports->OwnerModule.IsNone() ? FText::GetEmpty() : FText::FromName(Exports->OwnerModule);
+		}
+		return FText::FromString(Exports->StableTypeId);
+	};
+	const auto CommitIdentity = [this](const FText& Text, ETextCommit::Type Commit, bool bModule)
+	{
+		if (!CanEdit() || Commit == ETextCommit::OnCleared)
+		{
+			return;
+		}
+		UBlueprint* Blueprint = GetBlueprint();
+		const FString Value = Text.ToString().TrimStartAndEnd();
+		const UModBlueprintExports* Current = UModBlueprintExports::Find(Blueprint);
+		if ((bModule && Current && Current->OwnerModule == FName(*Value)) ||
+		    (!bModule && Current && Current->StableTypeId == Value) || (!Current && Value.IsEmpty()))
+		{
+			return;
+		}
+		const FScopedTransaction Transaction(LOCTEXT("EditExportIdentity", "编辑蓝图发行身份"));
+		Blueprint->Modify();
+		UModBlueprintExports* Exports = UModBlueprintExports::FindOrAdd(Blueprint);
+		Exports->Modify();
+		if (bModule)
+		{
+			Exports->OwnerModule = FName(*Value);
+		}
+		else
+		{
+			Exports->StableTypeId = Value;
+		}
+		Blueprint->MarkPackageDirty();
+	};
+
 	ChildSlot
 	    [SNew(SVerticalBox) +
 	     SVerticalBox::Slot().AutoHeight()
@@ -193,6 +238,24 @@ void SModBlueprintExportPanel::Construct(const FArguments& InArgs, TWeakPtr<FBlu
 	                        .ButtonContent()[SNew(SImage)
 	                                             .ColorAndOpacity(FSlateColor::UseForeground())
 	                                             .Image(FAppStyle::GetBrush("Icons.Settings"))]]]] +
+	     SVerticalBox::Slot().AutoHeight()
+	         [SNew(SExpandableArea)
+	              .InitiallyCollapsed(true)
+	              .HeaderContent()[SNew(STextBlock).Text(LOCTEXT("ExportIdentity", "发行身份"))]
+	              .BodyContent()
+	                  [SNew(SVerticalBox) +
+	                   SVerticalBox::Slot().AutoHeight()
+	                       [SNew(SEditableTextBox)
+	                            .HintText(LOCTEXT("StableTypeId", "已发布的类型 ID（留空自动生成）"))
+	                            .Text_Lambda([GetIdentity] { return GetIdentity(false); })
+	                            .OnTextCommitted_Lambda([CommitIdentity](const FText& Text, ETextCommit::Type Commit)
+	                                                    { CommitIdentity(Text, Commit, false); })] +
+	                   SVerticalBox::Slot().AutoHeight()
+	                       [SNew(SEditableTextBox)
+	                            .HintText(LOCTEXT("ExplicitOwner", "所属 Runtime 模块（留空自动推导）"))
+	                            .Text_Lambda([GetIdentity] { return GetIdentity(true); })
+	                            .OnTextCommitted_Lambda([CommitIdentity](const FText& Text, ETextCommit::Type Commit)
+	                                                    { CommitIdentity(Text, Commit, true); })]]] +
 	     SVerticalBox::Slot().FillHeight(1.0f)[GraphActionMenu.ToSharedRef()]];
 
 	SetAllSectionsExpanded(true);

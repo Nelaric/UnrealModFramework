@@ -1,15 +1,19 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModNativeExtension.h"
 
+#include "Containers/StringConv.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/ScopeExit.h"
 #include "ModAPIHostSubsystem.h"
 #include "ModExtensionSubsystem.h"
 #include "ModExtensionWorld.h"
+#include "ModNativeImports.h"
 #include "UObject/UnrealType.h"
 
 #if PLATFORM_WINDOWS
 #include "Windows/WindowsHWrapper.h"
+#elif PLATFORM_LINUX || PLATFORM_MAC
+#include <dlfcn.h>
 #endif
 
 namespace Mod::Extension
@@ -402,13 +406,43 @@ bool FNativeExtension::Open(const Mod::Loader::FMountedPackage& Package, UModNat
 		Error = Package.ModId + TEXT(": the extracted native extension no longer matches its package.");
 		return false;
 	}
-#if PLATFORM_WINDOWS
-	Library = ::LoadLibraryExW(*Package.NativeExtensionPath, nullptr,
-	                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
+	UMF_ExtensionEntryV1 Entry = nullptr;
+#if PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MAC
+	if (!ValidateNativeImports(Package.NativeExtensionPath, Error))
+	{
+		Error = Package.ModId + TEXT(": ") + Error;
+		return false;
+	}
 #endif
-	const auto Entry = Library ? reinterpret_cast<UMF_ExtensionEntryV1>(
-	                                 FPlatformProcess::GetDllExport(Library, TEXT("UMF_RegisterExtensionsV1")))
-	                           : nullptr;
+#if PLATFORM_WINDOWS
+	Library = ::LoadLibraryExW(*Package.NativeExtensionPath, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+	if (!Library)
+	{
+		Error = FString::Printf(TEXT("%s: could not load the native extension (Windows error %lu)."), *Package.ModId,
+		                        ::GetLastError());
+		return false;
+	}
+	Entry = reinterpret_cast<UMF_ExtensionEntryV1>(
+	    FPlatformProcess::GetDllExport(Library, TEXT("UMF_RegisterExtensionsV1")));
+#elif PLATFORM_LINUX || PLATFORM_MAC
+	const FTCHARToUTF8 LibraryPath(*Package.NativeExtensionPath);
+#if PLATFORM_MAC
+	Library = ::dlopen(LibraryPath.Get(), RTLD_NOW | RTLD_LOCAL | RTLD_FIRST);
+#else
+	Library = ::dlopen(LibraryPath.Get(), RTLD_NOW | RTLD_LOCAL);
+#endif
+	if (!Library)
+	{
+		const ANSICHAR* Detail = ::dlerror();
+		Error = Package.ModId + TEXT(": could not load the native extension.");
+		if (Detail)
+		{
+			Error += FString(TEXT(" ")) + UTF8_TO_TCHAR(Detail);
+		}
+		return false;
+	}
+	Entry = reinterpret_cast<UMF_ExtensionEntryV1>(::dlsym(Library, "UMF_RegisterExtensionsV1"));
+#endif
 	SessionId = Entry ? NewToken() : 0;
 	if (!SessionId)
 	{
@@ -477,7 +511,11 @@ void FNativeExtension::Close()
 #endif
 		Shutdown = {};
 	}
+#if PLATFORM_WINDOWS
 	FPlatformProcess::FreeDllHandle(Library);
+#elif PLATFORM_LINUX || PLATFORM_MAC
+	::dlclose(Library);
+#endif
 	Library = nullptr;
 }
 

@@ -1,0 +1,340 @@
+# Copyright (c) 2026 Nelaric Contributors
+name: Development
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+  workflow_call:
+    inputs:
+      pull_request:
+        type: number
+        required: true
+      commit:
+        type: string
+        required: true
+    secrets:
+      UMFCI_READ_TOKEN:
+        required: true
+      UMF_STATUS_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  naming:
+    if: github.event_name == 'pull_request'
+    name: PR and commit naming
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check PR title, branch, and commits
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python Scripts/check_git_naming.py
+
+  format:
+    if: github.event_name == 'pull_request'
+    name: Format and text
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install pinned formatters
+        run: |
+          python -m pip install clang-format==18.1.8
+          dotnet tool restore
+      - name: Check text conventions
+        run: python Scripts/check_text.py
+      - name: Check build and automation script syntax
+        run: python -m compileall -q Scripts Test
+      - name: Check C++ and build-script format
+        run: python Scripts/check_format.py
+
+  api-docs:
+    if: github.event_name == 'pull_request'
+    name: API documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Doxygen 1.18.0
+        run: bash Scripts/install_doxygen.sh
+      - name: Check public header comments
+        run: python Scripts/check_public_docs.py
+      - name: Check Doxygen comment style
+        run: python Scripts/check_doxygen_style.py
+      - name: Build API documentation
+        run: python Scripts/run_doxygen.py
+
+  mst-compilers:
+    if: github.event_name == 'pull_request'
+    name: MST source analysis on Linux with GCC and Clang
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the four standalone native tools
+        run: |
+          tools=UnrealModFramework/Plugins/ModRuntime/Tools
+          cmake -S "$tools" -B "$RUNNER_TEMP/mst" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/mst" --parallel 4
+      - name: Compile and link automatic Hooks for COFF, ELF and Mach-O targets
+        run: |
+          # LLD 19 supports both visionOS device and simulator platform versions.
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends clang-19 lld-19 llvm-19 libclang-19-dev
+          tools=UnrealModFramework/Plugins/ModRuntime/Tools
+          cmake -P "$tools/SetupLibClang.cmake"
+          read -r library_path < "$tools/build/libclang-Linux-x64.path"
+          libclang=$(realpath "$tools/build/$library_path")
+          python3 Scripts/test_hook_targets.py --clang /usr/lib/llvm-19/bin/clang \
+            --resource-dir "$(dirname "$libclang")/clang/21" --libclang "$libclang" \
+            --mbt "$RUNNER_TEMP/mst/bin/Release/ModBuildTool" --mht "$RUNNER_TEMP/mst/bin/Release/ModHeaderTool" \
+            --mst "$RUNNER_TEMP/mst/bin/Release/ModSourceTool"
+      - name: Verify Metadata, Game checkpoints and SDK planning
+        run: python Scripts/development_commands.py test-native-development "$RUNNER_TEMP/mst/bin/Release"
+      - name: Compare existing cross-file exception paths
+        run: |
+          export MST_RESOURCE_DIR="$(clang++-19 -print-resource-dir)"
+          python3 - <<'PY'
+          import json
+          import os
+          import shutil
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          runner = Path(os.environ["RUNNER_TEMP"])
+          mst = runner / "mst/bin/Release/ModSourceTool"
+          root = Path(tempfile.mkdtemp(prefix="mst-compilers-", dir=runner))
+          tools = Path("UnrealModFramework/Plugins/ModRuntime/Tools")
+          common = root / "Common"
+          shutil.copytree(tools / "Common", common)
+          response = common / "Process/ResponseFile.cpp"
+          filesystem = common / "Files/File.cpp"
+          sources = (
+              response, filesystem,
+              common / "Process/ProcessArguments.cpp",
+              common / "Files/Path.cpp",
+              common / "Files/TemporaryName.cpp",
+          )
+          member = "api/ci/build-tool/write-response"
+          function = "Mod::BuildTool::ResponseFile::WriteResponseFile"
+
+          previous = None
+          for compiler in ("g++", "clang++-19"):
+              driver = shutil.which(compiler)
+              if not driver:
+                  raise SystemExit(f"Missing native compiler {compiler}")
+              directory = root / compiler
+              directory.mkdir()
+              database = directory / "compile_commands.json"
+              database.write_text(json.dumps([{
+                  "directory": str(directory),
+                  "file": str(source),
+                  "arguments": [
+                      driver, "-std=c++20", "-O2", "-g", "-fexceptions", "-I" + str(root),
+                      "-DUE_TARGET_NAME=MSTNative", '-DUE_MODULE_NAME="ModBuildTool"',
+                      "-DWITH_EDITOR=0", "-c", str(source), "-o", source.with_suffix(".o").name,
+                  ],
+              } for source in sources]), encoding="utf-8")
+              request = directory / "SourceAnalysisRequest.json"
+              request.write_text(json.dumps({
+                  "format": "UMF.SourceAnalysisRequest",
+                  "schemaVersion": 2,
+                  "compilationDatabase": str(database),
+                  "target": "MSTNative",
+                  "projectRoot": str(root),
+                  "members": [{"id": member, "function": function, "module": "ModBuildTool",
+                               "source": str(response), "translationUnit": str(response)}],
+                  "libclang": "/usr/lib/llvm-19/lib/libclang.so",
+                  "resourceDirectory": os.environ["MST_RESOURCE_DIR"],
+                  "analysisArguments": [],
+              }), encoding="utf-8")
+              command = [str(mst), "analyze-errors", str(request)]
+              result = json.loads(subprocess.check_output(command, text=True))["members"][0]
+              failures = result["failures"]
+              direct = any(
+                  item["originFunction"] == "Mod::BuildTool::ResponseFile::WriteResponseFile"
+                  and item["exitKind"] == "throw" and not item["callChain"]
+                  for item in failures
+              )
+              rethrow = any(
+                  item["originFunction"] == "Mod::BuildTool::File::WriteFileAtomically"
+                  and item["exitKind"] == "throw" and item["callChain"] and item.get("rethrowLocations")
+                  for item in failures
+              )
+              if not direct or not rethrow or str(filesystem) not in result["analyzedFiles"]:
+                  raise SystemExit(f"{compiler} did not resolve the direct and cross-file rethrow paths")
+              codes = {item["key"]: (item["macro"], item["code"]) for item in failures}
+              snapshot = (codes, catalog.read_bytes())
+              if previous is not None and snapshot != previous:
+                  raise SystemExit("GCC and Clang disagree on the persisted error reasons")
+              previous = snapshot
+              print(compiler, json.dumps(codes, sort_keys=True))
+          PY
+
+  public:
+    name: Development public
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    needs: [naming, format, api-docs, mst-compilers]
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: jq -e 'length == 4 and all(.[]; . == "success")' <<< "$RESULTS"
+
+  review:
+    name: Verify reviewed candidate
+    if: github.event_name == 'workflow_dispatch' && github.event.repository.private
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          PR: ${{ inputs.pull_request }}
+          COMMIT: ${{ inputs.commit }}
+          ZERO_SPEND: ${{ vars.UMF_ZERO_SPEND }}
+        run: |
+          set -euo pipefail
+          test "$ZERO_SPEND" = true
+          [[ "$PR" =~ ^[1-9][0-9]*$ && "$COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          curl -fsSL "https://api.github.com/repos/Nelaric/UnrealModFramework/pulls/$PR" |
+            jq -e --arg commit "$COMMIT" '.state == "open" and .base.ref == "main" and .head.sha == $commit'
+          echo "Reviewed candidate $COMMIT"
+
+  windows_editor:
+    needs: review
+    uses: ./.github/workflows/_engine-target.yml
+    with:
+      target: windows-x64-editor
+      runner: windows-2022
+      producer: windows-x64-editor
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  windows_game:
+    needs: windows_editor
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64-game
+            runner: windows-2022
+          - target: windows-arm64-game
+            runner: windows-11-arm
+    uses: ./.github/workflows/_engine-target.yml
+    with:
+      target: ${{ matrix.target }}
+      runner: ${{ matrix.runner }}
+      producer: windows-x64-editor
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  linux_editor:
+    needs: review
+    uses: ./.github/workflows/_engine-target.yml
+    with:
+      target: linux-x64-editor
+      runner: ubuntu-24.04
+      producer: linux-x64-editor
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  linux_game:
+    needs: linux_editor
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64-game
+            runner: ubuntu-24.04
+          - target: linux-arm64-game
+            runner: ubuntu-24.04-arm
+    uses: ./.github/workflows/_engine-target.yml
+    with:
+      target: ${{ matrix.target }}
+      runner: ${{ matrix.runner }}
+      producer: linux-x64-editor
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  mac_x64_editor:
+    needs: review
+    uses: ./.github/workflows/_engine-target.yml
+    with:
+      target: macos-x64-editor
+      runner: macos-15-intel
+      producer: macos-x64-editor
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  mac_x64_game:
+    needs: mac_x64_editor
+    uses: ./.github/workflows/_engine-target.yml
+    with:
+      target: macos-x64-game
+      runner: macos-15-intel
+      producer: macos-x64-editor
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  mac_arm64_editor:
+    needs: review
+    uses: ./.github/workflows/_engine-target.yml
+    with:
+      target: macos-arm64-editor
+      runner: macos-15
+      producer: macos-arm64-editor
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  mac_arm64_game:
+    needs: mac_arm64_editor
+    uses: ./.github/workflows/_engine-target.yml
+    with:
+      target: macos-arm64-game
+      runner: macos-15
+      producer: macos-arm64-editor
+      commit: ${{ inputs.commit }}
+    secrets:
+      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  engine:
+    name: Development engine
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.repository.private && needs.review.result == 'success' }}
+    runs-on: ubuntu-24.04
+    needs: [review, windows_editor, windows_game, linux_editor, linux_game, mac_x64_editor, mac_x64_game, mac_arm64_editor, mac_arm64_game]
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.UMF_STATUS_TOKEN }}
+          COMMIT: ${{ inputs.commit }}
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          set -euo pipefail
+          state=failure
+          if jq -e 'length == 9 and all(.[]; . == "success")' <<< "$RESULTS"; then
+            state=success
+          fi
+          gh api "repos/Nelaric/UnrealModFramework/statuses/$COMMIT" -f state="$state" \
+            -f context=ci/development -f description="Development SDK and target verification"
+          test "$state" = success

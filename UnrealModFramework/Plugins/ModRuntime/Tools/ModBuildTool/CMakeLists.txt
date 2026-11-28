@@ -50,6 +50,10 @@ add_executable(ModBuildTool
     src/Build/RecipeValidation.h
     src/Build/Request.cpp
     src/Build/Request.h
+    src/Build/Unreal/MetadataBundle.cpp
+    src/Build/Unreal/MetadataBundle.h
+    src/Build/Unreal/UeInvocation.cpp
+    src/Build/Unreal/UeInvocation.h
     src/Build/Unreal/UeBuildAdapter.cpp
     src/Build/Unreal/UeBuildAdapter.h
     src/Build/Unreal/UeHookActions.cpp
@@ -75,6 +79,8 @@ add_executable(ModBuildTool
 )
 
 target_include_directories(ModBuildTool SYSTEM PRIVATE ../ThirdParty/nlohmann/include)
+
+target_include_directories(ModBuildTool PRIVATE ../../Source/Runtime/ExportMetadata/Public)
 
 target_link_libraries(ModBuildTool PRIVATE ModToolSupport)
 

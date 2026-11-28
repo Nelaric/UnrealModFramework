@@ -5,6 +5,7 @@
 
 #include "GameCharacter.h"
 
+#include "Curves/CurveFloat.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraphSchema_K2.h"
 #include "Engine/Blueprint.h"
@@ -15,10 +16,12 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
 #include "Misc/ScopeExit.h"
+#include "ModAPIBlueprint.h"
 #include "ModExtensionSubsystem.h"
 #include "ModHookTestWorld.h"
 #include "ModInstance.h"
 #include "UObject/Script.h"
+#include "UObject/UnrealType.h"
 
 #include <limits>
 
@@ -235,6 +238,107 @@ bool FGameCharacterHookDispatchTest::RunTest(const FString&)
 		    return true;
 	    });
 	return TestTrue(TEXT("Hook dispatch fixture completed"), bCompleted);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHostBlueprintExportTest, "Nelaric.UnrealModFramework.Host.BlueprintExport",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHostBlueprintExportTest::RunTest(const FString&)
+{
+	using namespace API;
+	UClass* Class = LoadObject<UClass>(
+	    nullptr, TEXT("/Game/Blueprints/BP_ModBlueprintAPIExportTest.BP_ModBlueprintAPIExportTest_C"));
+	if (!TestNotNull(TEXT("Saved Blueprint export class"), Class))
+	{
+		return false;
+	}
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	ON_SCOPE_EXIT
+	{
+		World->DestroyWorld(false);
+	};
+	UObject* Instance =
+	    Class->IsChildOf<AActor>() ? World->SpawnActor<AActor>(Class) : NewObject<UObject>(World, Class);
+	if (!TestNotNull(TEXT("Blueprint export instance"), Instance))
+	{
+		return false;
+	}
+	const FName Function(TEXT("ModAPI_TestModAPIExport"));
+	FBlueprintParameter Parameter{TEXT("InputFloatParrm"), TEXT("DoubleProperty"), EBlueprintParameter::Input};
+	const auto Binding = FBlueprintCall::Bind(*Class, *Class, {Function, MakeArrayView(&Parameter, 1)});
+	if (!TestTrue(TEXT("Compiled Blueprint matches the exported API signature"), Binding.IsSuccess()))
+	{
+		return false;
+	}
+	const auto& Call = Binding.GetValue();
+	FEditorScriptExecutionGuard Guard;
+	const auto Result = Call->Process(
+	    *Instance, [&](void* Buffer)
+	    { CastFieldChecked<FDoubleProperty>(Call->GetParameter(0))->SetPropertyValue_InContainer(Buffer, 3.0); },
+	    [](const void*) {});
+	TestTrue(TEXT("Invoking the exported Blueprint API succeeds"), Result == EError::None);
+	Parameter.PropertyClass = TEXT("FloatProperty");
+	TestFalse(TEXT("A consumer with the wrong parameter type cannot bind"),
+	          FBlueprintCall::Bind(*Class, *Class, {Function, MakeArrayView(&Parameter, 1)}).IsSuccess());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHostEventWorldLifecycleTest, "Nelaric.UnrealModFramework.Host.EventWorldLifecycle",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FHostEventWorldLifecycleTest::RunTest(const FString&)
+{
+	using namespace Extension;
+	using API::EError;
+	UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+	ON_SCOPE_EXIT
+	{
+		World->DestroyWorld(false);
+	};
+	auto* Source = World->SpawnActor<AGameCharacter>();
+	if (!TestNotNull(TEXT("Event source"), Source))
+	{
+		return false;
+	}
+	FDefinition Definition;
+	Definition.Id = Definition.Permission = TEXT("event/game.character/lifecycle-test");
+	Definition.Version = TEXT("1.0.0");
+	Definition.Signature = TEXT("scalar-float-event");
+	Definition.BlueprintClass = FSoftClassPath(AGameCharacter::StaticClass());
+	const bool bCompleted =
+	    FHookTestWorld::Run(*World, {Definition}, {Definition.Permission},
+	                        [&](UModExtensionSubsystem& Extensions, UModInstance& Owner)
+	                        {
+		                        TArray<float> Observed;
+		                        auto* Listener = NewObject<UCurveFloat>(World);
+		                        FHandler Handler;
+		                        Handler.Target = Listener;
+		                        Handler.Key = TEXT("lifecycle-listener");
+		                        THandlerCalls<float> Calls;
+		                        Calls.Event = [&Observed](float Value)
+		                        {
+			                        Observed.Add(Value);
+			                        return EError::None;
+		                        };
+		                        Handler.SetCalls(MoveTemp(Calls));
+		                        const auto Token =
+		                            Extensions.Register(Owner, Definition.Id, Definition.Signature, MoveTemp(Handler));
+		                        if (!TestTrue(TEXT("Register a world-bound Event listener"), Token.IsSuccess()))
+		                        {
+			                        return false;
+		                        }
+		                        TestTrue(TEXT("Publish the Event through the Blueprint dispatch path"),
+		                                 Extensions.PublishBlueprint(*Source, Definition.Id, 5.0f) == EError::None);
+		                        TestTrue(TEXT("The Event delivers its payload"), Observed == TArray<float>{5.0f});
+		                        Listener->MarkAsGarbage();
+		                        Extensions.PublishBlueprint(*Source, Definition.Id, 7.0f);
+		                        TestEqual(TEXT("An expired UObject cannot receive an Event"), Observed.Num(), 1);
+		                        Extensions.Stop();
+		                        TestTrue(TEXT("World shutdown rejects new Event publications"),
+		                                 Extensions.PublishBlueprint(*Source, Definition.Id, 9.0f) == EError::NotReady);
+		                        return true;
+	                        });
+	return TestTrue(TEXT("Event lifecycle fixture completed"), bCompleted);
 }
 } // namespace Mod::Tests
 

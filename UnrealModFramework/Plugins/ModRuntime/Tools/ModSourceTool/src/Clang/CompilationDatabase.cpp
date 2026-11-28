@@ -18,6 +18,7 @@ namespace fs = std::filesystem;
 
 CompileCommand CompilationDatabase::LoadCompileCommand(const Clang& Clang, const SourceRequest& Request)
 {
+	const auto& CompileFile = Request.TranslationUnit.empty() ? Request.Source : Request.TranslationUnit;
 	if (Request.Database.filename() != "compile_commands.json" || !fs::is_regular_file(Request.Database))
 	{
 		throw std::runtime_error("compilationDatabase must name an existing compile_commands.json.");
@@ -46,12 +47,12 @@ CompileCommand CompilationDatabase::LoadCompileCommand(const Clang& Clang, const
 		const auto File = WorkingDir / Mod::BuildTool::Path::PathFromUtf8(
 		                                   Clang.String(Clang.clang_CompileCommand_getFilename(Command)));
 		std::error_code PathError;
-		if (fs::equivalent(File, Request.Source, PathError))
+		if (fs::equivalent(File, CompileFile, PathError))
 		{
 			if (Selected)
 			{
 				throw std::runtime_error("Multiple compile commands for " +
-				                         Mod::BuildTool::Path::PathToUtf8(Request.Source));
+				                         Mod::BuildTool::Path::PathToUtf8(CompileFile));
 			}
 			Selected = Command;
 			Directory = fs::canonical(WorkingDir);
@@ -59,7 +60,7 @@ CompileCommand CompilationDatabase::LoadCompileCommand(const Clang& Clang, const
 	}
 	if (!Selected || Clang.clang_CompileCommand_getNumArgs(Selected) < 2)
 	{
-		throw std::runtime_error("No actual compile command for " + Mod::BuildTool::Path::PathToUtf8(Request.Source));
+		throw std::runtime_error("No actual compile command for " + Mod::BuildTool::Path::PathToUtf8(CompileFile));
 	}
 
 	CompileCommand Result{.Directory = Directory,

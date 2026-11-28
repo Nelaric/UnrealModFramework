@@ -10,6 +10,7 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Mod::BuildTool
@@ -39,8 +40,11 @@ int InspectionCommands::InspectBinary(const CommandArguments& Command)
 {
 	const auto& Options = Command.Options;
 	const fs::path Binary = Path::PathFromUtf8(Options.at("--file"));
-	BinaryInspector::ValidateHostBinary(Binary, Options.at("--platform"), Options.at("--architecture"),
-	                                    Options.at("--kind"));
+	const std::string_view InputArchitecture = Options.at("--architecture");
+	const std::string_view Architecture = InputArchitecture == "x86_64"  ? "x64"
+	                                      : InputArchitecture == "ARM64" ? "arm64"
+	                                                                     : InputArchitecture;
+	BinaryInspector::ValidateHostBinary(Binary, Options.at("--platform"), Architecture, Options.at("--kind"));
 	std::cout << Json({{"format", "UMF.BinaryInspection"},
 	                   {"schemaVersion", 1},
 	                   {"valid", true},

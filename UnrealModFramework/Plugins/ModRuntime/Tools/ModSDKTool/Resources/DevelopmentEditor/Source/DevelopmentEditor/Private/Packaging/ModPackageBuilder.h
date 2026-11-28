@@ -18,9 +18,9 @@ struct FModPackageRequest
 	FString BaseReleaseVersion;
 	FString BaseReleaseDirectory;
 	FString TargetPlatform;
+	FString TargetArchitecture;
 	FString OutputFile;
-	FString HostTargetReceipt;
-	FString HostEngineDirectory;
+	FString CookConfiguration = TEXT("Shipping");
 	FString ExtensionsFile;
 	FString SdkContractFile;
 	FString NativeExtensionFile;
@@ -52,6 +52,8 @@ struct FModPackageRequest
 	bool Validate(FText& OutError) const;
 	/// Returns the Cook platform.
 	FString GetCookPlatform() const;
+	/// Returns the requested architecture or the legacy Win64 default.
+	FString GetCookArchitecture() const;
 };
 
 /// Cooks Mod content.

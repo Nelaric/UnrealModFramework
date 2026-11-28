@@ -44,25 +44,6 @@ TArray<TSharedPtr<FJsonValue>> JsonStrings(const TArray<FString>& Strings)
 	return Values;
 }
 
-bool AddFingerprint(const FString& Path, FJsonObject& Inputs)
-{
-	if (!IFileManager::Get().FileExists(*Path))
-	{
-		Inputs.SetStringField(Path, TEXT(""));
-		return true;
-	}
-	TArray<uint8> Bytes;
-	if (!FFileHelper::LoadFileToArray(Bytes, *Path))
-	{
-		UE_LOG(LogTemp, Error, TEXT("Cannot read metadata configuration input: %s"), *Path);
-		return false;
-	}
-	const std::string_view View(reinterpret_cast<const char*>(Bytes.GetData()), static_cast<std::size_t>(Bytes.Num()));
-	const uint64 Hash = Schema::Fingerprint(View);
-	Inputs.SetStringField(Path, FString::Printf(TEXT("%016llx"), static_cast<unsigned long long>(Hash)));
-	return true;
-}
-
 bool AddFunctionRedirects(FConfigContext&& Context, FConfigFile& Config, const FString& IniName,
                           TMap<FString, FString>& Redirects)
 {
@@ -264,12 +245,6 @@ int32 UModExportOptionsCommandlet::Main(const FString& Params)
 		                     PluginConfig, Plugin->GetName(), Redirects);
 		InputFiles.AddUnique(AbsolutePath(Plugin->GetDescriptorFileName()));
 	}
-	FString GameModIni;
-	if (FConfigCacheIni::LoadGlobalIniFile(GameModIni, TEXT("GameMod"), nullptr, false, true))
-	{
-		GConfig->Flush(false, GameModIni);
-		InputFiles.AddUnique(AbsolutePath(GameModIni));
-	}
 	ConfigRoots.Sort();
 	InputFiles.Sort();
 	TArray<FString> ConfigFiles;
@@ -282,21 +257,6 @@ int32 UModExportOptionsCommandlet::Main(const FString& Params)
 	}
 	ConfigFiles.Sort();
 	LocateFunctionRedirects(ConfigFiles, Redirects);
-	const TSharedRef<FJsonObject> Inputs = MakeShared<FJsonObject>();
-	for (const FString& File : ConfigFiles)
-	{
-		if (!AddFingerprint(AbsolutePath(File), *Inputs))
-		{
-			return 1;
-		}
-	}
-	for (const FString& File : InputFiles)
-	{
-		if (!AddFingerprint(File, *Inputs))
-		{
-			return 1;
-		}
-	}
 	const TSharedRef<FJsonObject> Document = MakeShared<FJsonObject>();
 	Document->SetNumberField(TEXT("SchemaVersion"), Schema::SnapshotVersion);
 	Document->SetStringField(TEXT("Project"), ProjectFile);
@@ -304,7 +264,6 @@ int32 UModExportOptionsCommandlet::Main(const FString& Params)
 	Document->SetArrayField(TEXT("FunctionRedirects"), JsonFunctionRedirects(Redirects));
 	Document->SetArrayField(TEXT("ConfigRoots"), JsonStrings(ConfigRoots));
 	Document->SetArrayField(TEXT("InputFiles"), JsonStrings(InputFiles));
-	Document->SetObjectField(TEXT("Inputs"), Inputs);
 	FString Json;
 	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Json);
 	if (!FJsonSerializer::Serialize(Document, Writer) ||

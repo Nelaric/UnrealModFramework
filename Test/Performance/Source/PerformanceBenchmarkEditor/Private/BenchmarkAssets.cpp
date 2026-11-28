@@ -3,6 +3,9 @@
 
 #include "BenchmarkFixtures.h"
 #include "BenchmarkGraph.h"
+#include "Animation/AnimData/IAnimationDataController.h"
+#include "Animation/AnimSequence.h"
+#include "Animation/Skeleton.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerStart.h"
 #include "Blueprint/UserWidget.h"
@@ -11,6 +14,8 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "Engine/StaticMeshActor.h"
+#include "Particles/ParticleSpriteEmitter.h"
+#include "Particles/ParticleSystem.h"
 #include "WidgetBlueprint.h"
 
 namespace
@@ -48,11 +53,57 @@ bool MakeMap(const TCHAR* Path, bool bMain)
 	return bSaved;
 }
 
+bool MakeAnimation()
+{
+	USkeleton* Skeleton =
+	    LoadObject<USkeleton>(nullptr, TEXT("/Engine/EngineMeshes/SkeletalCube_Skeleton.SkeletalCube_Skeleton"));
+	if (!Skeleton || Skeleton->GetReferenceSkeleton().GetNum() == 0)
+	{
+		return false;
+	}
+	auto* Animation =
+	    NewObject<UAnimSequence>(CreatePackage(TEXT("/Game/Fixtures/BenchmarkAnimation")), TEXT("BenchmarkAnimation"));
+	Animation->SetSkeleton(Skeleton);
+	IAnimationDataController& Controller = Animation->GetController();
+	Controller.InitializeModel();
+	Controller.SetFrameRate(FFrameRate(30, 1), false);
+	Controller.SetNumberOfFrames(FFrameNumber(2), false);
+	const FName Bone = Skeleton->GetReferenceSkeleton().GetBoneName(0);
+	const FTransform& Pose = Skeleton->GetReferenceSkeleton().GetRefBonePose()[0];
+	const FVector Position = Pose.GetTranslation();
+	const FQuat Rotation = Pose.GetRotation();
+	const FVector Scale = Pose.GetScale3D();
+	if (!Controller.AddBoneCurve(Bone, false) ||
+	    !Controller.SetBoneTrackKeys(Bone, {Position, Position + FVector::UpVector, Position},
+	                                 {Rotation, Rotation, Rotation}, {Scale, Scale, Scale}, false))
+	{
+		return false;
+	}
+	Controller.NotifyPopulated();
+	return SaveAsset(*Animation);
+}
+
+bool MakeEmitter()
+{
+	auto* System =
+	    NewObject<UParticleSystem>(CreatePackage(TEXT("/Game/Fixtures/BenchmarkEmitter")), TEXT("BenchmarkEmitter"));
+	auto* Emitter = NewObject<UParticleSpriteEmitter>(System, NAME_None, RF_Transactional);
+	Emitter->SetEmitterName(TEXT("BenchmarkSprite"));
+	if (Emitter->CreateLODLevel(0) == INDEX_NONE)
+	{
+		return false;
+	}
+	System->Emitters.Add(Emitter);
+	System->BuildEmitters();
+	return SaveAsset(*System);
+}
+
 } // namespace
 
 int32 UBenchmarkAssetsCommandlet::Main(const FString&)
 {
-	if (!MakeMap(TEXT("/Game/BenchmarkSublevel"), false) || !MakeMap(TEXT("/Game/BenchmarkMap"), true))
+	if (!MakeMap(TEXT("/Game/BenchmarkSublevel"), false) || !MakeMap(TEXT("/Game/BenchmarkMap"), true) ||
+	    !MakeAnimation() || !MakeEmitter())
 	{
 		return 1;
 	}

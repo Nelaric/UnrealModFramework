@@ -1,8 +1,6 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ModPackageBuilder.h"
 
-#include "Algo/AllOf.h"
-
 #include "AssetRegistry/ARFilter.h"
 #include "AssetRegistry/AssetData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -19,6 +17,7 @@
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeExit.h"
+#include "ModNativeTarget.h"
 #include "ModPackagingSettings.h"
 #include "ModProjectPackage.h"
 #include "Modules/ModuleManager.h"
@@ -412,16 +411,7 @@ bool ReadExtensionManifest(const FModPackageRequest& Request, const TMap<FName, 
 	if (!Request.NativeExtensionFile.IsEmpty())
 	{
 		const FString FileName = FPaths::GetCleanFilename(Request.NativeExtensionFile);
-		if (Version != 2 || Request.bUseIoStore || Request.TargetPlatform != TEXT("Win64") || FileName.Len() > 128 ||
-		    !FileName.EndsWith(TEXT(".dll"), ESearchCase::CaseSensitive) || FileName.Contains(TEXT("..")) ||
-		    !Algo::AllOf(FileName,
-		                 [](TCHAR Char)
-		                 {
-			                 return (Char >= TEXT('a') && Char <= TEXT('z')) ||
-			                        (Char >= TEXT('A') && Char <= TEXT('Z')) ||
-			                        (Char >= TEXT('0') && Char <= TEXT('9')) || Char == TEXT('_') ||
-			                        Char == TEXT('-') || Char == TEXT('.');
-		                 }))
+		if (Version != 2)
 		{
 			return false;
 		}
@@ -568,7 +558,7 @@ bool CollectLifecycleClasses(const FString& Root, const TMap<FName, FString>& Mi
 }
 
 bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory, const FString& ProjectFile,
-             const FString& PluginFile, const FString& Configuration, double Deadline)
+             const FString& PluginFile, double Deadline)
 {
 	const FString EngineDirectory = FPaths::ConvertRelativePathToFull(FPaths::EngineDir());
 	const FString AutomationTool = EngineDirectory / TEXT("Binaries/DotNET/AutomationTool/AutomationTool.dll");
@@ -583,9 +573,14 @@ bool RunCook(const FModPackageRequest& Request, const FString& WorkDirectory, co
 	        TEXT("-cook -stage -pak -clientconfig=%s -targetplatform=%s -dlcname=\"%s\" ")
 	            TEXT("-basedonreleaseversion=\"%s\" -basedonreleaseversionroot=\"%s\" ")
 	                TEXT("-stagingdirectory=\"%s\" -cookoutputdir=\"%s\""),
-	    *AutomationTool, *ProjectFile, *Configuration, *Request.TargetPlatform, *PluginFile,
+	    *AutomationTool, *ProjectFile, *Request.CookConfiguration, *Request.TargetPlatform, *PluginFile,
 	    *Request.BaseReleaseVersion, *Request.BaseReleaseDirectory, *FPaths::Combine(WorkDirectory, TEXT("Stage")),
 	    *FPaths::Combine(WorkDirectory, TEXT("Cooked"), Request.GetCookPlatform()));
+	const FString Architecture = Request.GetCookArchitecture();
+	if (!Architecture.IsEmpty())
+	{
+		Arguments += TEXT(" -clientarchitecture=") + Architecture;
+	}
 	Arguments += Request.bUseIoStore ? TEXT(" -iostore") : TEXT(" -skipiostore");
 	if (Request.bIncludeEngineContent)
 	{
@@ -601,17 +596,19 @@ FString FModPackageRequest::GetCookPlatform() const
 	return TargetPlatform == TEXT("Win64") ? TEXT("Windows") : TargetPlatform;
 }
 
+FString FModPackageRequest::GetCookArchitecture() const
+{
+	return TargetArchitecture.IsEmpty() && !NativeExtensionFile.IsEmpty() && TargetPlatform == TEXT("Win64")
+	           ? TEXT("x64")
+	           : TargetArchitecture;
+}
+
 TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
 {
 	TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
 	Json->SetStringField(TEXT("format"), TEXT("UMF.ModPackageBuildRequest"));
-	Json->SetNumberField(TEXT("schemaVersion"), bPackageProject ? 2 : 1);
-	if (bPackageProject)
-	{
-		Json->SetStringField(TEXT("hostTargetReceipt"), HostTargetReceipt);
-		Json->SetStringField(TEXT("hostEngineDirectory"), HostEngineDirectory);
-	}
-	else
+	Json->SetNumberField(TEXT("schemaVersion"), bPackageProject ? 3 : 1);
+	if (!bPackageProject)
 	{
 		Json->SetStringField(TEXT("pluginName"), PluginName);
 	}
@@ -632,6 +629,12 @@ TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
 	Json->SetStringField(TEXT("baseReleaseVersion"), BaseReleaseVersion);
 	Json->SetStringField(TEXT("baseReleaseDirectory"), BaseReleaseDirectory);
 	Json->SetStringField(TEXT("targetPlatform"), TargetPlatform);
+	const FString Architecture = GetCookArchitecture();
+	if (!Architecture.IsEmpty())
+	{
+		Json->SetStringField(TEXT("targetArchitecture"), Architecture);
+	}
+	Json->SetStringField(TEXT("cookConfiguration"), CookConfiguration);
 	Json->SetStringField(TEXT("outputFile"), OutputFile);
 	Json->SetBoolField(TEXT("useIoStore"), bUseIoStore);
 	Json->SetBoolField(TEXT("includeEngineContent"), bIncludeEngineContent);
@@ -642,16 +645,9 @@ TSharedRef<FJsonObject> FModPackageRequest::ToJson() const
 bool FModPackageRequest::FromSettings(const UModPackagingSettings& Settings, FModPackageRequest& OutRequest,
                                       FText& OutError)
 {
-	OutRequest.bPackageProject = Settings.bPackageProject;
+	OutRequest.bPackageProject = Settings.bPackageProjectContent;
 	OutRequest.PluginName =
-	    Settings.bPackageProject ? FPaths::GetBaseFilename(FPaths::GetProjectFilePath()) : Settings.PluginName;
-	if (Settings.bPackageProject)
-	{
-		OutRequest.HostTargetReceipt = FullPath(Settings.HostTargetReceipt.FilePath);
-		OutRequest.HostEngineDirectory = FullPath(Settings.HostEngineDirectory.Path.IsEmpty()
-		                                              ? FPaths::ConvertRelativePathToFull(FPaths::EngineDir())
-		                                              : Settings.HostEngineDirectory.Path);
-	}
+	    Settings.bPackageProjectContent ? FPaths::GetBaseFilename(FPaths::GetProjectFilePath()) : Settings.PluginName;
 	OutRequest.SdkContractFile =
 	    Settings.SdkContractFile.FilePath.IsEmpty() ? FString() : FullPath(Settings.SdkContractFile.FilePath);
 	OutRequest.ExtensionsFile =
@@ -664,12 +660,19 @@ bool FModPackageRequest::FromSettings(const UModPackagingSettings& Settings, FMo
 	OutRequest.BaseReleaseDirectory =
 	    FullPath(Settings.BaseReleaseDirectory.Path.IsEmpty() ? TEXT("Releases") : Settings.BaseReleaseDirectory.Path);
 	OutRequest.TargetPlatform = Settings.TargetPlatform;
+	OutRequest.TargetArchitecture = Settings.TargetArchitecture;
+	OutRequest.CookConfiguration = Settings.CookConfiguration;
 	OutRequest.bUseIoStore = Settings.bUseIoStore;
 	OutRequest.bIncludeEngineContent = Settings.bIncludeEngineContent;
 	OutRequest.TimeoutMinutes = Settings.TimeoutMinutes;
 	const FString OutputDirectory = Settings.ResolveOutputDirectory();
-	OutRequest.OutputFile = FPaths::Combine(OutputDirectory, OutRequest.PluginName + TEXT("-") + Settings.ModVersion +
-	                                                             TEXT("-") + Settings.TargetPlatform + TEXT(".mod"));
+	FString FileName = OutRequest.PluginName + TEXT("-") + Settings.ModVersion + TEXT("-") + Settings.TargetPlatform;
+	const FString Architecture = OutRequest.GetCookArchitecture();
+	if (!Architecture.IsEmpty())
+	{
+		FileName += TEXT("-") + Architecture;
+	}
+	OutRequest.OutputFile = FPaths::Combine(OutputDirectory, FileName + TEXT(".mod"));
 	return OutRequest.Validate(OutError);
 }
 
@@ -683,7 +686,19 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 	    !FFileHelper::LoadFileToString(Text, *File) ||
 	    !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Json) || !Json.IsValid() ||
 	    !Json->TryGetStringField(TEXT("format"), Format) || Format != TEXT("UMF.ModPackageBuildRequest") ||
-	    !Json->TryGetNumberField(TEXT("schemaVersion"), Version) || (Version != 1 && Version != 2) ||
+	    !Json->TryGetNumberField(TEXT("schemaVersion"), Version))
+	{
+		OutError = LOCTEXT("BadRequestHeader", "Mod 打包请求的头部损坏。");
+		return false;
+	}
+	if (Version == 2 || Json->HasField(TEXT("hostTargetReceipt")) || Json->HasField(TEXT("hostEngineDirectory")))
+	{
+		OutError = LOCTEXT("LegacyNativeModules", "请使用独立 C ABI 扩展 DLL，并使用版本 3 打包工程内容。");
+		return false;
+	}
+	if ((Version != 1 && Version != 3) ||
+	    ((Version == 3 || Json->HasField(TEXT("cookConfiguration"))) &&
+	     !Json->TryGetStringField(TEXT("cookConfiguration"), OutRequest.CookConfiguration)) ||
 	    !Json->TryGetStringField(TEXT("modVersion"), OutRequest.ModVersion) ||
 	    !Json->TryGetStringField(TEXT("gameId"), OutRequest.GameId) ||
 	    !Json->TryGetStringField(TEXT("baseReleaseVersion"), OutRequest.BaseReleaseVersion) ||
@@ -717,30 +732,27 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 		}
 		OutRequest.ExtensionsFile = FullPath(OutRequest.ExtensionsFile);
 	}
+	if (Json->HasField(TEXT("targetArchitecture")) &&
+	    (!Json->TryGetStringField(TEXT("targetArchitecture"), OutRequest.TargetArchitecture) ||
+	     OutRequest.TargetArchitecture.IsEmpty()))
+	{
+		OutError = LOCTEXT("InvalidTargetArchitecture", "目标架构必须为 x64 或 arm64。");
+		return false;
+	}
 	if (Json->HasField(TEXT("nativeExtensionFile")))
 	{
 		if (!Json->TryGetStringField(TEXT("nativeExtensionFile"), OutRequest.NativeExtensionFile) ||
 		    OutRequest.NativeExtensionFile.IsEmpty())
 		{
-			OutError = LOCTEXT("InvalidNativeExtensionPath", "原生扩展 DLL 路径无效。");
+			OutError = LOCTEXT("InvalidNativeExtensionPath", "原生扩展共享库路径无效。");
 			return false;
 		}
 		OutRequest.NativeExtensionFile = FullPath(OutRequest.NativeExtensionFile);
 	}
-	OutRequest.bPackageProject = Version == 2;
+	OutRequest.bPackageProject = Version == 3;
 	if (OutRequest.bPackageProject)
 	{
-		FString Receipt, EngineDirectory;
-		if (!Json->TryGetStringField(TEXT("hostTargetReceipt"), Receipt) || Receipt.IsEmpty())
-		{
-			OutError = LOCTEXT("MissingHostTarget", "打包当前工程需要宿主模块化构建的 Target 回执。");
-			return false;
-		}
-		Json->TryGetStringField(TEXT("hostEngineDirectory"), EngineDirectory);
 		OutRequest.PluginName = FPaths::GetBaseFilename(FPaths::GetProjectFilePath());
-		OutRequest.HostTargetReceipt = FullPath(Receipt);
-		OutRequest.HostEngineDirectory = FullPath(
-		    EngineDirectory.IsEmpty() ? FPaths::ConvertRelativePathToFull(FPaths::EngineDir()) : EngineDirectory);
 	}
 	else if (!Json->TryGetStringField(TEXT("pluginName"), OutRequest.PluginName))
 	{
@@ -754,11 +766,40 @@ bool FModPackageRequest::Read(const FString& File, FModPackageRequest& OutReques
 
 bool FModPackageRequest::Validate(FText& OutError) const
 {
-	if (!NativeExtensionFile.IsEmpty() &&
-	    (IFileManager::Get().FileSize(*NativeExtensionFile) <= 0 ||
-	     IFileManager::Get().FileSize(*NativeExtensionFile) > 64ll * 1024 * 1024 || ExtensionsFile.IsEmpty()))
+	if (TargetPlatform != TEXT("Win64") && TargetPlatform != TEXT("Linux") && TargetPlatform != TEXT("LinuxArm64") &&
+	    TargetPlatform != TEXT("Mac"))
 	{
-		OutError = LOCTEXT("MissingNativeExtensionInputs", "原生扩展需要已编译的 DLL 和版本 2 扩展清单。");
+		OutError = LOCTEXT("BadPlatform", "请选择 Win64、Linux、LinuxArm64 或 Mac 目标平台。");
+		return false;
+	}
+	const FString Architecture = GetCookArchitecture();
+	const TOptional<Native::FTarget> NativeTarget = Native::ResolveTarget(TargetPlatform, Architecture);
+	if ((!Architecture.IsEmpty() || !NativeExtensionFile.IsEmpty()) && !NativeTarget.IsSet())
+	{
+		OutError = LOCTEXT("BadTargetArchitecture", "请选择与目标平台匹配的 x64 或 arm64 架构。");
+		return false;
+	}
+	if (!NativeExtensionFile.IsEmpty())
+	{
+		if (ExtensionsFile.IsEmpty() || SdkContractFile.IsEmpty() || bUseIoStore)
+		{
+			OutError = LOCTEXT("MissingNativeExtensionInputs", "原生扩展需要 Pak、SDK 契约和版本 2 扩展清单。");
+			return false;
+		}
+		const FString FileName = FPaths::GetCleanFilename(NativeExtensionFile);
+		IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
+		TUniquePtr<IFileHandle> Library(Files.OpenRead(*NativeExtensionFile));
+		if (!Library || Library->Size() <= 0 || Library->Size() > 64ll * 1024 * 1024 ||
+		    !Native::IsLibraryName(FileName, NativeTarget.GetValue()) ||
+		    !Native::MatchesImage(*Library, NativeTarget.GetValue()))
+		{
+			OutError = LOCTEXT("InvalidNativeExtension", "原生扩展的文件名、大小、二进制格式或架构与目标不符。");
+			return false;
+		}
+	}
+	if (CookConfiguration != TEXT("Development") && CookConfiguration != TEXT("Shipping"))
+	{
+		OutError = LOCTEXT("InvalidCookConfiguration", "请选择 Development 或 Shipping 烘焙配置。");
 		return false;
 	}
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName);
@@ -770,15 +811,10 @@ bool FModPackageRequest::Validate(FText& OutError) const
 	}
 	if (bPackageProject)
 	{
-		const FProjectDescriptor* Project = IProjectManager::Get().GetCurrentProject();
-		if (!Project || Project->Modules.IsEmpty() || Plugin ||
-		    PluginName != FPaths::GetBaseFilename(FPaths::GetProjectFilePath()) || TargetPlatform != TEXT("Win64") ||
-		    bUseIoStore || bIncludeEngineContent || !IsCommandArgument(HostEngineDirectory) ||
-		    !FPaths::DirectoryExists(HostEngineDirectory) || !IsCommandArgument(HostTargetReceipt) ||
-		    !FPaths::FileExists(HostTargetReceipt))
+		if (!IProjectManager::Get().GetCurrentProject() || Plugin ||
+		    PluginName != FPaths::GetBaseFilename(FPaths::GetProjectFilePath()))
 		{
-			OutError = LOCTEXT("BadProject",
-			                   "请打开含 C++ 模块的工程，选择 Win64 Pak 和宿主 Target 回执。工程名须有独立包根。");
+			OutError = LOCTEXT("BadProject", "请打开要打包的工程。工程名须有独立包根。");
 			return false;
 		}
 		ContentDirectory = FPaths::ProjectContentDir();
@@ -814,11 +850,6 @@ bool FModPackageRequest::Validate(FText& OutError) const
 	    BaseReleaseVersion.Contains(TEXT("..")))
 	{
 		OutError = LOCTEXT("BadRelease", "请填写游戏标识和基础发布版本，仅使用字母、数字、点、下划线或短横线。");
-		return false;
-	}
-	if (TargetPlatform != TEXT("Win64") && TargetPlatform != TEXT("Linux") && TargetPlatform != TEXT("Mac"))
-	{
-		OutError = LOCTEXT("BadPlatform", "请选择 Win64、Linux 或 Mac 目标平台。");
 		return false;
 	}
 	const FString Registry =
@@ -867,8 +898,7 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	}
 	const FString Stage = FPaths::Combine(WorkDirectory, TEXT("Stage"));
 	if (FPaths::DirectoryExists(Stage) || !IsCommandArgument(WorkDirectory) ||
-	    (Request.bPackageProject && (FPaths::DirectoryExists(WorkDirectory / TEXT("Code")) ||
-	                                 FPaths::DirectoryExists(WorkDirectory / TEXT("Project")))))
+	    (Request.bPackageProject && FPaths::DirectoryExists(WorkDirectory / TEXT("Project"))))
 	{
 		return Fail(TEXT("This task already has staging files. Start a new packaging task."));
 	}
@@ -876,18 +906,15 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	                                             Request.GetCookPlatform(), TEXT("AssetRegistry.bin"));
 	const FString BaseRegistryHash = HashFile(BaseRegistry);
 	const FString ConfigurationHash = ConfigurationFingerprint(Request.PluginName);
-	const FString HostReceiptHash = Request.bPackageProject ? HashFile(Request.HostTargetReceipt) : FString();
-	if (BaseRegistryHash.IsEmpty() || ConfigurationHash.IsEmpty() ||
-	    (Request.bPackageProject && HostReceiptHash.IsEmpty()))
+	if (BaseRegistryHash.IsEmpty() || ConfigurationHash.IsEmpty())
 	{
-		return Fail(TEXT("Could not fingerprint the project configuration, base release, or host receipt."));
+		return Fail(TEXT("Could not fingerprint the project configuration or base release."));
 	}
 	const double Deadline = FPlatformTime::Seconds() + Request.TimeoutMinutes * 60.0;
 	FProjectModStage ProjectStage;
-	FString StageError;
-	if (Request.bPackageProject && !StageProjectMod(Request, WorkDirectory, Deadline, ProjectStage, StageError))
+	if (Request.bPackageProject && !StageProjectContent(Request, WorkDirectory, ProjectStage))
 	{
-		return Fail(StageError);
+		return Fail(TEXT("Could not prepare the project assets for DLC cooking."));
 	}
 	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(Request.PluginName);
 	TSharedPtr<FJsonObject> Extensions;
@@ -898,22 +925,19 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	const FString CookProject =
 	    Request.bPackageProject ? ProjectStage.CookProject : FullPath(FPaths::GetProjectFilePath());
 	const FString CookPlugin = Request.bPackageProject ? ProjectStage.CookPlugin : Plugin->GetDescriptorFileName();
-	const FString CookConfiguration = Request.bPackageProject ? ProjectStage.Configuration : TEXT("Shipping");
 	TArray<TSharedPtr<FJsonValue>> LifecycleClasses;
 	const FString SourceRoot = Request.bPackageProject ? TEXT("/Game") : TEXT("/") + Request.PluginName;
 	if (!CollectLifecycleClasses(SourceRoot, ProjectStage.MigratedPackages, LifecycleClasses))
 	{
 		return Fail(TEXT("Could not collect up to 64 global Mod lifecycle Blueprints."));
 	}
-	if (!RunCook(Request, WorkDirectory, CookProject, CookPlugin, CookConfiguration, Deadline))
+	if (!RunCook(Request, WorkDirectory, CookProject, CookPlugin, Deadline))
 	{
 		return Fail(TEXT("UE Cook/Stage failed or timed out. See the UAT output in Editor.log."));
 	}
-	if (HashFile(BaseRegistry) != BaseRegistryHash ||
-	    ConfigurationFingerprint(Request.PluginName) != ConfigurationHash ||
-	    (Request.bPackageProject && HashFile(Request.HostTargetReceipt) != HostReceiptHash))
+	if (HashFile(BaseRegistry) != BaseRegistryHash || ConfigurationFingerprint(Request.PluginName) != ConfigurationHash)
 	{
-		return Fail(TEXT("The base release, project configuration, or host receipt changed during packaging."));
+		return Fail(TEXT("The base release or project configuration changed during packaging."));
 	}
 	TArray<FString> StageFiles;
 	IFileManager::Get().FindFilesRecursive(StageFiles, *Stage, TEXT("*"), true, false);
@@ -947,7 +971,8 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 		PakCount += Extension == TEXT("pak");
 		TocCount += Extension == TEXT("utoc");
 	}
-	if (PakCount == 0 || Payloads.Num() + ProjectStage.NativePayloads.Num() > MaxEntries - 1 ||
+	const int32 MetadataAndNativeEntries = Request.NativeExtensionFile.IsEmpty() ? 1 : 2;
+	if (PakCount == 0 || Payloads.Num() > MaxEntries - MetadataAndNativeEntries ||
 	    (Request.bUseIoStore ? TocCount == 0 : TocCount != 0))
 	{
 		return Fail(TEXT("Cook/Stage did not produce the selected Mod container backend."));
@@ -967,7 +992,13 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	Profile->SetStringField(TEXT("configurationSha256"), ConfigurationHash);
 	Profile->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString());
 	Profile->SetStringField(TEXT("targetPlatform"), Request.TargetPlatform);
+	const FString Architecture = Request.GetCookArchitecture();
+	if (!Architecture.IsEmpty())
+	{
+		Profile->SetStringField(TEXT("targetArchitecture"), Architecture);
+	}
 	Profile->SetStringField(TEXT("cookPlatform"), Request.GetCookPlatform());
+	Profile->SetStringField(TEXT("cookConfiguration"), Request.CookConfiguration);
 	Profile->SetStringField(TEXT("backend"), Request.bUseIoStore ? TEXT("IoStore") : TEXT("Pak"));
 	Profile->SetBoolField(TEXT("includeEngineContent"), Request.bIncludeEngineContent);
 	TArray<FString> ConfigFiles;
@@ -1022,24 +1053,16 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 		return Fail(TEXT("Could not write CookReceipt.json."));
 	}
 	Payloads.Add(TEXT("Metadata/CookReceipt.json"), ReceiptFile);
-	Payloads.Append(MoveTemp(ProjectStage.NativePayloads));
 	if (!Request.NativeExtensionFile.IsEmpty())
 	{
-		const FString Entry = TEXT("Native/") + FPaths::GetCleanFilename(Request.NativeExtensionFile);
-		for (const auto& Existing : Payloads)
-		{
-			if (Existing.Key.Equals(Entry, ESearchCase::IgnoreCase))
-			{
-				return Fail(TEXT("The native extension DLL collides with a staged UE module."));
-			}
-		}
-		Payloads.Add(Entry, Request.NativeExtensionFile);
+		Payloads.Add(TEXT("Native/") + FPaths::GetCleanFilename(Request.NativeExtensionFile),
+		             Request.NativeExtensionFile);
 	}
 	Payloads.GetKeys(Paths);
 	Paths.Sort([](const FString& Left, const FString& Right)
 	           { return Left.Compare(Right, ESearchCase::CaseSensitive) < 0; });
 	TSharedRef<FJsonObject> Manifest = MakeShared<FJsonObject>();
-	const uint16 ArchiveVersion = Extensions ? 3 : Request.bPackageProject ? 2 : 1;
+	const uint16 ArchiveVersion = Extensions ? 3 : 1;
 	if (Extensions)
 	{
 		Manifest->SetObjectField(TEXT("extensions"), Extensions);
@@ -1058,10 +1081,6 @@ bool FModPackageBuilder::Build(const FModPackageRequest& Request, const FString&
 	Manifest->SetStringField(TEXT("exportRequirements"), Extensions && !Request.SdkContractFile.IsEmpty()
 	                                                         ? TEXT("SdkVerified")
 	                                                         : TEXT("NotVerified"));
-	if (ProjectStage.NativeCode)
-	{
-		Manifest->SetObjectField(TEXT("nativeCode"), ProjectStage.NativeCode);
-	}
 	if (!LifecycleClasses.IsEmpty())
 	{
 		Manifest->SetArrayField(TEXT("lifecycleClasses"), MoveTemp(LifecycleClasses));

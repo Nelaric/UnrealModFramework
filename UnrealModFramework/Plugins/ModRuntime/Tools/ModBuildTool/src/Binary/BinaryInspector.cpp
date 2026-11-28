@@ -27,11 +27,12 @@ void BinaryInspector::ValidateHostBinary(const fs::path& Path, std::string_view 
 	{
 		throw std::runtime_error("Unsupported linked binary target or kind.");
 	}
-	if (!fs::is_regular_file(Path))
+	const auto NativePath = Path::FileSystemPath(Path);
+	if (!fs::is_regular_file(NativePath))
 	{
 		throw std::runtime_error("Linked binary is missing: " + Path::PathToUtf8(Path));
 	}
-	std::ifstream Stream(Path, std::ios::binary);
+	std::ifstream Stream(NativePath, std::ios::binary);
 	if (!Stream)
 	{
 		throw std::runtime_error("Cannot open linked binary: " + Path::PathToUtf8(Path));
@@ -69,9 +70,9 @@ void BinaryInspector::ValidateHostBinary(const fs::path& Path, std::string_view 
 		}
 		if (!LinkWitness.empty())
 		{
-			ImageReader::RequireElfSymbol(Stream, Header, fs::file_size(Path), LinkWitness);
+			ImageReader::RequireElfSymbol(Stream, Header, fs::file_size(NativePath), LinkWitness);
 		}
-		if (ImageReader::IsElfExecutable(Stream, Header, fs::file_size(Path)) != (Kind == "Executable"))
+		if (ImageReader::IsElfExecutable(Stream, Header, fs::file_size(NativePath)) != (Kind == "Executable"))
 		{
 			throw std::runtime_error("Linked ELF image is not the requested executable/shared-library kind.");
 		}
@@ -88,7 +89,7 @@ void BinaryInspector::ValidateHostBinary(const fs::path& Path, std::string_view 
 		}
 		if (!LinkWitness.empty())
 		{
-			ImageReader::RequireMachSymbol(Stream, Header, fs::file_size(Path), LinkWitness);
+			ImageReader::RequireMachSymbol(Stream, Header, fs::file_size(NativePath), LinkWitness);
 		}
 	}
 }

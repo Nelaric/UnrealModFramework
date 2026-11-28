@@ -9,5 +9,9 @@ public class ModAPI : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ModLoader", "ExportMetadata" });
 		PrivateDependencyModuleNames.Add("Json");
+		if (Target.IsInPlatformGroup(UnrealPlatformGroup.Linux))
+		{
+			PublicSystemLibraries.Add("dl");
+		}
 	}
 }

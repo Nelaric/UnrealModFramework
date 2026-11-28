@@ -32,11 +32,6 @@ InputIndex GenerationManifest::DescribeInputs(const GenerationModel& Model)
 	for (const auto& File : Model.Dependencies)
 	{
 		const auto Digest = fs::exists(File) ? Hash::HashFile(File) : std::string();
-		if (File == Model.SourceErrorCatalog && Digest != Model.SourceErrorCatalogHash)
-		{
-			throw std::runtime_error("The source error catalog changed during generation: " +
-			                         DiagnosticLocation::QuoteDiagnosticPath(File));
-		}
 		const auto Leaf = Path::PathToUtf8(File.filename());
 		const bool ContextFile = File.extension() == ".rsp" || Leaf.starts_with("Definitions.") ||
 		                         Leaf.starts_with("SharedDefinitions.") || Leaf.starts_with("SharedPCH.");

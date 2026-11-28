@@ -142,6 +142,7 @@ private:
 	void EmitReturn(CXCursor Return, CXCursor Value, const Json& Expected, BodyAnalysis& Analysis, const Trace& Trace,
 	                bool bConstant) const;
 
+	bool AnalyzeDeclaredFailure(CXCursor Return, CXCursor Value, BodyAnalysis& Analysis, const Trace& Trace) const;
 	void AnalyzeValue(CXCursor Return, CXCursor Value, const Json& Expected, BodyAnalysis& Analysis, Trace Trace) const;
 
 	bool CatchMatches(CXCursor Handler, const Json& Failure) const;

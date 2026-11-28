@@ -4,9 +4,10 @@
 #include "BenchmarkCalls.h"
 #include "BenchmarkFixtures.h"
 #include "Engine/LevelStreaming.h"
+#include "ModExtension.h"
 #include "BenchmarkSession.generated.h"
 
-class UModInstance;
+class UBenchmarkModInstance;
 
 UCLASS(MinimalAPI)
 class UBenchmarkCallbacks : public UObject
@@ -110,9 +111,8 @@ private:
 	FString Failure;
 	ABenchmarkBlueprintDriver* Driver = nullptr;
 	ULevelStreaming* Streaming = nullptr;
-	TWeakObjectPtr<UModInstance> Mod;
-	UFunction* ModNativeCall = nullptr;
-	FBlueprintSample* ModSample = nullptr;
+	TWeakObjectPtr<UBenchmarkModInstance> Mod;
+	Mod::Extension::FEndpoint NativeEndpoint;
 	TStrongObjectPtr<UBenchmarkCallbacks> CallbackTarget;
 	TStrongObjectPtr<UObject> Proxy;
 	const FPrimaryAssetId Primary{TEXT("BenchmarkAsset"), TEXT("BenchmarkAsset")};

@@ -130,6 +130,7 @@ struct FModExtensionWorld : TSharedFromThis<FModExtensionWorld>
 	bool bStopping = false;
 	uint64 LastAnchor = 0;
 	FWorldPolicy Policy;
+	TSharedPtr<const FModExtensionSession> Session;
 	TMap<FName, TSharedPtr<FChannel>> Channels;
 	TMap<FName, Mod::Extension::FDefinition> CompatibleHooks;
 	TArray<TUniqueFunction<void()>> QueuedEvents;

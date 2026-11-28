@@ -6,7 +6,7 @@
 
 ModSDKTool（MDT）将已解析的导出结果构建为可独立安装的制作 SDK，并将玩家上下文和对象视图连接到按签名生成的方法，支持带类型的标量和公开 UE 对象入参。API ID、公开类型、名称和原生符号均来自生产者契约。
 
-MHT 负责 C++ 投影，ExportCodeGenerator 负责蓝图导出。MDT 校验各 UBT 目标的 v4 生成清单，生成共享 Runtime 的宿主与制作端插件，用 UE AutomationTool 构建制作端插件并发布带哈希的文件清单。
+MHT 负责 C++ 投影，ExportCodeGenerator 负责蓝图导出。MDT 校验各 UBT 目标的 v4 生成清单，生成共享 Runtime 的宿主与制作端插件，通过 UBT 构建制作端插件并发布带哈希的文件清单。
 
 ## 构建与命令
 
@@ -20,7 +20,7 @@ ModSDKTool build --request SdkBuildRequest.json --output Result.json
 ModSDKTool inspect --bundle <发布目录>
 ```
 
-请求路径相对于请求文件解析。`plan` 校验生成清单、宿主和客户端的连接信息与输入哈希。`build` 通过 UAT `BuildPlugin` 编译制作端并发布。诊断写入 stderr，结果可写到发布目录之外。
+请求路径相对于请求文件解析。`plan` 校验生成清单、宿主和客户端的连接信息与输入哈希。`build` 使用禁用默认引擎插件的临时工程 Editor 目标。诊断写入 stderr，结果可写到发布目录之外。
 
 已发布的 SDK 目录不可变。当输入完全相同时，核对全部文件无误后直接复用已有发布包并返回 `UpToDate`；若输入发生变化，则必须选择新的版本化输出目录。发布过程会先在同级独占暂存目录中准备并校验产物，再将其重命名到原先不存在的目标目录，因此失败不会覆盖已有的 SDK。
 
@@ -33,7 +33,7 @@ ModSDKTool build-editor --package <尚不存在的目录>
                        --architecture <x64|arm64> --mbt <ModBuildTool>
 ```
 
-CMake 会将 `Resources/DevelopmentEditor/Files.cmake` 中列出的文件嵌入 MDT。`build-editor` 与 `build` 均会在临时工作目录中写出这些文件、插件描述符和打包配置，随后由 MDT 调用 UAT 编译，并在校验 Editor 的 BuildId 与二进制文件后，将插件连同原生工具一并发布。参见 [CircleCI 调用方式](../../../../../.circleci/build-editor-plugin.sh)。
+CMake 会将 `Resources/DevelopmentEditor/Files.cmake` 中列出的文件嵌入 MDT。`build-editor` 与 `build` 均会在临时工作目录中写出这些文件、插件描述符与最小宿主工程。MDT 从给定的 AutomationTool 安装定位 UBT，并校验 Editor 的 BuildId 与二进制文件，再将插件连同原生工具一并发布。参见 [Release Validation 驱动](../../../../../Test/SharedRuntime/release_validation.py)。
 
 打开 `ExampleMods/TestMod` 之前，请先将生成的 `ModDevelopmentSDKEditor` 与目标游戏的 `UMFDevSDK` 安装到 `ExampleMods/TestMod/Plugins`。示例游戏的完整 SDK 发布包同时包含这两个插件。
 
@@ -56,7 +56,7 @@ uint32_t FloatMethod(uint64_t ModContext, uint64_t Object, float Amount, float* 
 
 World 作用域的宿主蓝图 API 在契约中记录 `hostBlueprint.callingTableHash`。生成的 C++ SDK 会在首次调用前通过活动的 `UModInstance` 连接原生函数表，并按该哈希获取宿主注册的提供者实例。宿主负责提供授权策略和世界内的实时提供者。
 
-MHT 会将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 SDK 契约的 `modLifecycle` 字段中记录其摘要。MDT 校验该产物后 会生成 `ModInstance.h` 和 `ModInstanceSubSystem.h`，随后调用 UAT 编译作者 SDK 与制作编辑器插件。生成的反射模块保留宿主的 `/Script/ModLoader` 类型路径，由游戏会话负责管理实例并分发生命周期事件。
+MHT 会将全局生命周期声明导出为 `Contract/ModLifecycle.json`，并在 SDK 契约的 `modLifecycle` 字段中记录其摘要。MDT 校验该产物后会生成 `ModInstance.h` 和 `ModInstanceSubSystem.h`，随后调用 UBT 编译作者 SDK 与制作编辑器插件。生成的反射模块保留宿主的 `/Script/ModLoader` 类型路径，由游戏会话负责管理实例并分发生命周期事件。
 
 `UMF.SdkBuildRequest` v3 包含 `project`、`gameId`、`sdkVersion`、`pluginName`、`contract`、`tools`、`editor` 和 `targets`。每个目标列出 `target`、`platform`、`configuration`、`architecture`、`generatedManifest`。MDT 比对文件哈希、归属模块、API 签名、连接符号和 ABI，所有目标使用相同的公开头文件及 Client 实现。工具与路径字段见[请求协议](Protocol/sdk-build-request.schema.json)。
 

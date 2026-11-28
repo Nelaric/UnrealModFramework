@@ -16,8 +16,8 @@ using Json = nlohmann::json;
 class SourceReportBinder
 {
 public:
-	static void BindSourceErrors(API& API, GenerationModel& Model, const Json& Member, const Json& ClassifiedReasons,
-	                             const Json& Report, const fs::path& Database);
+	static void BindSourceErrors(API& API, GenerationModel& Model, const nlohmann::json& Report,
+	                             const std::filesystem::path& Database);
 
 private:
 	static bool SameFile(const Json& Report, const char* Key, const fs::path& File);

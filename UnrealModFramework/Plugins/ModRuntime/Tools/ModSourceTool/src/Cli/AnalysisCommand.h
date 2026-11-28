@@ -9,6 +9,6 @@ namespace Mod::SourceTool
 class AnalysisCommand
 {
 public:
-	static int RunAnalysis(AnalysisOptions Options, bool bUpdateCatalog);
+	static int RunAnalysis(const AnalysisOptions& Options);
 };
 } // namespace Mod::SourceTool

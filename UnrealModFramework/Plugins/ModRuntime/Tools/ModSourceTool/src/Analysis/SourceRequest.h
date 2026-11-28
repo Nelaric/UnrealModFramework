@@ -19,8 +19,11 @@ struct SourceRequest
 	fs::path Library;
 	fs::path ResourceDir;
 	fs::path Source;
+	fs::path TranslationUnit;
 	fs::path ProjectRoot;
+	std::string MemberId;
 	std::string Target;
+	std::string DeclarationUsr;
 	std::string Module;
 	std::string Function;
 	std::string Signature;

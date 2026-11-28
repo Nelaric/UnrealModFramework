@@ -9,7 +9,7 @@ resolved exports. It binds player contexts and object views to generated
 methods that accept typed scalar and public UE object inputs. API IDs, public
 types, names, and native symbols are all defined by the producer contract.
 
-MHT owns C++ projection and ExportCodeGenerator owns Blueprint exports. MDT validates the v4 target manifests, generates the game and author variants of the shared Runtime, builds the authoring plugins through AutomationTool, and publishes a hashed bundle.
+MHT owns C++ projection and ExportCodeGenerator owns Blueprint exports. MDT validates the v4 target manifests, generates the game and author variants of the shared Runtime, builds the authoring plugins through UBT, and publishes a hashed bundle.
 
 ## Build and run
 
@@ -23,7 +23,7 @@ ModSDKTool build --request SdkBuildRequest.json --output Result.json
 ModSDKTool inspect --bundle <published-directory>
 ```
 
-Request paths are relative to the request file. `plan` checks the manifests, host and Client connection metadata, and input hashes. `build` invokes UAT `BuildPlugin` and publishes the bundle. Diagnostics go to stderr. Write result files outside the bundle.
+Request paths are relative to the request file. `plan` checks the manifests, host and Client connection metadata, and input hashes. `build` uses a temporary project Editor target with default engine plugins disabled. Diagnostics go to stderr. Write result files outside the bundle.
 
 Published bundles are immutable. Identical inputs reuse a fully verified bundle
 and return `UpToDate`; changed inputs require a new versioned output directory.
@@ -42,9 +42,9 @@ ModSDKTool build-editor --package <new-directory>
 
 CMake embeds the files listed in `Resources/DevelopmentEditor/Files.cmake` into
 MDT. Both `build-editor` and `build` write these files, the plugin descriptor,
-and the packaging configuration into a temporary workspace. MDT then invokes UAT
-and verifies the Editor BuildId and binaries before publishing the plugin
-alongside the native tools. See the [CircleCI invocation](../../../../../.circleci/build-editor-plugin.sh) for a reference script.
+and a minimal host project into a temporary workspace. MDT locates UBT next to
+the supplied AutomationTool installation and verifies the Editor BuildId and binaries before publishing the plugin
+alongside the native tools. See the [Release Validation driver](../../../../../Test/SharedRuntime/release_validation.py) for a reference script.
 
 Before opening `ExampleMods/TestMod`, install both the generated
 `ModDevelopmentSDKEditor` and the game's `UMFDevSDK` under
@@ -104,7 +104,7 @@ while nonnegative Blueprint `int64` error codes preserve native status values.
 
 MHT exports global lifecycle declarations to `Contract/ModLifecycle.json` and
 records the digest in `modLifecycle`. Once MDT verifies the lifecycle artifact, it generates `ModInstance.h` and `ModInstanceSubSystem.h`, then
-invokes UAT to build the authoring SDK and the development editor plugin. The
+invokes UBT to build the authoring SDK and the development editor plugin. The
 generated reflection module preserves the game's `/Script/ModLoader` type paths,
 while the game session owns the instances and delivers lifecycle events.
 

@@ -5,6 +5,7 @@
 #include "ModHeaderTool/src/Analysis/Location.h"
 #include "ModHeaderTool/src/Files/DiagnosticLocation.h"
 #include "ModHeaderTool/src/Files/Path.h"
+#include "ModHeaderTool/src/Generation/GenerationFields.h"
 #include "ModHeaderTool/src/Generation/TypeIdentity.h"
 #include "ModHeaderTool/src/Hash/Hash.h"
 
@@ -115,8 +116,78 @@ EngineHeader TypeResolution::FindEngineHeader(const GenerationInput& Input, cons
 	return {};
 }
 
+std::string TypeResolution::InferExportScope(ClangLibrary& Clang, CXCursor Record, const ExportMacro& Macro)
+{
+	std::set<std::string> Visited;
+	if (IsUObject(Clang, Record, Visited, "ULocalPlayerSubsystem"))
+	{
+		return "Player";
+	}
+	for (const auto* WorldBase : {"AActor", "UActorComponent", "UWorldSubsystem"})
+	{
+		Visited.clear();
+		if (IsUObject(Clang, Record, Visited, WorldBase))
+		{
+			return "World";
+		}
+	}
+	CursorSource::Fail(Macro, "declare Scope for a type without an unambiguous framework lifetime.");
+}
+
+TypeIdentity TypeResolution::DiscoverIdentity(GenerationModel& Model, ClangLibrary& Clang, CXCursor Record,
+                                              const ExportMacro& Macro, const fs::path& File, std::string_view Module,
+                                              std::string_view Scope, bool bEngine)
+{
+	const std::string Name = CursorSource::QualifiedName(Clang, Record);
+	if (Name.empty() || Module.empty())
+	{
+		CursorSource::Fail(Macro, "a type identity requires an owning module and qualified C++ name.");
+	}
+	const auto Reflected = Model.Input.Reflection.find({Clang.String(Clang.clang_getCursorSpelling(Record)), File});
+	std::string Id;
+	if (Reflected != Model.Input.Reflection.end())
+	{
+		const auto& Reflection = Reflected->second;
+		if (!bEngine && Module != Reflection.Module)
+		{
+			CursorSource::Fail(Macro, "the UHT and compilation module disagree for '" + Name + "'.");
+		}
+		Id = Reflection.LegacyId.empty() ? "ue." + GenerationFields::Fold(Reflection.Path.substr(8))
+		                                 : Reflection.LegacyId;
+	}
+	if (bEngine)
+	{
+		// Preserve the published engine views on both source and installed engine targets.
+		Id = "ue." + Name;
+	}
+	if (Id.empty())
+	{
+		std::string Qualified = Name;
+		for (auto Index = Qualified.find("::"); Index != Qualified.npos; Index = Qualified.find("::", Index + 1))
+		{
+			Qualified.replace(Index, 2, ".");
+		}
+		Id = "cpp." + GenerationFields::Fold(std::string(Module) + "." + Qualified);
+	}
+	TypeIdentity Identity{Name, std::move(Id), std::string(Scope)};
+	const auto [Existing, bNew] =
+	    Model.IdentityOwners.emplace(GenerationFields::Fold(Identity.Id), std::pair{std::string(Module), Identity});
+	if (!bNew && (Existing->second.first != Module || Existing->second.second.CppName != Name))
+	{
+		CursorSource::Fail(Macro, "type identity '" + Identity.Id + "' is already used by " + Existing->second.first +
+		                              "::" + Existing->second.second.CppName + ".");
+	}
+	if (!bNew && Existing->second.second.Scope != Scope)
+	{
+		CursorSource::Fail(Macro, "conflicting export scopes for '" + Name + "': " + Existing->second.second.Scope +
+		                              " and " + std::string(Scope) + ".");
+	}
+	return Identity;
+}
+
 ResolvedType& TypeResolution::ResolveRecord(GenerationModel& Model, ClangLibrary& Clang, CXCursor Record,
-                                            const ExportMacro& Macro, const std::string& ExportModule)
+                                            const ExportMacro& Macro, const std::string& ExportModule,
+                                            std::string_view DeclaredScope)
 {
 	const auto Definition = Clang.clang_getCursorDefinition(Record);
 	if (Definition.kind == CXCursor_ClassDecl || Definition.kind == CXCursor_StructDecl)
@@ -124,8 +195,19 @@ ResolvedType& TypeResolution::ResolveRecord(GenerationModel& Model, ClangLibrary
 		Record = Definition;
 	}
 	const std::string Name = CursorSource::QualifiedName(Clang, Record);
+	const auto File =
+	    fs::canonical(CursorSource::ReadLocation(Clang, Clang.clang_getCursorLocation(Record), true).File);
 	if (auto It = Model.Types.find(Name); It != Model.Types.end())
 	{
+		if (It->second.DeclarationFile != File)
+		{
+			CursorSource::Fail(Macro, "ambiguous C++ type '" + Name + "' has multiple definitions in this target.");
+		}
+		if (!DeclaredScope.empty() && It->second.Identity.Scope != DeclaredScope)
+		{
+			CursorSource::Fail(Macro, "conflicting export scopes for '" + Name + "': " + It->second.Identity.Scope +
+			                              " and " + std::string(DeclaredScope) + ".");
+		}
 		return It->second;
 	}
 	std::set<std::string> Visited;
@@ -158,8 +240,6 @@ ResolvedType& TypeResolution::ResolveRecord(GenerationModel& Model, ClangLibrary
 		CursorSource::Fail(Macro,
 		                   "exported UObject types require their own generated StaticClass declaration: " + Name);
 	}
-	const auto File =
-	    fs::canonical(CursorSource::ReadLocation(Clang, Clang.clang_getCursorLocation(Record), true).File);
 	const auto* Module = OwnerModule(Model.Input, File);
 	const auto Engine = !Module && !ExportModule.empty() ? FindEngineHeader(Model.Input, File) : EngineHeader{};
 	std::string Include = Module ? Module->HeaderInclude(File) : Engine.Include;
@@ -187,20 +267,31 @@ ResolvedType& TypeResolution::ResolveRecord(GenerationModel& Model, ClangLibrary
 		CursorSource::Fail(Macro,
 		                   "exported object types require a participating module or a public engine header: " + Name);
 	}
-	const auto Identity = Model.Input.Types.find(Name);
-	if (Identity == Model.Input.Types.end() && Engine.Include.empty())
-	{
-		CursorSource::Fail(Macro, "missing persistent type identity for '" + Name + "'.");
-	}
+	const auto Reflected = Model.Input.Reflection.find({Clang.String(Clang.clang_getCursorSpelling(Record)), File});
 	ResolvedType Type;
-	Type.Identity = Identity != Model.Input.Types.end() ? Identity->second : TypeIdentity{Name, "ue." + Name, "World"};
+	Type.DeclarationFile = File;
 	Type.Module = Module ? Module->Name : ExportModule;
 	Type.HeaderInclude = std::move(Include);
-	Type.Symbol = "T_" + Hash::HashBytes(Type.Identity.Id).substr(0, 16);
 	Type.MethodNames = std::move(Evidence.MethodNames);
 	Type.bAllowWorldless = !Engine.Include.empty();
 	Visited.clear();
 	Type.bLocalPlayerSubsystem = IsUObject(Clang, Record, Visited, "ULocalPlayerSubsystem");
+	const std::string Scope =
+	    DeclaredScope.empty() ? (Type.bLocalPlayerSubsystem ? "Player" : "World") : std::string(DeclaredScope);
+	if (Type.bLocalPlayerSubsystem && Scope != "Player")
+	{
+		CursorSource::Fail(Macro, "a LocalPlayer subsystem requires Player scope: " + Name);
+	}
+	if (Reflected != Model.Input.Reflection.end())
+	{
+		Type.ReflectedPath = Reflected->second.Path;
+	}
+	const auto LogicalModule = Module                                      ? Module->Name
+	                           : !Engine.Module.empty()                    ? Engine.Module
+	                           : Reflected != Model.Input.Reflection.end() ? Reflected->second.Module
+	                                                                       : Type.Module;
+	Type.Identity = DiscoverIdentity(Model, Clang, Record, Macro, File, LogicalModule, Scope, !Engine.Include.empty());
+	Type.Symbol = "T_" + Hash::HashBytes(Type.Identity.Id).substr(0, 16);
 	return Model.Types.emplace(Name, std::move(Type)).first->second;
 }
 

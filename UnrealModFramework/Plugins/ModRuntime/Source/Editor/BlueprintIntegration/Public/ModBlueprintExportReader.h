@@ -11,6 +11,25 @@ class UBlueprint;
 
 namespace Mod::BlueprintIntegration
 {
+/// Asset registry tag marking a Blueprint that contains authored exports.
+inline const FName ExportAssetTag(TEXT("UMFExports"));
+
+/// Optional identity and module overrides stored on a Blueprint.
+struct FExportIdentity
+{
+	/// Previously published identity to keep when the asset moves or changes name.
+	FString TypeId;
+	/// Explicit owner when the project has several eligible runtime modules.
+	FName Module;
+};
+
+/** @brief Reads the identity overrides of an exported asset.
+ * @param Blueprint The authoring asset.
+ * @param OutIdentity Receives the authored overrides.
+ * @return Whether the asset contains API, Hook, or Event declarations.
+ */
+BLUEPRINTINTEGRATION_API bool ReadExportIdentity(const UBlueprint& Blueprint, FExportIdentity& OutIdentity);
+
 /// An authored Blueprint API and its compiled member name.
 struct FExportedAPI
 {

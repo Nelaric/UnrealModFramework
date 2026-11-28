@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -32,9 +33,9 @@ internal static class UbtPreparation
 		string project,
 		string variantDirectory,
 		(string Target, string Platform, string Configuration, string Architecture) variant,
-		JsonElement generation,
 		string executable,
 		JsonElement blueprintExports,
+		object reflection,
 		string? clang,
 		int timeout
 	)
@@ -119,7 +120,10 @@ internal static class UbtPreparation
 			ModRuntimeExporter.WriteFileIfChanged(database, "[]"u8.ToArray());
 		}
 		var rootsByName = owners.ToDictionary(pair => pair.Value, pair => pair.Key);
-		JsonObject input = JsonNode.Parse(generation.GetRawText())!.AsObject();
+		JsonObject input = new();
+		input["gameId"] = Path.GetFileNameWithoutExtension(project);
+		input["targetType"] = descriptor.RootElement.GetProperty("target").GetProperty("type").GetString();
+		input["reflection"] = JsonSerializer.SerializeToNode(reflection);
 		input["autoDiscoverModules"] = true;
 		input["modules"] = JsonSerializer.SerializeToNode(
 			units.Select(pair => new
@@ -137,8 +141,11 @@ internal static class UbtPreparation
 		input["configuration"] = variant.Configuration;
 		input["architecture"] = variant.Architecture;
 		input["compilationDatabase"] = database;
-		JsonArray analysis = input["analysisArguments"]?.AsArray() ?? new JsonArray();
-		analysis.Insert(0, "-resource-dir=" + resources);
+		// libclang only needs a type-correct AST for UE's compiler-specific constexpr declarations.
+		JsonArray analysis = new("-resource-dir=" + resources, "-Wno-invalid-constexpr");
+		logger.LogInformation(
+			"ModRuntime: suppress invalid-constexpr in libclang analysis of UE headers compiled by the target toolchain."
+		);
 		if (windowsTarget)
 		{
 			if (units.Count != 0 && CompilerCompatibility(database, units.First().Value[0]) is string compatibility)
@@ -158,8 +165,8 @@ internal static class UbtPreparation
 					+ "-pc-windows-msvc"
 			);
 		}
-		input["analysisArguments"] ??= analysis;
-		JsonObject roots = input["pathRoots"]?.AsObject() ?? new JsonObject();
+		input["analysisArguments"] = analysis;
+		JsonObject roots = new();
 		roots["Engine"] = engine;
 		roots["LlvmResource"] = llvmRoot;
 		if (windowsTarget)
@@ -167,7 +174,7 @@ internal static class UbtPreparation
 			roots["MSVC"] = toolchain.GetProperty("msvcDirectory").GetString();
 			roots["WindowsSDK"] = toolchain.GetProperty("windowsSdkDirectory").GetString();
 		}
-		input["pathRoots"] ??= roots;
+		input["pathRoots"] = roots;
 		string path = Path.Combine(variantDirectory, "BuildInput.json");
 		ModRuntimeExporter.WriteFileIfChanged(path, JsonSerializer.SerializeToUtf8Bytes(input, JsonOptions));
 		return path;
@@ -232,50 +239,14 @@ internal static class UbtPreparation
 		return graph;
 	}
 
-	internal static void BuildEditor(ILogger logger, string engine, string project, string target, int timeout)
-	{
-		logger.LogInformation("ModRuntime MHT: building {Target} Development for the metadata commandlet.", target);
-		try
-		{
-			Run(
-				logger,
-				engine,
-				project,
-				new[]
-				{
-					target,
-					MetadataSnapshot.HostPlatform,
-					"Development",
-					"-Architecture=" + MetadataSnapshot.HostArchitecture,
-					"-MhtBootstrap",
-					"-NoUBTMakefiles",
-				},
-				timeout,
-				"ModRuntime MHT metadata bootstrap"
-			);
-		}
-		finally
-		{
-			// The commandlet loads the standard DLL names. Make a later regular link replace the bootstrap DLLs.
-			string directory = Path.Combine(
-				Path.GetDirectoryName(project)!,
-				"Intermediate/ModTools/ModHeaderTool/Generated",
-				target,
-				MetadataSnapshot.HostPlatform,
-				"Development",
-				MetadataSnapshot.HostArchitecture,
-				"Link"
-			);
-			if (Directory.Exists(directory))
-			{
-				foreach (string header in Directory.EnumerateFiles(directory, "*.h"))
-				{
-					File.SetLastWriteTimeUtc(header, DateTime.UtcNow);
-					FileItem.ResetCachedInfo(header);
-				}
-			}
-		}
-	}
+	internal static string HostArchitecture =>
+		RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+
+	internal static string HostPlatform =>
+		OperatingSystem.IsWindows() ? "Win64"
+		: OperatingSystem.IsMacOS() ? "Mac"
+		: HostArchitecture == "arm64" ? "LinuxArm64"
+		: "Linux";
 
 	private static void Run(
 		ILogger logger,
@@ -308,6 +279,7 @@ internal static class UbtPreparation
 				{
 					$"-Project={project}",
 					"-NoMutex",
+					"-NoEngineChanges",
 					"-NoHotReload",
 					"-SkipRulesCompile",
 					$"-Log={Path.Combine(work.FullName, "Ubt.log")}",
@@ -477,7 +449,7 @@ internal static class UbtPreparation
 			: OperatingSystem.IsMacOS() ? "Darwin"
 			: "Linux";
 		string build = Path.Combine(pluginRoot, "Tools", "build");
-		string receipt = Path.Combine(build, $"libclang-{system}-{MetadataSnapshot.HostArchitecture}.path");
+		string receipt = Path.Combine(build, $"libclang-{system}-{HostArchitecture}.path");
 		if (File.Exists(receipt))
 		{
 			factory.AddExternalDependency(receipt);

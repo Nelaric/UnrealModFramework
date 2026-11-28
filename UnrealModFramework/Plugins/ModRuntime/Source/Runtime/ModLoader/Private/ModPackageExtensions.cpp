@@ -121,9 +121,13 @@ bool Required(const FJsonObject& Json, bool& Value)
 
 bool Asset(const FJsonObject& Json, const TCHAR* Field, const FString& Root, FString& Value)
 {
-	return Json.TryGetStringField(Field, Value) && Value.Len() <= 512 &&
-	       Value.StartsWith(Root, ESearchCase::CaseSensitive) && FPackageName::IsValidObjectPath(Value) &&
-	       !Value.Contains(TEXT(":"));
+	if (!Json.TryGetStringField(Field, Value) || Value.Len() > 512 ||
+	    !Value.StartsWith(Root, ESearchCase::CaseSensitive) || Value.Contains(TEXT(":")))
+	{
+		return false;
+	}
+	// UE also checks mount registration. Check the suffix under the built-in root before the Mod mounts.
+	return FPackageName::IsValidObjectPath(TEXT("/Game/") + Value.Mid(Root.Len()));
 }
 
 template <class FRead> bool ReadArray(const FJsonObject& Json, const TCHAR* Field, FRead Read)
@@ -213,8 +217,7 @@ bool Private::ReadExtensions(const FJsonObject& Manifest, FLoadResult& Result)
 	{
 		if ((*Extensions)->HasField(TEXT("nativeExtension")) &&
 		    (!(*Extensions)->TryGetStringField(TEXT("nativeExtension"), Out.NativeExtensionFile) ||
-		     !IsId(Out.NativeExtensionFile) || !Out.NativeExtensionFile.EndsWith(TEXT(".dll")) ||
-		     Out.NativeExtensionFile.Contains(TEXT("/")) || Out.NativeExtensionFile.Contains(TEXT(".."))))
+		     !IsId(Out.NativeExtensionFile) || Out.NativeExtensionFile.Contains(TEXT(".."))))
 		{
 			return Fail(Result, ELoadError::InvalidArchive, TEXT("Invalid independent extension DLL name."));
 		}

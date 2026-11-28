@@ -131,7 +131,7 @@ void UeBuildAdapter::RefreshUeWatches(const fs::path& ContextSetPath)
 	{
 		return;
 	}
-	const fs::path ContextSet = fs::canonical(ContextSetPath);
+	const fs::path ContextSet = fs::canonical(Path::FileSystemPath(ContextSetPath));
 	const Json Pipeline = Json::parse(File::ReadFile(ContextSet), nullptr, false);
 	if (!Pipeline.is_object())
 	{
@@ -191,13 +191,13 @@ void UeBuildAdapter::RefreshUeWatches(const fs::path& ContextSetPath)
 
 Json UeBuildAdapter::FinalizeUeTarget(const fs::path& ContextSetPath, const fs::path& TargetReceiptPath)
 {
-	const fs::path ContextSet = fs::canonical(ContextSetPath);
+	const fs::path ContextSet = fs::canonical(Path::FileSystemPath(ContextSetPath));
 	const Json Pipeline = ContextDocument::ReadJson(ContextSet);
 	ContextDocument::RequireFormat(Pipeline, "UMF.ModHostContextSet");
 	const fs::path Manifest =
 	    Path::ResolvePath(ContextSet.parent_path(), ContextDocument::Text(Pipeline, "generatedManifest"));
 	const fs::path Project = Path::ResolvePath(ContextSet.parent_path(), ContextDocument::Text(Pipeline, "project"));
-	const fs::path UbtReceipt = fs::canonical(TargetReceiptPath);
+	const fs::path UbtReceipt = fs::canonical(Path::FileSystemPath(TargetReceiptPath));
 	const std::string UbtBytes = File::ReadFile(UbtReceipt);
 	const Json Target = Json::parse(UbtBytes);
 	if (Path::ResolvePath(UbtReceipt.parent_path(), ContextDocument::Text(Target, "Project")) != Project)
