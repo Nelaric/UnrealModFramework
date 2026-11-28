@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Mod::SourceTool
@@ -20,7 +21,7 @@ class AssemblyAnalysis
 public:
 	/// Associates validity failures with their optimized compiler branches.
 	static void AnalyzeAssembly(const SourceRequest& Request, const fs::path& Compiler, const fs::path& Directory,
-	                            const std::vector<std::string>& Arguments, std::optional<std::string>& CachedListing,
-	                            Json& Report);
+	                            const std::vector<std::string>& Arguments, std::string_view TargetTriple,
+	                            std::optional<std::string>& CachedListing, Json& Report);
 };
 } // namespace Mod::SourceTool

@@ -170,6 +170,12 @@ internal static class UbtPreparation
 					+ "-pc-windows-msvc"
 			);
 		}
+		else if (variant.Platform == "Mac")
+		{
+			// UBT uses prebuilt AppleClang header modules. Libclang analyzes the SDK headers as text.
+			analysis.Add("-fno-modules");
+			analysis.Add("-fno-implicit-module-maps");
+		}
 		input["analysisArguments"] = analysis;
 		JsonObject roots = new();
 		roots["Engine"] = engine;

@@ -465,6 +465,42 @@ def verify_msvc_source_analysis(root, args):
 
 
 
+def verify_arm64_source_analysis(root, args):
+    engine = root / "Engine/Source/Runtime"
+    mesh = engine / "Engine/Classes/Engine/SkeletalMesh.h"
+    object_header = engine / "CoreUObject/Public/UObject/Object.h"
+    for header in (mesh, object_header):
+        header.parent.mkdir(parents=True)
+    mesh.write_text("class USkeletalMesh {};\n", encoding="utf-8")
+    object_header.write_text("bool IsValid(const USkeletalMesh* Mesh);\n", encoding="utf-8")
+    source = root / "probe.cpp"
+    source.write_text(
+        '#include "Engine/Source/Runtime/Engine/Classes/Engine/SkeletalMesh.h"\n'
+        '#include "Engine/Source/Runtime/CoreUObject/Public/UObject/Object.h"\n'
+        'bool CheckMesh(USkeletalMesh* Mesh) { if (!IsValid(Mesh)) return false; return true; }\n',
+        encoding="utf-8",
+    )
+    database = write_json(root / "compile_commands.json", [{
+        "directory": str(root),
+        "file": str(source),
+        # ARM64 source analysis needs no native compiler invocation to report its source evidence.
+        "arguments": [str(root / "missing" / "clang++"), "--target=aarch64-unknown-linux-gnu",
+                      "-std=c++20", "-DUE_TARGET_NAME=Game", '-DUE_MODULE_NAME="Probe"',
+                      "-DWITH_EDITOR=0", "-c", str(source)],
+    }])
+    request = write_json(root / "SourceAnalysisRequest.json", {
+        "format": "UMF.SourceAnalysisRequest", "schemaVersion": 2, "compilationDatabase": database,
+        "target": "Game", "projectRoot": str(root), "libclang": str(args.libclang),
+        "resourceDirectory": str(args.resource_dir), "analysisArguments": [],
+        "members": [{"id": "api/ci/probe/arm64", "module": "Probe", "function": "CheckMesh",
+                     "translationUnit": str(source), "source": str(source), "failureReturn": False}],
+    })
+    (member,) = json.loads(run([args.mst, "analyze-errors", request], capture_output=True).stdout)["members"]
+    failures = member["failures"]
+    assert {entry["key"] for entry in failures} == {"InvalidMeshNull", "InvalidMeshGarbage"}, member
+    assert all(entry["classification"]["assembly"]["kind"] == "unavailable" for entry in failures), member
+
+
 def verify_cross_file_exceptions(root, args):
     root.mkdir()
     source = root / "caller.cpp"
@@ -998,6 +1034,7 @@ if __name__ == "__main__":
         verify_long_project_path(Path(directory), args)
         verify_msvc_source_analysis(Path(directory) / "msvc-source-analysis", args)
         verify_cross_file_exceptions(Path(directory) / "clang-source-analysis", args)
+        verify_arm64_source_analysis(Path(directory) / "arm64-source-analysis", args)
         for target in (
             ("Win64", "x64", "x86_64-pc-windows-msvc"),
             ("Win64", "arm64", "aarch64-pc-windows-msvc"),

@@ -15,6 +15,7 @@
 #include <map>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Mod::SourceTool
@@ -24,7 +25,8 @@ using Json = nlohmann::json;
 
 void AssemblyAnalysis::AnalyzeAssembly(const SourceRequest& Request, const fs::path& Compiler,
                                        const fs::path& Directory, const std::vector<std::string>& Arguments,
-                                       std::optional<std::string>& CachedListing, Json& Report)
+                                       std::string_view TargetTriple, std::optional<std::string>& CachedListing,
+                                       Json& Report)
 {
 	const auto Symbol = Report.at("assemblySymbol").get<std::string>();
 	const auto Flag = Report.at("garbageFlag").get<std::uint64_t>();
@@ -53,8 +55,10 @@ void AssemblyAnalysis::AnalyzeAssembly(const SourceRequest& Request, const fs::p
 	const auto Dialect = Driver == "cl.exe"         ? AssemblyCompiler::EDialect::Msvc
 	                     : Driver == "clang-cl.exe" ? AssemblyCompiler::EDialect::ClangCL
 	                                                : AssemblyCompiler::EDialect::Gnu;
+	const auto Architecture = TargetTriple.substr(0, TargetTriple.find('-'));
+	const bool bX86 = Architecture == "x86_64" || Architecture == "x86_64h";
 	const bool bSupported =
-	    (Dialect != AssemblyCompiler::EDialect::Msvc || Compiler.parent_path().filename() == "x64") &&
+	    bX86 && (Dialect != AssemblyCompiler::EDialect::Msvc || Compiler.parent_path().filename() == "x64") &&
 	    std::none_of(Arguments.begin(), Arguments.end(), [](const auto& Argument)
 	                 { return Argument == "/GL" || Argument == "-m32" || Argument.starts_with("-flto"); });
 	if (bSupported && !CachedListing)
@@ -94,7 +98,8 @@ void AssemblyAnalysis::AnalyzeAssembly(const SourceRequest& Request, const fs::p
 				    Failure,
 				    bSupported ? Json{{"kind", "unresolved"}, {"reason", "Multiple validity calls on one source line."}}
 				               : Json{{"kind", "unavailable"},
-				                      {"reason", "This compile action cannot emit the required listing."}});
+				                      {"reason", bX86 ? "This compile action cannot emit the required listing."
+				                                      : "Only x86_64 targets have assembly evidence."}});
 			}
 		}
 		else if (bSupported && Failure.contains("classifications") &&
