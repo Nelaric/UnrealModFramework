@@ -17,67 +17,110 @@ import build_target as target
 import development as ci
 
 
+def pull_request_event(*, number=129, head_repository=ci.REPOSITORY, author="contributor", head="", base=""):
+    return {
+        "number": number,
+        "repository": {"full_name": ci.REPOSITORY},
+        "pull_request": {
+            "base": {"ref": "main", "sha": base},
+            "head": {"repo": {"full_name": head_repository} if head_repository else None, "sha": head},
+            "user": {"login": author},
+        },
+    }
+
+
 class AuthorizationTests(unittest.TestCase):
-    def test_every_unapproved_pull_request_is_public_only(self):
-        payload = {
-            "repository": {"full_name": ci.REPOSITORY, "id": 42},
-            "pull_request": {"base": {"ref": "main"}, "head": {"repo": {"id": 42}}},
-        }
-        with patch.dict(os.environ, GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/129/merge"):
-            for repository in ({"id": 42}, {"id": 43}, None):
-                payload["pull_request"]["head"]["repo"] = repository
+    def test_same_repository_prs_start_engine_jobs_automatically(self):
+        payload = pull_request_event()
+        with patch.dict(os.environ, GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/129/merge",
+                        GITHUB_ACTOR="contributor"):
+            self.assertTrue(ci.engine_run(payload))
+            self.assertEqual(ci.event_pr_number(payload), 129)
+            for repository in ("Fork/UnrealModFramework", None):
                 with self.subTest(repository=repository):
-                    self.assertFalse(ci.engine_run(payload))
+                    self.assertFalse(ci.engine_run(pull_request_event(head_repository=repository)))
+            self.assertFalse(ci.engine_run(pull_request_event(author="dependabot[bot]")))
+            with patch.dict(os.environ, GITHUB_ACTOR="dependabot[bot]"):
+                self.assertFalse(ci.engine_run(payload))
+        for event_name in ("workflow_dispatch", "push", "pull_request_target"):
+            with patch.dict(os.environ, GITHUB_EVENT_NAME=event_name):
+                self.assertFalse(ci.engine_run(payload))
+        with patch.dict(os.environ, GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/130/merge"):
+            with self.assertRaisesRegex(ValueError, "Expected a PR test merge ref"):
+                ci.engine_run(payload)
 
-    def test_engine_runs_require_an_upstream_approval_tag(self):
-        ref = ci.approval_ref(129)
-        commit = "a" * 40
-        payload = {"repository": {"full_name": ci.REPOSITORY}, "ref": ref, "after": commit, "deleted": False}
-        with patch.dict(os.environ, GITHUB_REF=ref, GITHUB_EVENT_NAME="push", GITHUB_SHA=commit):
-            self.assertEqual(ci.approved_pr_number(payload), 129)
-            for rejected in (
-                {**payload, "repository": {"full_name": "Fork/UnrealModFramework"}},
-                {**payload, "ref": ci.approval_ref(130)},
-                {**payload, "after": "b" * 40},
-                {**payload, "deleted": True},
-            ):
-                with self.subTest(payload=rejected):
-                    self.assertFalse(ci.engine_run(rejected))
-            with patch.dict(os.environ, GITHUB_EVENT_NAME="workflow_dispatch"):
-                self.assertTrue(ci.engine_run(payload))
-                with patch.dict(os.environ, GITHUB_REF="refs/heads/development-ci-129"):
-                    self.assertFalse(ci.engine_run(payload))
-
-    def test_approval_must_point_at_the_live_test_merge(self):
-        ref = ci.approval_ref(129)
+    def test_fork_approval_requires_an_exact_sha_and_a_maintainer(self):
         commit, head, base = "a" * 40, "b" * 40, "c" * 40
-        payload = {"repository": {"full_name": ci.REPOSITORY}, "ref": ref, "after": commit, "deleted": False}
+        creator = {"type": "User", "id": 42, "login": "maintainer"}
+        approval = {
+            "repository": {"full_name": ci.REPOSITORY},
+            "deployment": {
+                "ref": commit, "sha": commit, "environment": ci.APPROVAL_ENVIRONMENT,
+                "task": ci.APPROVAL_TASK, "creator": creator,
+                "payload": {"pull_request": 129, "base": base, "head": head},
+            },
+            "sender": creator,
+        }
         pr = {
             "state": "open", "merge_commit_sha": commit, "head": {"sha": head},
             "base": {"ref": "main", "sha": base, "repo": {"full_name": ci.REPOSITORY}},
         }
-        tag = {"object": {"type": "commit", "sha": commit}}
         main = {"object": {"sha": base}}
         with (
-            patch.dict(os.environ, GITHUB_REPOSITORY=ci.REPOSITORY, GITHUB_REF=ref, GITHUB_EVENT_NAME="push",
+            patch.dict(os.environ, GITHUB_REPOSITORY=ci.REPOSITORY, GITHUB_EVENT_NAME="deployment",
                        GITHUB_SHA=commit, PUBLIC_READ_TOKEN="read"),
-            patch.object(ci, "event", return_value=payload),
+            patch.object(ci, "event", return_value=approval),
             patch.object(ci, "output") as outputs,
         ):
-            with patch.object(ci, "api", side_effect=[pr, tag, main]) as api:
+            with patch.object(ci, "api", side_effect=[{"role_name": "maintain"}, pr, main]) as api:
                 ci.resolve_candidate()
-                self.assertEqual(
-                    [call.args[0] for call in api.call_args_list],
-                    [f"/repos/{ci.REPOSITORY}/pulls/129", f"/repos/{ci.REPOSITORY}/git/ref/tags/development-ci-129",
-                     f"/repos/{ci.REPOSITORY}/git/ref/heads/main"],
-                )
-            self.assertEqual(dict(call.args for call in outputs.call_args_list)["engine"], "true")
+                self.assertEqual([call.args[0] for call in api.call_args_list], [
+                    f"/repos/{ci.REPOSITORY}/collaborators/maintainer/permission",
+                    f"/repos/{ci.REPOSITORY}/pulls/129",
+                    f"/repos/{ci.REPOSITORY}/git/ref/heads/main",
+                ])
+                self.assertEqual(dict(call.args for call in outputs.call_args_list)["engine"], "true")
             outputs.reset_mock()
-            with patch.object(ci, "api", side_effect=[{**pr, "merge_commit_sha": "d" * 40}, tag]):
+            with patch.object(ci, "api", return_value={"role_name": "write"}):
+                with self.assertRaisesRegex(ValueError, "requires repository maintain access"):
+                    ci.resolve_candidate()
+            with patch.object(ci, "api", side_effect=[{"role_name": "admin"}, {**pr, "merge_commit_sha": "d" * 40}]):
                 with self.assertRaisesRegex(ValueError, "test merge commit has changed"):
                     ci.resolve_candidate()
-            with patch.object(ci, "api", side_effect=[pr, {"object": {"type": "commit", "sha": "d" * 40}}]):
-                with self.assertRaisesRegex(ValueError, "approval tag has moved"):
+            approval["deployment"]["ref"] = "main"
+            with self.assertRaisesRegex(ValueError, "exact reviewed test merge SHA"):
+                ci.resolve_candidate()
+            outputs.assert_not_called()
+
+    def test_candidate_resolver_pins_the_live_test_merge(self):
+        commit, head, base = "a" * 40, "b" * 40, "c" * 40
+        pr = {
+            "state": "open", "merge_commit_sha": commit, "head": {"sha": head},
+            "base": {"ref": "main", "sha": base, "repo": {"full_name": ci.REPOSITORY}},
+        }
+        main = {"object": {"sha": base}}
+        with (
+            patch.dict(os.environ, GITHUB_REPOSITORY=ci.REPOSITORY, GITHUB_EVENT_NAME="pull_request",
+                       GITHUB_REF="refs/pull/129/merge", GITHUB_ACTOR="contributor",
+                       GITHUB_SHA=commit, PUBLIC_READ_TOKEN="read"),
+            patch.object(ci, "event", return_value=pull_request_event(head=head, base=base)) as event,
+            patch.object(ci, "output") as outputs,
+        ):
+            for fork in (False, True):
+                event.return_value = pull_request_event(
+                    head=head, base=base, head_repository="Fork/UnrealModFramework" if fork else ci.REPOSITORY)
+                with patch.object(ci, "api", side_effect=[pr, main]) as api:
+                    ci.resolve_candidate()
+                    self.assertEqual(
+                        [call.args[0] for call in api.call_args_list],
+                        [f"/repos/{ci.REPOSITORY}/pulls/129", f"/repos/{ci.REPOSITORY}/git/ref/heads/main"],
+                    )
+                values = dict(call.args for call in outputs.call_args_list)
+                self.assertEqual(values["commit"], commit)
+                self.assertEqual(values["engine"], "false" if fork else "true")
+                outputs.reset_mock()
+            with patch.object(ci, "api", return_value={**pr, "merge_commit_sha": "d" * 40}):
+                with self.assertRaisesRegex(ValueError, "test merge commit has changed"):
                     ci.resolve_candidate()
             outputs.assert_not_called()
 
@@ -193,25 +236,25 @@ class ResultTests(unittest.TestCase):
         }
         prefix = f"/repos/{ci.REPOSITORY}"
         reads = [(f"{prefix}/pulls/129", "read"), (f"{prefix}/git/ref/heads/main", "read")]
-        approved_ref = (f"{prefix}/git/ref/tags/development-ci-129", "read")
+        event = pull_request_event(head=candidate["head"], base=candidate["base"])
         with (
             patch.dict(os.environ, CI_IDENTITY=json.dumps(candidate), PUBLIC_READ_TOKEN="read",
-                       GITHUB_REF=ci.approval_ref(129), GITHUB_SHA=candidate["commit"]),
-            patch.object(ci, "engine_run", return_value=True),
+                       GITHUB_EVENT_NAME="pull_request", GITHUB_REF="refs/pull/129/merge",
+                       GITHUB_ACTOR="contributor", GITHUB_SHA=candidate["commit"]),
+            patch.object(ci, "event", return_value=event),
             patch.object(ci, "summary") as report,
         ):
-            tag = {"object": {"type": "commit", "sha": candidate["commit"]}}
             base = {"object": {"sha": candidate["base"]}}
-            with patch.object(ci, "api", side_effect=[pr, base, tag]) as api:
+            with patch.object(ci, "api", side_effect=[pr, base]) as api:
                 ci.verify_current_candidate()
-                self.assertEqual([request.args for request in api.call_args_list], [*reads, approved_ref])
+                self.assertEqual([request.args for request in api.call_args_list], reads)
             with patch.object(ci, "api", side_effect=[pr, {"object": {"sha": "d" * 40}}]) as api:
                 with self.assertRaisesRegex(ValueError, "Main has moved"):
                     ci.verify_current_candidate()
                 self.assertEqual([request.args for request in api.call_args_list], reads)
                 self.assertIn("Candidate is stale or unverifiable", report.call_args.args[0][0])
-            with patch.object(ci, "api", side_effect=[pr, base, {"object": {"type": "tag", "sha": "d" * 40}}]):
-                with self.assertRaisesRegex(ValueError, "approval tag has moved"):
+            with patch.dict(os.environ, GITHUB_SHA="e" * 40):
+                with self.assertRaisesRegex(ValueError, "does not match the current PR candidate"):
                     ci.verify_current_candidate()
 
 

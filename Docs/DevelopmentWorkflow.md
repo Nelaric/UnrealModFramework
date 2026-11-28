@@ -15,25 +15,25 @@ This page describes Development CI, local builds, Release Validation, and docume
 
 ## Development CI
 
-[Development CI](../.github/workflows/development.yml) starts automatically for PRs to `main`, including fork PRs, and runs the public checks. Code Quality pins the test merge commit used by the later jobs. Native Tools runs on Linux x86_64 after Code Quality. An approved candidate starts a full run at the same test merge SHA. In that run Code Quality also gates the four Editor jobs and six Game Prepare jobs. Each Game starts when its own Game Prepare and assigned Editor succeed. Windows and Linux ARM64 use their platform's x86_64 Editor metadata. Each MacOS Game uses metadata from the Editor of the same architecture. The native Development Result check summarizes the 18 upstream jobs and rechecks the approval, current PR, and `main` before reporting success.
+[Development CI](../.github/workflows/development.yml) starts automatically for PRs to `main`. Code Quality pins GitHub's test merge commit for all later jobs. Native Tools runs on Linux x86_64 after Code Quality. For PRs from branches in this repository, Code Quality also starts the four Editor jobs and six Game Prepare jobs in the same run. A fork PR starts with Code Quality and Native Tools. A maintainer can request a full run for its exact test merge SHA after reviewing that candidate. Each Game waits for its own Game Prepare and assigned Editor. Windows and Linux ARM64 use their platform's x86_64 Editor metadata. Each MacOS Game uses metadata from the Editor of the same architecture. Development Result summarizes the 18 upstream jobs and rechecks the PR and `main` before reporting the result.
 
 Each macOS Editor and Game Prepare job builds its native tools with AppleClang. Editor exports, validates, and publishes metadata before building the normal target and running headless `Nelaric.*` Automation Tests. Game Prepare executes all metadata-independent actions. Game installs the same locked private SDK on a fresh native runner, restores the project's checkpoint, imports metadata, and finishes the monolithic Development target. Development Result reports automation counts, artifact sizes, phase durations, action reuse, and the reasons for nonportable actions.
 
 ### Configure Engine Jobs
 
-1. Import the [Development approval tag ruleset](../.github/rulesets/protect-development-approval-tags.json). Restrict creation, updates, and deletion of `development-ci-*` tags to the authorized reviewers in its bypass list.
-2. Configure `development-engine` to accept only the `development-ci-*` deployment tag pattern. Store `UMFCI_READ_TOKEN` as an environment secret with `Contents: read` access limited to the private UMFCI repository. The protected tag supplies the approval for the run.
-3. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the published immutable UMFCI release for all ten SDK targets. The runner uses the installer and .NET SDK configuration at that tag. The release index maps each target to its named SDK archive and installation manifest.
+1. Configure the `development-engine` environment to accept PR test merge refs and requests issued for an exact SHA. In **Deployment branches and tags**, select **No restriction** so GitHub can accept a request whose run has a commit SHA and no named ref.
+2. Store `UMFCI_READ_TOKEN` as an environment secret with `Contents: read` access limited to the private UMFCI repository.
+3. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the immutable official UMFCI release that contains all ten SDK targets. Runners use the installer and .NET SDK configuration at that release and select the target archive and installation manifest from its index.
 
-### Approve A Candidate
+### Request Full Validation For A Fork
 
-Review the exact GitHub test merge commit, including its workflow and build scripts. An authorized reviewer runs the following command from a Git checkout with access to `Nelaric/UnrealModFramework`.
+Review the exact GitHub test merge commit, including its workflow and build scripts. From a checkout you trust, sign in to GitHub CLI with repository Maintain or Admin access and run:
 
 ```text
 python Scripts/CI/approve_development.py <PR-number> <reviewed-test-merge-SHA>
 ```
 
-The command checks the SHA against the current PR head and `main`, then points the protected `development-ci-<PR-number>` tag at that SHA. The tag push starts the full workflow and attaches its native checks to the test merge commit. All engine jobs in that run use the same approval. A PR update cancels older runs for that PR. If the test merge SHA changes, review and approve the new candidate. Use **Re-run all jobs** on the tag-push run to retry the same approved candidate. A manual dispatch on the approval tag can also run the engine jobs.
+The command checks the reviewed SHA against the current PR head and `main`, then records a GitHub deployment request for that commit. GitHub attaches the native checks to the test merge commit. New updates cancel older runs for the same PR. If the test merge SHA changes, request validation for the new candidate. Use **Re-run all jobs** on the existing run to repeat the same candidate. **Run workflow** runs the public checks for the selected ref.
 
 ### Connect The Build Phases
 
@@ -60,7 +60,7 @@ The workflow uploads each metadata bundle or project checkpoint and its build re
 
 Quality supplies the current required checks. Enable the versioned Development CI ruleset when full engine validation is available.
 
-[The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires all engine jobs to pass. The protected approval tag starts full validation for any reviewed PR candidate, including one from a fork.
+[The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires a full run for the current test merge commit. The fork validation request starts that run after a maintainer reviews the candidate.
 
 ## Quality Workflow
 

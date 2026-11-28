@@ -5,12 +5,17 @@ on:
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, edited]
-  push:
-    tags: ['development-ci-*']
+  deployment:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('development-ci-{0}', github.event.pull_request.number) || github.ref_type == 'tag' && github.ref_name || format('development-ci-{0}', github.ref) }}
+  group: >-
+    ${{ github.event_name == 'pull_request' && format('development-ci-{0}', github.event.pull_request.number)
+        || github.event_name == 'deployment' && github.event.deployment.task == 'umf-development-ci'
+        && github.event.deployment.environment == 'development-ci-approval'
+        && github.event.deployment.payload.pull_request
+        && format('development-ci-{0}', github.event.deployment.payload.pull_request)
+        || format('development-ci-{0}', github.ref || github.run_id) }}
   cancel-in-progress: true
 
 permissions:
@@ -28,6 +33,7 @@ env:
 jobs:
   code-quality:
     name: Code Quality
+    if: github.event_name != 'deployment' || github.event.deployment.environment != 'github-pages' || github.event.sender.type != 'Bot'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -199,7 +205,9 @@ jobs:
     name: Editor / Windows x86_64
     needs: code-quality
     if: &authorized ${{ needs.code-quality.outputs.engine == 'true' }}
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: windows-2022
     timeout-minutes: 35
     outputs:
@@ -228,7 +236,9 @@ jobs:
     name: Editor / Linux x86_64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     outputs:
@@ -257,7 +267,9 @@ jobs:
     name: Editor / MacOS x86_64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: macos-15-intel
     timeout-minutes: 35
     outputs:
@@ -286,7 +298,9 @@ jobs:
     name: Editor / MacOS ARM64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: macos-15
     timeout-minutes: 35
     outputs:
@@ -315,7 +329,9 @@ jobs:
     name: Game Prepare / Windows x86_64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: windows-2022
     timeout-minutes: 35
     outputs:
@@ -347,7 +363,9 @@ jobs:
     name: Game Prepare / Windows ARM64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: windows-11-arm
     timeout-minutes: 35
     outputs:
@@ -379,7 +397,9 @@ jobs:
     name: Game Prepare / Linux x86_64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     outputs:
@@ -411,7 +431,9 @@ jobs:
     name: Game Prepare / Linux ARM64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 35
     outputs:
@@ -443,7 +465,9 @@ jobs:
     name: Game Prepare / MacOS x86_64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: macos-15-intel
     timeout-minutes: 35
     outputs:
@@ -475,7 +499,9 @@ jobs:
     name: Game Prepare / MacOS ARM64
     needs: code-quality
     if: *authorized
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: macos-15
     timeout-minutes: 35
     outputs:
@@ -506,7 +532,9 @@ jobs:
   game-windows-x64:
     name: Game / Windows x86_64
     needs: [prepare-game-windows-x64, editor-windows-x64]
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: windows-2022
     timeout-minutes: 25
     outputs:
@@ -535,7 +563,9 @@ jobs:
   game-windows-arm64:
     name: Game / Windows ARM64
     needs: [prepare-game-windows-arm64, editor-windows-x64]
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: windows-11-arm
     timeout-minutes: 25
     outputs:
@@ -564,7 +594,9 @@ jobs:
   game-linux-x64:
     name: Game / Linux x86_64
     needs: [prepare-game-linux-x64, editor-linux-x64]
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     outputs:
@@ -593,7 +625,9 @@ jobs:
   game-linux-arm64:
     name: Game / Linux ARM64
     needs: [prepare-game-linux-arm64, editor-linux-x64]
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
     outputs:
@@ -622,7 +656,9 @@ jobs:
   game-macos-x64:
     name: Game / MacOS x86_64
     needs: [prepare-game-macos-x64, editor-macos-x64]
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: macos-15-intel
     timeout-minutes: 25
     outputs:
@@ -651,7 +687,9 @@ jobs:
   game-macos-arm64:
     name: Game / MacOS ARM64
     needs: [prepare-game-macos-arm64, editor-macos-arm64]
-    environment: development-engine
+    environment:
+      name: development-engine
+      deployment: false
     runs-on: macos-15
     timeout-minutes: 25
     outputs:
@@ -698,7 +736,7 @@ jobs:
       - game-linux-arm64
       - game-macos-x64
       - game-macos-arm64
-    if: always()
+    if: always() && (github.event_name != 'deployment' || github.event.deployment.environment != 'github-pages' || github.event.sender.type != 'Bot')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

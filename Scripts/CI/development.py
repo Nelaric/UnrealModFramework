@@ -16,7 +16,9 @@ from urllib.request import Request, urlopen
 CONTROL = Path(__file__).resolve().parents[2]
 REPOSITORY = "Nelaric/UnrealModFramework"
 UMFCI_REPOSITORY = "Nelaric/UMFCI"
-APPROVAL_TAG_PREFIX = "development-ci-"
+APPROVAL_TASK = "umf-development-ci"
+APPROVAL_ENVIRONMENT = "development-ci-approval"
+MAINTAINER_ROLES = {"admin", "maintain"}
 ENGINE_VERSION = "5.6.1"
 ENGINE_CONFIGURATION = "Development"
 PLATFORMS = {
@@ -97,55 +99,68 @@ def event():
     return json_object(os.environ["GITHUB_EVENT_PATH"])
 
 
-def approval_ref(pr_number):
-    return f"refs/tags/{APPROVAL_TAG_PREFIX}{pr_number}"
+def deployment_approval(payload):
+    record = payload["deployment"]
+    require(payload["repository"]["full_name"] == REPOSITORY and record["task"] == APPROVAL_TASK
+            and record["environment"] == APPROVAL_ENVIRONMENT, "Expected a Development CI validation request")
+    commit = os.environ["GITHUB_SHA"]
+    require(is_digest(commit, 40) and record["ref"] == record["sha"] == commit,
+            "The approval must target the exact reviewed test merge SHA")
+    creator = record["creator"]
+    require(creator["type"] == "User" and creator["id"] == payload["sender"]["id"],
+            "A maintainer must submit the approval")
+    approval = record["payload"]
+    number = approval.get("pull_request") if isinstance(approval, dict) else None
+    require(type(number) is int and number > 0
+            and all(is_digest(approval.get(key), 40) for key in ("head", "base")), "Invalid fork PR approval")
+    return approval
 
 
-def approved_pr_number(payload):
-    if payload["repository"]["full_name"] != REPOSITORY:
+def event_pr_number(payload):
+    name = os.environ["GITHUB_EVENT_NAME"]
+    if name == "deployment":
+        return deployment_approval(payload)["pull_request"]
+    if name != "pull_request":
         return 0
-    ref = os.environ["GITHUB_REF"]
-    match = re.fullmatch(rf"refs/tags/{APPROVAL_TAG_PREFIX}([1-9][0-9]*)", ref)
-    if not match:
-        return 0
-    event_name = os.environ["GITHUB_EVENT_NAME"]
-    if event_name == "workflow_dispatch":
-        return int(match[1])
-    if (event_name == "push" and payload.get("ref") == ref and not payload.get("deleted")
-            and payload.get("after") == os.environ["GITHUB_SHA"]):
-        return int(match[1])
-    return 0
+    number = payload["number"]
+    require(type(number) is int and number > 0 and os.environ["GITHUB_REF"] == f"refs/pull/{number}/merge",
+            "Expected a PR test merge ref")
+    return number
 
 
 def engine_run(payload=None):
-    return bool(approved_pr_number(event() if payload is None else payload))
+    payload = event() if payload is None else payload
+    if payload["repository"]["full_name"] != REPOSITORY or not event_pr_number(payload):
+        return False
+    if os.environ["GITHUB_EVENT_NAME"] == "deployment":
+        return True
+    pr = payload["pull_request"]
+    head_repository = pr["head"]["repo"] or {}
+    return (pr["base"]["ref"] == "main" and head_repository.get("full_name") == REPOSITORY
+            and pr["user"]["login"] != "dependabot[bot]" and os.environ.get("GITHUB_ACTOR") != "dependabot[bot]")
 
 
-def validate_live_pr(candidate, *, check_base=False, pr=None):
+def validate_live_pr(candidate):
     repo = candidate["repository"]
     token = os.environ.get("PUBLIC_READ_TOKEN", "")
-    if pr is None:
-        pr = api(f"/repos/{repo}/pulls/{candidate['pr']}", token)
+    pr = api(f"/repos/{repo}/pulls/{candidate['pr']}", token)
     require(
         pr["state"] == "open" and pr["base"]["ref"] == "main" and pr["base"]["repo"]["full_name"] == repo
         and pr["head"]["sha"] == candidate["head"] and pr["base"]["sha"] == candidate["base"],
-        "The reviewed PR head or main base has changed",
+        "The PR head or main base has changed",
     )
-    require(pr["merge_commit_sha"] == candidate["commit"], "The reviewed test merge commit has changed")
-    if check_base:
-        base = api(f"/repos/{repo}/git/ref/heads/main", token)
-        require(base["object"]["sha"] == candidate["base"], "Main has moved since the candidate was reviewed")
+    require(pr["merge_commit_sha"] == candidate["commit"], "The PR test merge commit has changed")
+    base = api(f"/repos/{repo}/git/ref/heads/main", token)
+    require(base["object"]["sha"] == candidate["base"], "Main has moved since the candidate was selected")
 
 
-def validate_approval(candidate):
-    ref = approval_ref(candidate["pr"])
-    require(candidate["repository"] == REPOSITORY and candidate["pr"] > 0
-            and os.environ["GITHUB_REF"] == ref and os.environ["GITHUB_SHA"] == candidate["commit"],
-            "The workflow ref and commit must match the Development approval")
+def validate_approval_author(payload):
+    creator = payload["deployment"]["creator"]["login"]
+    require(isinstance(creator, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}", creator),
+            "Invalid GitHub approval author")
     token = os.environ.get("PUBLIC_READ_TOKEN", "")
-    target = api(f"/repos/{REPOSITORY}/git/ref/{ref.removeprefix('refs/')}", token)["object"]
-    require(target["type"] == "commit" and target["sha"] == candidate["commit"],
-            "The Development approval tag has moved or was replaced")
+    permission = api(f"/repos/{REPOSITORY}/collaborators/{creator}/permission", token)
+    require(permission["role_name"] in MAINTAINER_ROLES, "The fork PR approval requires repository maintain access")
 
 
 def resolve_candidate():
@@ -153,19 +168,19 @@ def resolve_candidate():
     repo = os.environ["GITHUB_REPOSITORY"]
     commit = os.environ["GITHUB_SHA"]
     require(is_digest(commit, 40), "Expected an exact candidate commit SHA")
-    approved_pr = approved_pr_number(payload)
-    candidate = {"repository": repo, "commit": commit, "pr": 0, "base": "", "head": "", "engine": bool(approved_pr)}
-    live_pr = None
-    if approved_pr:
-        live_pr = api(f"/repos/{repo}/pulls/{approved_pr}", os.environ.get("PUBLIC_READ_TOKEN", ""))
-        candidate.update(pr=approved_pr, base=live_pr["base"]["sha"], head=live_pr["head"]["sha"])
-        validate_approval(candidate)
-    elif os.environ["GITHUB_EVENT_NAME"] == "pull_request":
+    number = event_pr_number(payload)
+    candidate = {"repository": repo, "commit": commit, "pr": number, "base": "", "head": "",
+                 "engine": engine_run(payload)}
+    if os.environ["GITHUB_EVENT_NAME"] == "deployment":
+        approval = deployment_approval(payload)
+        validate_approval_author(payload)
+        candidate.update(base=approval["base"], head=approval["head"])
+    elif number:
         pr = payload["pull_request"]
-        candidate.update(pr=payload["number"], base=pr["base"]["sha"], head=pr["head"]["sha"])
-    if candidate["pr"]:
+        candidate.update(base=pr["base"]["sha"], head=pr["head"]["sha"])
+    if number:
         require(is_digest(candidate["head"], 40) and is_digest(candidate["base"], 40), "Invalid PR head or base SHA")
-        validate_live_pr(candidate, check_base=True, pr=live_pr)
+        validate_live_pr(candidate)
     output("source", candidate["repository"])
     output("commit", candidate["commit"])
     output("identity", json.dumps(candidate, separators=(",", ":")))
@@ -177,10 +192,10 @@ def verify_checkout(source, candidate):
     def git(*args):
         return subprocess.check_output(["git", "-C", str(source), *args], text=True).strip()
 
-    require(git("rev-parse", "HEAD") == candidate["commit"], "The checkout differs from the reviewed candidate")
+    require(git("rev-parse", "HEAD") == candidate["commit"], "The checkout differs from the selected candidate")
     if candidate["pr"]:
         parents = git("show", "-s", "--format=%P", "HEAD").split()
-        require(parents == [candidate["base"], candidate["head"]], "PR merge parents differ from the reviewed base and head")
+        require(parents == [candidate["base"], candidate["head"]], "PR merge parents differ from the selected base and head")
 
 
 def engine_release_tag():
@@ -372,12 +387,16 @@ def aggregate():
 
 
 def verify_current_candidate():
-    require(engine_run(), "A Development result requires an authorized engine build")
+    payload = event()
+    require(engine_run(payload), "A Development result requires an engine build")
     candidate = json.loads(os.environ["CI_IDENTITY"])
-    require(candidate["engine"] and candidate["repository"] == REPOSITORY, "Missing authorized PR candidate")
+    require(
+        candidate["engine"] and candidate["repository"] == REPOSITORY
+        and candidate["commit"] == os.environ["GITHUB_SHA"] and candidate["pr"] == event_pr_number(payload),
+        "The Development result does not match the current PR candidate",
+    )
     try:
-        validate_live_pr(candidate, check_base=True)
-        validate_approval(candidate)
+        validate_live_pr(candidate)
     except (OSError, ValueError, KeyError) as error:
         summary([f"- Candidate is stale or unverifiable ({str(error).replace(chr(10), ' ')})"])
         raise
