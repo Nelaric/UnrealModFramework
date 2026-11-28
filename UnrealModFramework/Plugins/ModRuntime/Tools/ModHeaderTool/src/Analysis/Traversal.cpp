@@ -25,8 +25,18 @@ CXChildVisitResult Traversal::Visit(CXCursor Cursor, CXCursor, CXClientData Data
 			{
 				return CXChildVisit_Continue;
 			}
-			const auto File =
-			    CursorSource::ReadLocation(Context.Clang, Context.Clang.clang_getCursorLocation(Cursor)).File;
+			const auto SourceLocation = Context.Clang.clang_getCursorLocation(Cursor);
+			if (Name == "TARGET_OS_UEFI")
+			{
+				// Libclang records this Darwin predefine even when it has been undefined for AppleClang.
+				CXString Origin{};
+				Context.Clang.clang_getPresumedLocation(SourceLocation, &Origin, nullptr, nullptr);
+				if (Context.Clang.String(Origin) == "<built-in>")
+				{
+					return CXChildVisit_Continue;
+				}
+			}
+			const auto File = CursorSource::ReadLocation(Context.Clang, SourceLocation).File;
 			const auto Leaf = Path::PathToUtf8(File.filename());
 			if (!File.empty() && Path::PathToUtf8(File).find("<command line>") == std::string::npos &&
 			    !Leaf.starts_with("Definitions.") && !Leaf.starts_with("SharedDefinitions."))

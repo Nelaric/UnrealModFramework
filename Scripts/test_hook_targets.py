@@ -753,6 +753,9 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
             }
         ],
     )
+    analysis_arguments = ["-resource-dir=" + str(args.resource_dir)]
+    if platform == "Mac":
+        analysis_arguments.append("-UTARGET_OS_UEFI")
     build_input = write_json(
         root / "BuildInput.json",
         {
@@ -765,7 +768,7 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
             "configuration": "Development",
             "architecture": arch,
             "compilationDatabase": database,
-            "analysisArguments": ["-resource-dir=" + str(args.resource_dir)],
+            "analysisArguments": analysis_arguments,
             "reflection": [{"cpp": "AGameCharacter", "module": "Game", "path": "/Script/Game.GameCharacter",
                             "file": str(header), "legacyId": "game.character"}],
             "modules": [{"name": "Game", "sourceDirectory": str(module), "translationUnits": [str(source)]}],
@@ -841,6 +844,11 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
     (unit,) = json.loads(source_map.read_bytes())["units"]
     assert Path(unit["source"]) == source
     witness = unit["witness"]
+    if platform == "Mac":
+        verify_source = (generated / "Host/Game/Game.modverify.cpp").read_text(encoding="utf-8-sig")
+        verify_macros = verify_source.splitlines()
+        assert "#ifdef TARGET_OS_UEFI" not in verify_macros
+        assert "#ifdef UE_BUILD_DEVELOPMENT" in verify_macros
     host = (generated / "Host/Game/Game.modhost.cpp").read_text(encoding="utf-8-sig")
     assert f'extern "C" UMF_HOOK_LOCAL void {witness}();' in host and f"    {witness}();" in host
     assert host.count('Entry.DispatchId = FName(TEXT("hook/game.character/adjust-health"));') == 2
