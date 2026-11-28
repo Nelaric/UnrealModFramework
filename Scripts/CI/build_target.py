@@ -96,7 +96,8 @@ class Target:
     def __init__(self):
         require(engine_run(), "Engine and artifact operations require an authorized Development run")
         self.candidate = json.loads(os.environ["CI_IDENTITY"])
-        require(self.candidate["engine"], "Candidate was not authorized for an engine build")
+        require(self.candidate["engine"] and self.candidate["commit"] == os.environ["GITHUB_SHA"],
+                "Candidate does not match the approved engine build")
         self.slug = os.environ["CI_TARGET"]
         self.key, self.profile = self.slug.rsplit("-", 1)
         self.editor = EDITORS[self.key] + "-editor"

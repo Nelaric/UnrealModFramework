@@ -15,15 +15,25 @@ This page describes Development CI, local builds, Release Validation, and docume
 
 ## Development CI
 
-[Development CI](../.github/workflows/development.yml) starts automatically for PRs to `main`. Code Quality pins the test merge commit used by the later jobs. Native Tools depends on Code Quality. For same-repository PRs, Code Quality also gates the four Editor jobs and six Game Prepare jobs in the protected `development-engine` environment. Fork PRs run the engine-free jobs. Each Game waits for its own Game Prepare and assigned Editor. Windows and Linux ARM64 use their platform's x86_64 Editor metadata. Each MacOS Game uses metadata from the Editor of the same architecture. The native Development Result check summarizes the 18 upstream jobs and confirms the current PR and `main` before reporting success.
+[Development CI](../.github/workflows/development.yml) starts automatically for PRs to `main`, including fork PRs, and runs the public checks. Code Quality pins the test merge commit used by the later jobs. Native Tools depends on Code Quality. An approved candidate starts a full run at the same test merge SHA. In that run Code Quality also gates the four Editor jobs and six Game Prepare jobs. Each Game starts when its own Game Prepare and assigned Editor succeed. Windows and Linux ARM64 use their platform's x86_64 Editor metadata. Each MacOS Game uses metadata from the Editor of the same architecture. The native Development Result check summarizes the 18 upstream jobs and rechecks the approval, current PR, and `main` before reporting success.
 
 Editor exports, validates, and publishes metadata before building the normal target and running headless `Nelaric.*` Automation Tests. Game Prepare executes all metadata-independent actions. Game installs the same locked private SDK on a fresh native runner, restores the project's checkpoint, imports metadata, and finishes the monolithic Development target. Development Result reports automation counts, artifact sizes, phase durations, action reuse, and the reasons for nonportable actions.
 
 ### Configure Engine Jobs
 
-1. Configure the `development-engine` GitHub environment with maintainer review of the candidate. Store `UMFCI_READ_TOKEN` as an environment secret with `Contents: read` access limited to the private UMFCI repository.
-2. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the published immutable UMFCI release for all ten SDK targets. The runner uses the installer and .NET SDK configuration at that tag. The release index maps each target to its named SDK archive and installation manifest.
-3. For a manual run of a reviewed PR, dispatch from the protected default branch with the PR number, PR head SHA, current `main` base SHA, and GitHub test merge SHA. Manual run checks are attached to the dispatch ref. The automatic PR run supplies the merge check. PR updates cancel older runs for the same PR.
+1. Import the [Development approval tag ruleset](../.github/rulesets/protect-development-approval-tags.json). Restrict creation, updates, and deletion of `development-ci-*` tags to the authorized reviewers in its bypass list.
+2. Configure `development-engine` to accept only the `development-ci-*` deployment tag pattern. Store `UMFCI_READ_TOKEN` as an environment secret with `Contents: read` access limited to the private UMFCI repository. The protected tag supplies the approval for the run.
+3. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the published immutable UMFCI release for all ten SDK targets. The runner uses the installer and .NET SDK configuration at that tag. The release index maps each target to its named SDK archive and installation manifest.
+
+### Approve A Candidate
+
+Review the exact GitHub test merge commit, including its workflow and build scripts. An authorized reviewer runs the following command from a Git checkout with access to `Nelaric/UnrealModFramework`.
+
+```text
+python Scripts/CI/approve_development.py <PR-number> <reviewed-test-merge-SHA>
+```
+
+The command checks the SHA against the current PR head and `main`, then points the protected `development-ci-<PR-number>` tag at that SHA. The tag push starts the full workflow and attaches its native checks to the test merge commit. All engine jobs in that run use the same approval. A PR update cancels older runs for that PR. If the test merge SHA changes, review and approve the new candidate. Use **Re-run all jobs** on the tag-push run to retry the same approved candidate. A manual dispatch on the approval tag can also run the engine jobs.
 
 ### Connect The Build Phases
 
@@ -50,7 +60,7 @@ The workflow uploads each metadata bundle or project checkpoint and its build re
 
 Quality supplies the current required checks. Enable the versioned Development CI ruleset when full engine validation is available.
 
-[The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires all engine jobs to pass. Maintainers can open a same-repository PR for reviewed fork changes that need full engine validation.
+[The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires all engine jobs to pass. The protected approval tag starts full validation for any reviewed PR candidate, including one from a fork.
 
 ## Quality Workflow
 

@@ -15,15 +15,25 @@
 
 ## Development CI
 
-[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发。Code Quality 固定后续 Job 使用的测试合并提交。Native Tools 依赖 Code Quality。同仓库 PR 的四个 Editor 和六个 Game Prepare 也依赖 Code Quality，并使用受保护的 `development-engine` 环境。Fork PR 运行无引擎任务。每个 Game 同时等待自己的 Game Prepare 和指定 Editor。Windows 和 Linux ARM64 使用同系统 x86_64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。原生检查 Development Result 汇总 18 个上游 Job，在判定成功前核对当前 PR 和 `main`。
+[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发公开检查，包括 Fork PR。Code Quality 固定后续 Job 使用的测试合并提交。Native Tools 依赖 Code Quality。候选提交获批后，GitHub 在同一个测试合并 SHA 上启动完整运行。在这次运行中，四个 Editor 和六个 Game Prepare 也依赖 Code Quality。每个 Game 在自己的 Game Prepare 和指定 Editor 均成功后启动。Windows 和 Linux ARM64 使用同系统 x86_64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。原生检查 Development Result 汇总 18 个上游 Job，在判定成功前核对审批、当前 PR 和 `main`。
 
 Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界面模式运行 `Nelaric.*` Automation Tests。Game Prepare 执行所有不依赖 Metadata 的 Action。Game 在另一台原生 Runner 上安装同一份锁定的私有 SDK，恢复项目 Checkpoint、导入 Metadata，并完成 Monolithic Development 目标。Development Result 记录测试数量、Artifact 字节数、阶段耗时、Action 复用次数和不可移植原因。
 
 ### 配置引擎任务
 
-1. 配置 `development-engine` GitHub 环境，由维护者审查候选提交。将仅有私有 UMFCI 仓库 `Contents: read` 权限的 `UMFCI_READ_TOKEN` 保存为该环境的 Secret。
-2. 把 [Development CI](../.github/workflows/development.yml) 中的 `UMFCI_RELEASE_TAG` 设为包含全部十个 SDK 目标的不可变 UMFCI 正式发行版标签。Runner 使用该标签上的安装器和 .NET SDK 配置，并按发行版索引为各目标选择对应的 SDK 归档和安装清单。
-3. 如需手动运行已审查的 PR，从受保护的默认分支使用 PR 编号、PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 发起运行。手动运行的原生检查关联发起运行时的引用，PR 合并使用自动触发的检查。同一 PR 更新时会取消旧运行。
+1. 导入 [Development 审批标签规则](../.github/rulesets/protect-development-approval-tags.json)。仅允许规则例外列表中的授权审批人创建、更新或删除 `development-ci-*` 标签。
+2. 将 `development-engine` 配置为只接受匹配 `development-ci-*` 的部署标签。将仅有私有 UMFCI 仓库 `Contents: read` 权限的 `UMFCI_READ_TOKEN` 保存为该环境的 Secret。这次运行的批准由受保护的标签提供。
+3. 把 [Development CI](../.github/workflows/development.yml) 中的 `UMFCI_RELEASE_TAG` 设为包含全部十个 SDK 目标的不可变 UMFCI 正式发行版标签。Runner 使用该标签上的安装器和 .NET SDK 配置，并按发行版索引为各目标选择对应的 SDK 归档和安装清单。
+
+### 审批候选提交
+
+审查确切的 GitHub 测试合并提交，包括其中的工作流和构建脚本。授权审批人在可访问 `Nelaric/UnrealModFramework` 的 Git 工作树中执行以下命令。
+
+```text
+python Scripts/CI/approve_development.py <PR 编号> <已审查的测试合并 SHA>
+```
+
+命令核对该 SHA 对应当前 PR Head 和 `main`，然后将受保护的 `development-ci-<PR 编号>` 标签指向它。推送标签会启动完整工作流，原生检查关联到测试合并提交。该次运行中的所有引擎 Job 共用这次审批。同一 PR 更新会取消旧运行。测试合并 SHA 变化后，需要审查并批准新的候选提交。重试同一个候选提交时，可在由标签推送触发的运行中选择 **Re-run all jobs**。也可以在审批标签上手动触发引擎 Job。
 
 ### 接入构建阶段
 
@@ -50,7 +60,7 @@ Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界
 
 当前的合并条件由 Quality 工作流提供。配置文件中的 Development CI 规则集可在完整引擎检查可用后启用。
 
-[main 规则集](../.github/rulesets/protect-main.json)使用 GitHub Actions 原生检查 `Code Quality` 和 `Development Result`。Development Result 要求全部引擎 Job 成功。Fork 改动通过维护者审查后，可由维护者在同仓库分支发起 PR 以运行完整引擎验证。
+[main 规则集](../.github/rulesets/protect-main.json)使用 GitHub Actions 原生检查 `Code Quality` 和 `Development Result`。Development Result 要求全部引擎 Job 成功。受保护的审批标签可为任何已审查的 PR 候选提交启动完整验证，包括来自 Fork 的候选提交。
 
 ## Quality 工作流
 

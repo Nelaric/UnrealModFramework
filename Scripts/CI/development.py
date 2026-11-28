@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 CONTROL = Path(__file__).resolve().parents[2]
 REPOSITORY = "Nelaric/UnrealModFramework"
 UMFCI_REPOSITORY = "Nelaric/UMFCI"
+APPROVAL_TAG_PREFIX = "development-ci-"
 ENGINE_VERSION = "5.6.1"
 ENGINE_CONFIGURATION = "Development"
 PLATFORMS = {
@@ -96,34 +97,35 @@ def event():
     return json_object(os.environ["GITHUB_EVENT_PATH"])
 
 
-def manual_engine_run(payload):
-    repository = payload["repository"]
-    return (
-        os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch"
-        and bool((payload.get("inputs") or {}).get("pr_number"))
-        and repository["owner"]["login"].lower() == "nelaric"
-        and (repository["full_name"] == REPOSITORY or repository.get("private") is True)
-        and os.environ["GITHUB_REF"] == f"refs/heads/{repository['default_branch']}"
-    )
+def approval_ref(pr_number):
+    return f"refs/tags/{APPROVAL_TAG_PREFIX}{pr_number}"
+
+
+def approved_pr_number(payload):
+    if payload["repository"]["full_name"] != REPOSITORY:
+        return 0
+    ref = os.environ["GITHUB_REF"]
+    match = re.fullmatch(rf"refs/tags/{APPROVAL_TAG_PREFIX}([1-9][0-9]*)", ref)
+    if not match:
+        return 0
+    event_name = os.environ["GITHUB_EVENT_NAME"]
+    if event_name == "workflow_dispatch":
+        return int(match[1])
+    if (event_name == "push" and payload.get("ref") == ref and not payload.get("deleted")
+            and payload.get("after") == os.environ["GITHUB_SHA"]):
+        return int(match[1])
+    return 0
 
 
 def engine_run(payload=None):
-    if payload is None:
-        payload = event()
-    if os.environ["GITHUB_EVENT_NAME"] != "pull_request":
-        return manual_engine_run(payload)
-    repository = payload["repository"]
-    pr = payload["pull_request"]
-    return (
-        repository["full_name"] == REPOSITORY and pr["base"]["ref"] == "main"
-        and (pr["head"]["repo"] or {}).get("id") == repository["id"]
-    )
+    return bool(approved_pr_number(event() if payload is None else payload))
 
 
-def validate_live_pr(candidate, *, check_base=False):
+def validate_live_pr(candidate, *, check_base=False, pr=None):
     repo = candidate["repository"]
     token = os.environ.get("PUBLIC_READ_TOKEN", "")
-    pr = api(f"/repos/{repo}/pulls/{candidate['pr']}", token)
+    if pr is None:
+        pr = api(f"/repos/{repo}/pulls/{candidate['pr']}", token)
     require(
         pr["state"] == "open" and pr["base"]["ref"] == "main" and pr["base"]["repo"]["full_name"] == repo
         and pr["head"]["sha"] == candidate["head"] and pr["base"]["sha"] == candidate["base"],
@@ -135,29 +137,39 @@ def validate_live_pr(candidate, *, check_base=False):
         require(base["object"]["sha"] == candidate["base"], "Main has moved since the candidate was reviewed")
 
 
+def validate_approval(candidate):
+    ref = approval_ref(candidate["pr"])
+    require(candidate["repository"] == REPOSITORY and candidate["pr"] > 0
+            and os.environ["GITHUB_REF"] == ref and os.environ["GITHUB_SHA"] == candidate["commit"],
+            "The workflow ref and commit must match the Development approval")
+    token = os.environ.get("PUBLIC_READ_TOKEN", "")
+    target = api(f"/repos/{REPOSITORY}/git/ref/{ref.removeprefix('refs/')}", token)["object"]
+    require(target["type"] == "commit" and target["sha"] == candidate["commit"],
+            "The Development approval tag has moved or was replaced")
+
+
 def resolve_candidate():
     payload = event()
     repo = os.environ["GITHUB_REPOSITORY"]
     commit = os.environ["GITHUB_SHA"]
-    candidate = {"repository": repo, "commit": commit, "pr": 0, "base": "", "head": "", "engine": engine_run(payload)}
-    if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
+    require(is_digest(commit, 40), "Expected an exact candidate commit SHA")
+    approved_pr = approved_pr_number(payload)
+    candidate = {"repository": repo, "commit": commit, "pr": 0, "base": "", "head": "", "engine": bool(approved_pr)}
+    live_pr = None
+    if approved_pr:
+        live_pr = api(f"/repos/{repo}/pulls/{approved_pr}", os.environ.get("PUBLIC_READ_TOKEN", ""))
+        candidate.update(pr=approved_pr, base=live_pr["base"]["sha"], head=live_pr["head"]["sha"])
+        validate_approval(candidate)
+    elif os.environ["GITHUB_EVENT_NAME"] == "pull_request":
         pr = payload["pull_request"]
         candidate.update(pr=payload["number"], base=pr["base"]["sha"], head=pr["head"]["sha"])
-    elif (payload.get("inputs") or {}).get("pr_number"):
-        require(candidate["engine"], "PR dispatch requires the default branch of an authorized repository")
-        args = payload["inputs"]
-        require(re.fullmatch(r"[1-9][0-9]*", args.get("pr_number", "")), "Expected an open public PR number")
-        candidate.update(
-            repository=REPOSITORY, pr=int(args["pr_number"]), base=args.get("base_sha"),
-            head=args.get("head_sha"), commit=args.get("candidate_sha"),
-        )
-    require(is_digest(candidate["commit"], 40), "Expected an exact candidate commit SHA")
     if candidate["pr"]:
         require(is_digest(candidate["head"], 40) and is_digest(candidate["base"], 40), "Invalid PR head or base SHA")
-        validate_live_pr(candidate, check_base=True)
+        validate_live_pr(candidate, check_base=True, pr=live_pr)
     output("source", candidate["repository"])
     output("commit", candidate["commit"])
     output("identity", json.dumps(candidate, separators=(",", ":")))
+    output("pr", candidate["pr"])
     output("engine", str(candidate["engine"]).lower())
 
 
@@ -365,6 +377,7 @@ def verify_current_candidate():
     require(candidate["engine"] and candidate["repository"] == REPOSITORY, "Missing authorized PR candidate")
     try:
         validate_live_pr(candidate, check_base=True)
+        validate_approval(candidate)
     except (OSError, ValueError, KeyError) as error:
         summary([f"- Candidate is stale or unverifiable ({str(error).replace(chr(10), ' ')})"])
         raise
