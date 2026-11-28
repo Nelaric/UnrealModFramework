@@ -68,7 +68,7 @@ Quality provides the current required checks for PR and commit naming, format an
 
 ## Build locally
 
-Run [Setup](../README.md#build-the-development-host) once to build the native tools and prepare libclang. Run the same MBT stages that CI uses. This example uses a legal full Windows UE 5.6.1 installation for the Editor. Supply the independently verified Game SDK to the Game command when it is available.
+Run [Setup](../README.md#build-the-development-host) once to build the native tools and prepare libclang. Use a full Windows UE 5.6.1 installation or the corresponding UMFCI Editor and Game SDKs. Set `$revision` to the full upstream UE commit used to build both targets. For a UMFCI SDK, read `epic_upstream_commit` from the package manifest.
 
 ```powershell
 $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
@@ -77,7 +77,7 @@ $engine = "<full UE 5.6.1 or Editor SDK>"
 $gameSdk = "<Win64 Game SDK or full UE 5.6.1>"
 $bundle = "UnrealModFramework/Intermediate/ModTools/Metadata"
 $commit = git rev-parse HEAD
-$revision = (Get-Content .github/engine-lock.json -Raw | ConvertFrom-Json).upstreamCommit
+$revision = "<full upstream UE commit>"
 $platform = @("--project", $project, "--platform", "Win64", "--architecture", "x64")
 $identity = @("--commit", $commit, "--engine-commit", $revision)
 $inputs = @("--configuration", "Development", "--metadata", $bundle)
@@ -88,7 +88,7 @@ $inputs = @("--configuration", "Development", "--metadata", $bundle)
 & $mbt build-ue-target --engine $gameSdk --target UnrealModFrameworkDev @platform @identity @inputs --mode normal
 ```
 
-Use a new report directory for each automation run. For UMFCI SDKs, set `UE_USE_SYSTEM_DOTNET=1` and `DOTNET_ROOT` to the locked native .NET SDK. The Windows SDK toolchain can be selected with `UMF_MSVC_VERSION` and `UMF_WINDOWS_SDK_VERSION`. The GitHub installer resolves and checks these versions before invoking MBT. Linux ARM64 uses UBT platform `LinuxArm64` and architecture `arm64`. Windows ARM64 uses `Win64` and `arm64`. Both use Game SDKs.
+Use a new report directory for each automation run. For UMFCI SDKs, set `UE_USE_SYSTEM_DOTNET=1` and `DOTNET_ROOT` to the native .NET SDK version listed in the package manifest. The Windows SDK toolchain can be selected with `UMF_MSVC_VERSION` and `UMF_WINDOWS_SDK_VERSION`. The GitHub installer resolves and checks these versions before invoking MBT. Linux ARM64 uses UBT platform `LinuxArm64` and architecture `arm64`. Windows ARM64 uses `Win64` and `arm64`. Both use Game SDKs.
 
 `prepare-metadata` reuses a current bundle. For a missing or stale bundle it builds the native Development Editor with the bootstrap rules and invokes the export commandlet. `validate-metadata` checks an existing bundle for one target without invoking UBT. Normal MBT builds validate the bundle before UBT and generate native inputs independently for each target. CI gives MBT the same reviewed commit on every job. A local checkout with edited sources also fingerprints the current project files and Blueprint discovery inputs. MBT queries UBT for the producer and consumer target types. The Editor discovers exported Blueprints by their saved declaration tags and dependencies. Each target derives native identities, layouts, and source error paths from its own compile commands.
 
@@ -104,12 +104,10 @@ python Scripts/check_automation_report.py <report/index.json> <automation.log> <
 
 ## Release Validation
 
-Release Validation uses the [engine lock](../.github/engine-lock.json) for its full engine revision.
-
-Use [Release Validation](../.github/workflows/release-validation.yml) from a private manual caller with the exact reviewed Release Candidate SHA. Its Win64 x64 `umf-release` runner uses a complete UE installation set by `UMF_FULL_UE`. This can be an authorized workstation with no paid runner. The same entry point can run directly on that workstation.
+Call [Release Validation](../.github/workflows/release-validation.yml) from an authorized private repository with the exact reviewed Release Candidate SHA. On the Win64 `umf-release` runner, set `UMF_FULL_UE` to the full UE 5.6.1 installation and `UMF_FULL_UE_COMMIT` to its upstream commit SHA. To run the same test directly, pass both values on the command line.
 
 ```text
-python -m Test.SharedRuntime.release_validation --engine <full-ue> --work <new-directory> --commit <full-sha>
+python -m Test.SharedRuntime.release_validation --engine <full-ue> --engine-commit <upstream-ue-sha> --work <new-directory> --commit <release-candidate-sha>
 ```
 
 The release flow stages the integration assets under their existing package names, builds the Monolithic Game, runs MDT plan/build/inspect, builds the author projects, and cooks, stages and packages the host and Mods. Its projects enable only UMF-owned plugins. MDT builds them in a dedicated UBT Editor target with default engine plugins disabled. The release version comes from the candidate commit and the digest comes from the actual cooked `AssetRegistry.bin`. The staged game loads two independent C ABI extensions and verifies Hook callbacks, API permissions, resource replacement, and unload. It then runs the 200-case performance benchmark. An existing full engine with Modular Game build products can run the same sample-game verification with `--game-target UnrealModFrameworkDevModular`. Preserve the reports in the authorized workspace. [SharedRuntime procedure](../Test/SharedRuntime/README.md)
