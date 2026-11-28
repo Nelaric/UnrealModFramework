@@ -319,7 +319,7 @@ class Target:
             f"-abslog={self.report / 'automation.log'}", "-stdout", "-FullStdOutLogOutput",
         ]
         if platform_name == "macos":
-            arguments.extend(("-skipminspeccheck", "-buildmachine"))
+            arguments.extend(("-skipminspeccheck", "-buildmachine", "-notracethreading"))
         subprocess.run(arguments, cwd=project.parent, check=True)
 
     def verified_game(self):

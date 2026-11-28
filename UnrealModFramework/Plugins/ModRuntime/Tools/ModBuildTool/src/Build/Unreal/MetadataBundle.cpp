@@ -605,7 +605,8 @@ void MetadataBundle::Prepare(const UeHookTarget& Producer, EPhase Phase)
 	if (Producer.Platform == "Mac")
 	{
 		// LaunchMac can display a hardware prompt before the headless commandlet starts.
-		Arguments.insert(Arguments.end(), {"-skipminspeccheck", "-buildmachine"});
+		// Keep early TraceLog callbacks on the main thread while thread-local memory tracking initializes.
+		Arguments.insert(Arguments.end(), {"-skipminspeccheck", "-buildmachine", "-notracethreading"});
 	}
 	UeInvocation::Run(Editor, Arguments, Files.Project.parent_path(), ProcessEnvironment::CaptureEnvironment(),
 	                  "metadata commandlet");
