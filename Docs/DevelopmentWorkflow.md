@@ -43,6 +43,23 @@ Use a new report directory for each automation run. For UMFCI SDKs, set `UE_USE_
 
 The four bundle files live under `Metadata/`. Paths use `Project/` and `Engine/` roots. Options and Blueprint declarations carry reflected names, roles and scalar-field shapes. Target-side configuration projections must match the producer's inputs. Incompatible redirects, architecture-specific config layers, changed Blueprint packages, source drift and payload corruption fail validation. The target derives C++ declarations, layout, compiler arguments, Hook objects and ABI from its own compile database. When a Blueprint uses a reflected struct, the target checks the field shape against its loaded reflected type. Bundle files are generated, and `Intermediate/` is ignored by Git.
 
+## Call individual Development phases
+
+The [command file](../.github/development-commands.json) binds schema version 1 to 14 argument arrays. Execute each array from the candidate checkout. The same [phase driver](../Scripts/development_commands.py) can run locally with the CI environment. `build-editor` builds the normal target. Run `ModBuildTool test-ue-target` afterwards to execute and validate headless Automation.
+
+| Job | Commands in order |
+| --- | --- |
+| Editor | `build-native-tools` → `prepare-libclang` → `prepare-editor-bootstrap` → `export-metadata` → `validate-metadata` → `build-editor` |
+| Game Prepare | `build-native-tools` → `prepare-libclang` → `prepare-game` → `save-checkpoint` → `validate-checkpoint` |
+| Game | `restore-checkpoint` → `validate-checkpoint` → `validate-metadata` → `import-metadata` → `resume-game` → `verify-game` |
+| Native tools | `test-native-development <native-binary-directory>` |
+
+Set `UMF_SOURCE`, `UMF_WORK`, `UMF_SDK`, `UMF_EVIDENCE`, `UMF_METADATA_PAYLOAD`, `UMF_CHECKPOINT_PAYLOAD` and `UMF_TOOLCHAIN` to the checkout, work and artifact directories, and toolchain JSON respectively. Set `UMF_TARGET`, `UMF_METADATA_TARGET`, `UMF_CONFIGURATION`, `UMF_ARCHITECTURE`, `UMF_UBT_PLATFORM` and `UMF_UBT_ARCHITECTURE` to the consumer and producer target identities. The SDK identity and checked-out commit come from `UMF_ENGINE_VERSION`, `UMF_UPSTREAM_COMMIT`, `UMF_LOCK_SHA256` and `UMF_COMMIT`. Run Game Prepare in a clean target workspace and restore in a fresh workspace with the same locked SDK and toolchain. UBT actions flagged `AbsolutePath` require matching absolute project, SDK and compiler roots on the two runners.
+
+Game Prepare runs UBT and standard UHT, then executes every eligible action in the prerequisite graph. The linker and export-owning modules wait for metadata. The checkpoint contains the prepared native tools, libclang, eligible project object files and an inventory of their inputs. PCH files, resource compilation without dependency manifests and runtime file copies are replayed against the consumer's SDK. The consumer exports a fresh UBT graph after MHT runs, validates the original compiler recipes and their recorded dependencies, and restores the matching objects before executing the remaining actions. Split Win64 builds request deterministic UBT output and check the regenerated MSVC PCH debug objects before linking. Store both handoffs in authorized private storage.
+
+The driver writes `metadata.json`, `checkpoint.json` and `game.json` to the evidence directory. Producer and consumer compare the Metadata and Checkpoint reports byte for byte. The Game report contains the linked binary and host-link receipt paths, reuse and replay counts, and measured remaining build and link durations.
+
 ## Required checks
 
 Fork PRs run [Development](../.github/workflows/development.yml) with read-only permissions. The public aggregate `Development public` requires naming, text and formatting, API documentation, four native-tool checks, and synthetic COFF, ELF and Mach-O Hook links. Pages publishes independently. [API Pages](../.github/workflows/pages.yml)

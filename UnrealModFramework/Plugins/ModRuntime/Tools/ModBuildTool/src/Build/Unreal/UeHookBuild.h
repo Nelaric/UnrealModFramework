@@ -28,5 +28,8 @@ class UeHookBuild
 public:
 	/// Builds one UBT target using the current MHT-generated Hook sources.
 	static void Run(const UeHookTarget& Target);
+	static fs::path MetadataInputs(const UeHookTarget& Target);
+	static void ExportGameActions(const UeHookTarget& Target, const fs::path& Actions, bool bPrepare);
+	static void ExecuteGameActions(const UeHookTarget& Target, const fs::path& Actions);
 };
 } // namespace Mod::BuildTool

@@ -11,8 +11,15 @@ struct UeHookTarget;
 class MetadataBundle
 {
 public:
-	/// Exports and publishes metadata using the native Development Editor target.
-	static void Prepare(const UeHookTarget& Producer);
+	enum class EPhase
+	{
+		Both,
+		Bootstrap,
+		Export,
+	};
+
+	/// Prepares the Editor, exports metadata, or performs both phases.
+	static void Prepare(const UeHookTarget& Producer, EPhase Phase);
 	/// Checks a bundle against the specified project, engine and target.
 	static void Validate(const UeHookTarget& Target);
 	/// Validates a portable bundle and writes target-local inputs for UHT.

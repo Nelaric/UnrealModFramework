@@ -27,6 +27,12 @@ Usage:
   ModBuildTool prepare-metadata --engine <path> --project <project.uproject> --target <editor>
                                  --platform <platform> --architecture <architecture>
                                  --commit <sha> --engine-commit <sha> --output <bundle>
+  ModBuildTool prepare-editor-bootstrap --engine <path> --project <project.uproject> --target <editor>
+                                         --platform <platform> --configuration Development --architecture <architecture>
+                                         --commit <sha> --engine-commit <sha> --output <bundle>
+  ModBuildTool export-metadata --engine <path> --project <project.uproject> --target <editor>
+                                --platform <platform> --configuration Development --architecture <architecture>
+                                --commit <sha> --engine-commit <sha> --output <bundle>
   ModBuildTool validate-metadata --engine <path> --project <project.uproject> --target <target>
                                   --platform <platform> --configuration <configuration>
                                   --architecture <architecture> --commit <sha> --engine-commit <sha>
@@ -35,6 +41,16 @@ Usage:
                                --platform <platform> --configuration <configuration>
                                --architecture <architecture> --mode <normal|rebuild>
                                --commit <sha> --engine-commit <sha> --metadata <bundle>
+  ModBuildTool import-ue-metadata --engine <path> --project <project.uproject> --target <game>
+                                   --platform <platform> --configuration <configuration>
+                                   --architecture <architecture> --commit <sha> --engine-commit <sha>
+                                   --metadata <bundle>
+  ModBuildTool export-ue-actions --engine <path> --project <project.uproject> --target <game>
+                                  --platform <platform> --configuration Development --architecture <architecture>
+                                  --phase <prepare|resume> --actions <action-graph.json>
+  ModBuildTool execute-ue-actions --engine <path> --project <project.uproject> --target <game>
+                                   --platform <platform> --configuration Development --architecture <architecture>
+                                   --actions <action-graph.json>
   ModBuildTool test-ue-target --engine <path> --project <project.uproject> --target <editor>
                               --platform <platform> --architecture <architecture> --report <new-directory>
   ModBuildTool plan --context <context.json> --generated-manifest <manifest.json>
@@ -89,10 +105,29 @@ const CommandLine::Command& CommandLine::FindCommand(const std::string& Name)
 	     {"--engine", "--project", "--target", "--platform", "--architecture", "--commit", "--engine-commit",
 	      "--output"},
 	     UeCommands::PrepareMetadata},
+	    {"prepare-editor-bootstrap",
+	     {"--engine", "--project", "--target", "--platform", "--architecture", "--configuration", "--commit",
+	      "--engine-commit", "--output"},
+	     UeCommands::PrepareMetadata},
+	    {"export-metadata",
+	     {"--engine", "--project", "--target", "--platform", "--architecture", "--configuration", "--commit",
+	      "--engine-commit", "--output"},
+	     UeCommands::PrepareMetadata},
 	    {"validate-metadata",
 	     {"--engine", "--project", "--target", "--platform", "--configuration", "--architecture", "--commit",
 	      "--engine-commit", "--metadata"},
 	     UeCommands::ValidateMetadata},
+	    {"import-ue-metadata",
+	     {"--engine", "--project", "--target", "--platform", "--configuration", "--architecture", "--commit",
+	      "--engine-commit", "--metadata"},
+	     UeCommands::ValidateMetadata},
+	    {"export-ue-actions",
+	     {"--engine", "--project", "--target", "--platform", "--configuration", "--architecture", "--phase",
+	      "--actions"},
+	     UeCommands::ExportUeActions},
+	    {"execute-ue-actions",
+	     {"--engine", "--project", "--target", "--platform", "--configuration", "--architecture", "--actions"},
+	     UeCommands::ExecuteUeActions},
 	    {"build-ue-target",
 	     {"--engine", "--project", "--target", "--platform", "--configuration", "--architecture", "--mode", "--commit",
 	      "--engine-commit", "--metadata"},

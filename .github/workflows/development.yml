@@ -105,17 +105,8 @@ jobs:
             --resource-dir "$(dirname "$libclang")/clang/21" --libclang "$libclang" \
             --mbt "$RUNNER_TEMP/mst/bin/Release/ModBuildTool" --mht "$RUNNER_TEMP/mst/bin/Release/ModHeaderTool" \
             --mst "$RUNNER_TEMP/mst/bin/Release/ModSourceTool"
-      - name: Verify portable Metadata Bundle inputs
-        run: python Scripts/test_metadata_bundle.py "$RUNNER_TEMP/mst/bin/Release/ModBuildTool"
-      - name: Exercise MDT independently
-        run: |
-          mdt="$RUNNER_TEMP/mst/bin/Release/ModSDKTool"
-          "$mdt" --version
-          printf '{}\n' > "$RUNNER_TEMP/invalid-mdt-request.json"
-          if "$mdt" plan --request "$RUNNER_TEMP/invalid-mdt-request.json" --output "$RUNNER_TEMP/invalid-plan.json"; then
-            exit 1
-          fi
-          test ! -e "$RUNNER_TEMP/invalid-plan.json"
+      - name: Verify Metadata, Game checkpoints and SDK planning
+        run: python Scripts/development_commands.py test-native-development "$RUNNER_TEMP/mst/bin/Release"
       - name: Compare existing cross-file exception paths
         run: |
           export MST_RESOURCE_DIR="$(clang++-19 -print-resource-dir)"

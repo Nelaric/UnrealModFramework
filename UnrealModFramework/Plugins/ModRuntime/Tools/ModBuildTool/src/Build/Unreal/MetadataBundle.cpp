@@ -515,7 +515,7 @@ void WriteChanged(const fs::path& Output, const std::string& Content)
 
 } // namespace
 
-void MetadataBundle::Prepare(const UeHookTarget& Producer)
+void MetadataBundle::Prepare(const UeHookTarget& Producer, EPhase Phase)
 {
 	RequireCommits(Producer);
 	const Roots Files{fs::canonical(Path::FileSystemPath(Producer.Project)),
@@ -536,18 +536,56 @@ void MetadataBundle::Prepare(const UeHookTarget& Producer)
 	}
 
 	const auto SourceBefore = SourceInputs(Files);
+	const auto BootstrapPath = Files.Project.parent_path() / "Intermediate/ModTools/HookBuild" / Producer.Target /
+	                           Producer.Platform / Producer.Configuration / Producer.Architecture /
+	                           "editor-bootstrap.json";
+	const auto DescribeBootstrap = [&]
+	{
+		const auto Receipt = UeInvocation::Receipt(Files.Project, Producer);
+		if (ContextDocument::ReadJson(Receipt).at("TargetType") != "Editor")
+		{
+			throw std::runtime_error("Metadata bootstrap did not build an Editor target.");
+		}
+		return Json{{"target", Identity(Producer)},
+		            {"project", Path::PathToUtf8(Files.Project)},
+		            {"engine", Path::PathToUtf8(Files.Engine)},
+		            {"commit", Producer.SourceCommit},
+		            {"engineCommit", Producer.EngineCommit},
+		            {"sources", Hash::HashBytes(SourceBefore.dump())},
+		            {"receipt", Hash::HashFile(Receipt)}};
+	};
+	const auto BootstrapReady = [&]
+	{
+		try
+		{
+			return fs::is_regular_file(Path::FileSystemPath(BootstrapPath)) &&
+			       ContextDocument::ReadJson(BootstrapPath) == DescribeBootstrap();
+		}
+		catch (const std::exception&)
+		{
+			return false;
+		}
+	};
+	if (!BootstrapReady())
+	{
+		if (Phase == EPhase::Export)
+		{
+			throw std::runtime_error("Editor bootstrap is missing or stale. Run prepare-editor-bootstrap first.");
+		}
+		UeHookBuild::Run(Producer);
+		WriteChanged(BootstrapPath, DescribeBootstrap().dump(2) + '\n');
+	}
+	if (Phase == EPhase::Bootstrap)
+	{
+		return;
+	}
+
 	const auto AssetsBefore = AssetInventory(Files);
 	const auto Temporary = Output.parent_path() / (".mbt-stage-" + TemporaryName::UniqueSuffix());
 	fs::create_directory(Path::FileSystemPath(Temporary));
 	const OwnedStage Stage{Temporary, Output.parent_path()};
 	const auto Types = DiscoverTargetTypes(Files, Stage.Path / "targets.json");
 	const auto Targets = AllowedTargets(Types, Producer);
-	UeHookBuild::Run(Producer);
-	const auto Receipt = ContextDocument::ReadJson(UeInvocation::Receipt(Files.Project, Producer));
-	if (Receipt.at("TargetType") != "Editor")
-	{
-		throw std::runtime_error("Metadata bootstrap did not build an Editor target.");
-	}
 	const auto RawOptions = Stage.Path / "options.json";
 	const auto RawBlueprints = Stage.Path / "blueprints.json";
 	UeInvocation::Run(Editor,

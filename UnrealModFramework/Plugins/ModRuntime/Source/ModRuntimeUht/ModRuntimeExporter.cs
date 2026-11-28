@@ -36,6 +36,7 @@ internal static class ModRuntimeExporter
 			.GetCommandLineArgs()
 			.Any(arg =>
 				arg.Equals("-MhtBootstrap", StringComparison.OrdinalIgnoreCase)
+				|| arg.Equals("-UmfPrepareGame", StringComparison.OrdinalIgnoreCase)
 				|| arg.Equals("-Mode=GenerateClangDatabase", StringComparison.OrdinalIgnoreCase)
 			);
 		if (factory.Session.NoOutput || factory.Session.ReferenceMode != UhtReferenceMode.None || preparing)
@@ -46,7 +47,7 @@ internal static class ModRuntimeExporter
 				factory.AddExternalDependency(Path.Combine(deps, ".mht-deferred"));
 			}
 			factory.Session.Logger.LogInformation(
-				"ModRuntime MHT: skipped for bootstrap, compile-database preparation, or UHT reference/no-output mode."
+				"ModRuntime MHT: skipped for bootstrap, Game preparation, compile-database, or UHT reference/no-output mode."
 			);
 			return;
 		}

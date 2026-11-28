@@ -85,7 +85,14 @@ int UeCommands::PrepareMetadata(const CommandArguments& Command)
 	Target.Metadata = Path::PathFromUtf8(Command.Options.at("--output"));
 	Target.SourceCommit = Command.Options.at("--commit");
 	Target.EngineCommit = Command.Options.at("--engine-commit");
-	MetadataBundle::Prepare(Target);
+	const auto Phase = Command.Name == "prepare-editor-bootstrap" ? MetadataBundle::EPhase::Bootstrap
+	                   : Command.Name == "export-metadata"        ? MetadataBundle::EPhase::Export
+	                                                              : MetadataBundle::EPhase::Both;
+	if (Phase != MetadataBundle::EPhase::Both)
+	{
+		Target.Configuration = Command.Options.at("--configuration");
+	}
+	MetadataBundle::Prepare(Target, Phase);
 	return 0;
 }
 
@@ -96,7 +103,35 @@ int UeCommands::ValidateMetadata(const CommandArguments& Command)
 	Target.Metadata = Path::PathFromUtf8(Command.Options.at("--metadata"));
 	Target.SourceCommit = Command.Options.at("--commit");
 	Target.EngineCommit = Command.Options.at("--engine-commit");
-	MetadataBundle::Validate(Target);
+	if (Command.Name == "import-ue-metadata")
+	{
+		MetadataBundle::Consume(Target, UeHookBuild::MetadataInputs(Target));
+	}
+	else
+	{
+		MetadataBundle::Validate(Target);
+	}
+	return 0;
+}
+
+int UeCommands::ExportUeActions(const CommandArguments& Command)
+{
+	auto Target = ReadTarget(Command);
+	Target.Configuration = Command.Options.at("--configuration");
+	const auto Phase = Command.Options.at("--phase");
+	if (Phase != "prepare" && Phase != "resume")
+	{
+		throw std::runtime_error("export-ue-actions requires --phase prepare or resume.");
+	}
+	UeHookBuild::ExportGameActions(Target, Path::PathFromUtf8(Command.Options.at("--actions")), Phase == "prepare");
+	return 0;
+}
+
+int UeCommands::ExecuteUeActions(const CommandArguments& Command)
+{
+	auto Target = ReadTarget(Command);
+	Target.Configuration = Command.Options.at("--configuration");
+	UeHookBuild::ExecuteGameActions(Target, Path::PathFromUtf8(Command.Options.at("--actions")));
 	return 0;
 }
 

@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "commands": {
+    "build-native-tools": [
+      "python",
+      "Scripts/development_commands.py",
+      "build-native-tools"
+    ],
+    "prepare-libclang": [
+      "python",
+      "Scripts/development_commands.py",
+      "prepare-libclang"
+    ],
+    "prepare-editor-bootstrap": [
+      "python",
+      "Scripts/development_commands.py",
+      "prepare-editor-bootstrap"
+    ],
+    "export-metadata": [
+      "python",
+      "Scripts/development_commands.py",
+      "export-metadata"
+    ],
+    "validate-metadata": [
+      "python",
+      "Scripts/development_commands.py",
+      "validate-metadata"
+    ],
+    "build-editor": [
+      "python",
+      "Scripts/development_commands.py",
+      "build-editor"
+    ],
+    "prepare-game": [
+      "python",
+      "Scripts/development_commands.py",
+      "prepare-game"
+    ],
+    "save-checkpoint": [
+      "python",
+      "Scripts/development_commands.py",
+      "save-checkpoint"
+    ],
+    "validate-checkpoint": [
+      "python",
+      "Scripts/development_commands.py",
+      "validate-checkpoint"
+    ],
+    "restore-checkpoint": [
+      "python",
+      "Scripts/development_commands.py",
+      "restore-checkpoint"
+    ],
+    "import-metadata": [
+      "python",
+      "Scripts/development_commands.py",
+      "import-metadata"
+    ],
+    "resume-game": [
+      "python",
+      "Scripts/development_commands.py",
+      "resume-game"
+    ],
+    "verify-game": [
+      "python",
+      "Scripts/development_commands.py",
+      "verify-game"
+    ],
+    "test-native-development": [
+      "python",
+      "Scripts/development_commands.py",
+      "test-native-development",
+      "{native}"
+    ]
+  }
+}

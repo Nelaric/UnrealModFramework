@@ -132,9 +132,7 @@ void ReuseObjects(UeHookObjects& Objects, const UeHookSources& Sources, const fs
 		                         ". Use build-ue-target with --mode rebuild.");
 	}
 }
-} // namespace
-
-void UeHookBuild::Run(const UeHookTarget& Target)
+fs::path TargetVariant(const UeHookTarget& Target)
 {
 	for (const auto* Identifier : {&Target.Target, &Target.Platform, &Target.Configuration, &Target.Architecture})
 	{
@@ -145,95 +143,150 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 			throw std::runtime_error("Supply valid UBT target, platform, configuration, and architecture identifiers.");
 		}
 	}
+	return fs::path(Target.Target) / Target.Platform / Target.Configuration / Target.Architecture;
+}
+
+struct UbtTarget
+{
+	explicit UbtTarget(const UeHookTarget& Target)
+	    : Variant(TargetVariant(Target)), Engine(UeInvocation::EngineDirectory(Target.Engine)),
+	      Project(fs::canonical(Path::FileSystemPath(Target.Project))),
+	      ModTools(Project.parent_path() / "Intermediate/ModTools"),
+	      HostTarget(ModTools / "ModHeaderTool/HostTargets" / Variant), Work(ModTools / "HookBuild" / Variant),
+	      Environment(ProcessEnvironment::CaptureEnvironment()), Dotnet(UeInvocation::Dotnet(Engine, Environment))
+	{
+		if (!fs::is_regular_file(Path::FileSystemPath(Project)) || Project.extension() != ".uproject")
+		{
+			throw std::runtime_error("Supply an Unreal project .uproject file.");
+		}
+		fs::create_directories(Path::FileSystemPath(Work));
+		Environment["UMF_MBT_EXECUTABLE"] = Path::PathToUtf8(Executable::ExecutablePath());
+		Environment["UMF_NATIVE_TOOLS_READY"] = "1";
+		Environment.erase("UMF_METADATA_INPUTS");
+#ifdef _WIN32
+		Environment["UMF_RUNNING_MBT_EXECUTABLE"] = Environment.at("UMF_MBT_EXECUTABLE");
+#endif
+		Arguments = {Target.Target,
+		             Target.Platform,
+		             Target.Configuration,
+		             "-Architecture=" + Target.Architecture,
+		             "-Project=" + Path::PathToUtf8(Project),
+		             "-WaitMutex",
+		             "-NoEngineChanges",
+		             "-MaxParallelActions=4"};
+		if (Target.Platform == "Linux" || Target.Platform == "LinuxArm64")
+		{
+			Arguments.emplace_back("-NoDumpSyms");
+		}
+		if (Target.Platform == "Win64")
+		{
+			for (const auto& [Name, Flag] : {std::pair{"UMF_MSVC_VERSION", "-CompilerVersion="},
+			                                 std::pair{"UMF_WINDOWS_SDK_VERSION", "-WindowsSDKVersion="}})
+			{
+				if (const auto Value = Environment.find(Name); Value != Environment.end() && !Value->second.empty())
+				{
+					Arguments.emplace_back(std::string(Flag) + Value->second);
+				}
+			}
+		}
+	}
+
+	std::vector<std::string> ExportArguments(Json& Modules) const
+	{
+		std::vector<std::string> Export{Path::PathToUtf8(Engine / UbtEntry)};
+		Export.insert(Export.end(), Arguments.begin(), Arguments.end());
+		std::string Names;
+		for (const auto& [Name, Directory] : Tools::ExportModules::Discover(Project).Modules)
+		{
+			Names += (Names.empty() ? "" : "+") + Name;
+			Modules[Name] = Path::PathToUtf8(Directory);
+		}
+		Export.push_back("-ModExportModules=" + Names);
+		Export.push_back("-Log=" + Path::PathToUtf8(Work / "UbtBuild.log"));
+		Export.emplace_back("-NoHotReloadFromIDE");
+		return Export;
+	}
+
+	void Run(const std::vector<std::string>& Command, std::string_view Step) const
+	{
+		UeInvocation::Run(Dotnet, Command, Engine / "Source", Environment, Step);
+	}
+
+	void Execute(const fs::path& Actions)
+	{
+#ifdef _WIN32
+		Environment["ISBUILDMACHINE"] = "1";
+#else
+		Environment["IsBuildMachine"] = "1";
+#endif
+		std::vector<std::string> Execute{Path::PathToUtf8(Engine / UbtEntry), "-Mode=Execute",
+		                                 "-Actions=" + Path::PathToUtf8(Actions),
+		                                 "-Log=" + Path::PathToUtf8(Work / "UbtExecute.log"), "-NoUBA"};
+		Execute.insert(Execute.end(), Arguments.begin(), Arguments.end());
+		Run(Execute, "action execution");
+	}
+
+	fs::path Variant;
+	fs::path Engine;
+	fs::path Project;
+	fs::path ModTools;
+	fs::path HostTarget;
+	fs::path Work;
+	std::map<std::string, std::string> Environment;
+	fs::path Dotnet;
+	std::vector<std::string> Arguments;
+};
+
+void AssertMonolithicGame(const UbtTarget& Ubt, const UeHookTarget& Target)
+{
+	const auto Rules = ContextDocument::ReadJson(Ubt.HostTarget / "Target.json").at("target");
+	if (Target.Configuration != "Development" || Rules.at("type") != "Game" || Rules.at("linkType") != "Monolithic" ||
+	    Rules.at("name") != Target.Target || Rules.at("platform") != Target.Platform ||
+	    Rules.at("architecture") != Target.Architecture || Rules.at("configuration") != Target.Configuration)
+	{
+		throw std::runtime_error("Split builds require the actual monolithic Development Game target.");
+	}
+}
+} // namespace
+
+void UeHookBuild::Run(const UeHookTarget& Target)
+{
 	if (Target.Mode != "normal" && Target.Mode != "rebuild" && Target.Mode != "bootstrap")
 	{
 		throw std::runtime_error("build-ue-target mode must be normal, rebuild, or bootstrap.");
 	}
-	const fs::path Engine = UeInvocation::EngineDirectory(Target.Engine);
-	const fs::path Ubt = Engine / UbtEntry;
-	const fs::path Project = fs::canonical(Path::FileSystemPath(Target.Project));
-	if (!fs::is_regular_file(Path::FileSystemPath(Project)) || Project.extension() != ".uproject")
-	{
-		throw std::runtime_error("Supply an Unreal project .uproject file.");
-	}
-	auto Environment = ProcessEnvironment::CaptureEnvironment();
-	const auto Dotnet = UeInvocation::Dotnet(Engine, Environment);
-	Environment["UMF_MBT_EXECUTABLE"] = Path::PathToUtf8(Executable::ExecutablePath());
-	Environment["UMF_NATIVE_TOOLS_READY"] = "1";
-	Environment.erase("UMF_METADATA_INPUTS");
-#ifdef _WIN32
-	Environment["UMF_RUNNING_MBT_EXECUTABLE"] = Environment.at("UMF_MBT_EXECUTABLE");
-#endif
-	const auto RunUbt = [&](const std::vector<std::string>& Arguments, std::string_view Step)
-	{ UeInvocation::Run(Dotnet, Arguments, Engine / "Source", Environment, Step); };
-	std::vector<std::string> TargetArguments{Target.Target,
-	                                         Target.Platform,
-	                                         Target.Configuration,
-	                                         "-Architecture=" + Target.Architecture,
-	                                         "-Project=" + Path::PathToUtf8(Project),
-	                                         "-WaitMutex",
-	                                         "-NoEngineChanges",
-	                                         "-MaxParallelActions=4"};
-	if (Target.Platform == "Linux" || Target.Platform == "LinuxArm64")
-	{
-		TargetArguments.emplace_back("-NoDumpSyms");
-	}
-	if (Target.Platform == "Win64")
-	{
-		for (const auto& [Name, Flag] : {std::pair{"UMF_MSVC_VERSION", "-CompilerVersion="},
-		                                 std::pair{"UMF_WINDOWS_SDK_VERSION", "-WindowsSDKVersion="}})
-		{
-			if (const auto Value = Environment.find(Name); Value != Environment.end() && !Value->second.empty())
-			{
-				TargetArguments.emplace_back(std::string(Flag) + Value->second);
-			}
-		}
-	}
-	const auto Root = Project.parent_path();
-	const auto ModTools = Root / "Intermediate/ModTools";
-	const auto Variant = fs::path(Target.Target) / Target.Platform / Target.Configuration / Target.Architecture;
-	const auto WorkPath = Path::FileSystemPath(ModTools / "HookBuild" / Variant);
-	fs::create_directories(WorkPath);
-	const auto Work = fs::canonical(WorkPath);
-	const BuildLock Lock(Work / ".build", ".lock");
-	std::vector<std::string> Export{Path::PathToUtf8(Ubt)};
-	Export.insert(Export.end(), TargetArguments.begin(), TargetArguments.end());
-	std::string Modules;
-	for (const auto& [Name, Directory] : Tools::ExportModules::Discover(Project).Modules)
-	{
-		Modules += (Modules.empty() ? "" : "+") + Name;
-	}
-	Export.push_back("-ModExportModules=" + Modules);
-	Export.push_back("-Log=" + Path::PathToUtf8(Work / "UbtBuild.log"));
-	Export.emplace_back("-NoHotReloadFromIDE");
+	UbtTarget Ubt(Target);
+	const BuildLock Lock(Ubt.Work / ".build", ".lock");
+	Json Modules = Json::object();
+	auto Export = Ubt.ExportArguments(Modules);
 	if (Target.Mode == "bootstrap")
 	{
 		Export.emplace_back("-MhtBootstrap");
 		Export.emplace_back("-NoUBA");
-		RunUbt(Export, "bootstrap build");
+		Ubt.Run(Export, "bootstrap build");
 		return;
 	}
 
-	const auto Inputs = ModTools / "ModHeaderTool/HostTargets" / Variant / "Metadata";
+	const auto Inputs = Ubt.HostTarget / "Metadata";
 	MetadataBundle::Consume(Target, Inputs);
-	Environment["UMF_METADATA_INPUTS"] = Path::PathToUtf8(Inputs);
+	Ubt.Environment["UMF_METADATA_INPUTS"] = Path::PathToUtf8(Inputs);
 
-	const auto Game = Path::PathToUtf8(Project.stem());
-	const auto StagePath = Work / (".mbt-stage-" + TemporaryName::UniqueSuffix());
+	const auto Game = Path::PathToUtf8(Ubt.Project.stem());
+	const auto StagePath = Ubt.Work / (".mbt-stage-" + TemporaryName::UniqueSuffix());
 	if (!fs::create_directory(Path::FileSystemPath(StagePath)))
 	{
 		throw std::runtime_error("Cannot create a fresh UBT action stage.");
 	}
-	const OwnedStage Stage{StagePath, Work};
+	const OwnedStage Stage{StagePath, Ubt.Work};
 	const auto ActionsFile = Stage.Path / "Actions.json";
-	const auto Receipt = Work / "objects.json";
+	const auto Receipt = Ubt.Work / "objects.json";
 	Export.push_back("-WriteOutdatedActions=" + Path::PathToUtf8(ActionsFile));
 	if (Target.Mode == "rebuild")
 	{
 		Export.emplace_back("-Rebuild");
 	}
-	RunUbt(Export, "action export");
-	const auto Generated = fs::canonical(Path::FileSystemPath(ModTools / "ModHeaderTool/Generated" / Variant));
+	Ubt.Run(Export, "action export");
+	const auto Generated = fs::canonical(Path::FileSystemPath(Ubt.ModTools / "ModHeaderTool/Generated" / Ubt.Variant));
 	const auto Sources = ReadHookSources(Generated, Game, Target);
 	auto Graph = ContextDocument::ReadJson(ActionsFile);
 	auto Objects = UeHookActions::Prepare(Graph, Sources.Sources, Stage.Path);
@@ -241,17 +294,7 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	if (!Graph.at("Actions").empty())
 	{
 		File::WriteFileAtomically(ActionsFile, Graph.dump(2));
-		// Use UBT's executor timings. Compiler timing flags can require extra SDK utilities.
-#ifdef _WIN32
-		Environment["ISBUILDMACHINE"] = "1";
-#else
-		Environment["IsBuildMachine"] = "1";
-#endif
-		std::vector<std::string> Execute{Path::PathToUtf8(Ubt), "-Mode=Execute",
-		                                 "-Actions=" + Path::PathToUtf8(ActionsFile),
-		                                 "-Log=" + Path::PathToUtf8(Work / "UbtExecute.log"), "-NoUBA"};
-		Execute.insert(Execute.end(), TargetArguments.begin(), TargetArguments.end());
-		RunUbt(Execute, "action execution");
+		Ubt.Execute(ActionsFile);
 	}
 	if (ReadHookSources(Generated, Game, Target) != Sources)
 	{
@@ -261,8 +304,8 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	     Target.Platform == "Mac") &&
 	    (Target.Architecture == "x64" || Target.Architecture == "arm64"))
 	{
-		const auto Contexts = ModTools / "ModHeaderTool/HostTargets" / Variant / "watch.json";
-		const auto Link = UeBuildAdapter::FinalizeUeTarget(Contexts, UeInvocation::Receipt(Project, Target));
+		const auto Contexts = Ubt.HostTarget / "watch.json";
+		const auto Link = UeBuildAdapter::FinalizeUeTarget(Contexts, UeInvocation::Receipt(Ubt.Project, Target));
 		if (!Link.is_object() || Link.at("binaries").empty())
 		{
 			throw std::runtime_error("The UBT build did not verify a linked UMF host binding.");
@@ -277,5 +320,93 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 		                                   {"objectHash", Hash::HashFile(Object)}};
 	}
 	File::WriteFileAtomically(Receipt, Audit.dump(2) + '\n');
+}
+
+fs::path UeHookBuild::MetadataInputs(const UeHookTarget& Target)
+{
+	return fs::canonical(Path::FileSystemPath(Target.Project)).parent_path() /
+	       "Intermediate/ModTools/ModHeaderTool/HostTargets" / TargetVariant(Target) / "Metadata";
+}
+
+void UeHookBuild::ExportGameActions(const UeHookTarget& Target, const fs::path& Actions, bool bPrepare)
+{
+	UbtTarget Ubt(Target);
+	const BuildLock Lock(Ubt.Work / ".build", ".lock");
+	Json Modules = Json::object();
+	auto Command = Ubt.ExportArguments(Modules);
+	if (Target.Platform == "Win64")
+	{
+		// A regenerated MSVC PCH must provide the same CodeView types to objects compiled on the producer.
+		Command.emplace_back("-Deterministic");
+	}
+	if (bPrepare)
+	{
+		Command.emplace_back("-UmfPrepareGame");
+	}
+	else
+	{
+		const auto Inputs = Ubt.HostTarget / "Metadata";
+		if (!fs::is_regular_file(Path::FileSystemPath(Inputs / "bundle.sha256")))
+		{
+			throw std::runtime_error("Import validated Metadata before exporting the resumed action graph.");
+		}
+		Ubt.Environment["UMF_METADATA_INPUTS"] = Path::PathToUtf8(Inputs);
+	}
+	const auto Output = fs::absolute(Path::FileSystemPath(Actions));
+	fs::create_directories(Output.parent_path());
+	Command.push_back("-WriteOutdatedActions=" + Path::PathToUtf8(Output));
+	Ubt.Run(Command, bPrepare ? "Game preparation action export" : "Game resume action export");
+	AssertMonolithicGame(Ubt, Target);
+
+	auto Graph = ContextDocument::ReadJson(Output);
+	if (!bPrepare)
+	{
+		const auto Directory =
+		    fs::canonical(Path::FileSystemPath(Ubt.ModTools / "ModHeaderTool/Generated" / Ubt.Variant));
+		auto Sources = ReadHookSources(Directory, Path::PathToUtf8(Ubt.Project.stem()), Target);
+		(void)UeHookActions::Prepare(Graph, Sources.Sources, Output.parent_path());
+	}
+	else
+	{
+		// Recover the same dependency edges that UBT's exported executor graph uses after a cold export.
+		(void)UeHookActions::Prepare(Graph, {}, Output.parent_path());
+	}
+	std::vector<std::string> Receipts;
+	for (const auto& Action : Graph.at("Actions"))
+	{
+		if (Action.at("Type") != "WriteMetadata")
+		{
+			continue;
+		}
+		for (const auto& Item : Action.at("ProducedItems"))
+		{
+			const auto Path = Item.get<std::string>();
+			if (Path.ends_with(".target"))
+			{
+				Receipts.push_back(Path);
+			}
+		}
+	}
+	if (Receipts.size() != 1)
+	{
+		throw std::runtime_error("Game action graph must produce exactly one UBT target receipt.");
+	}
+	Graph["umf"] = {{"engine", Path::PathToUtf8(Ubt.Engine)},
+	                {"modules", std::move(Modules)},
+	                {"targetReceipt", Receipts.front()},
+	                {"contexts", Path::PathToUtf8(Ubt.HostTarget / "watch.json")}};
+	File::WriteFileAtomically(Output, Graph.dump(2) + '\n');
+}
+
+void UeHookBuild::ExecuteGameActions(const UeHookTarget& Target, const fs::path& Actions)
+{
+	UbtTarget Ubt(Target);
+	const BuildLock Lock(Ubt.Work / ".build", ".lock");
+	AssertMonolithicGame(Ubt, Target);
+	const auto Graph = fs::canonical(Path::FileSystemPath(Actions));
+	if (!ContextDocument::ReadJson(Graph).at("Actions").empty())
+	{
+		Ubt.Execute(Graph);
+	}
 }
 } // namespace Mod::BuildTool

@@ -13,6 +13,8 @@ public:
 	static int ValidateMetadata(const CommandArguments& Command);
 	static int TestTarget(const CommandArguments& Command);
 	static int BuildTarget(const CommandArguments& Command);
+	static int ExportUeActions(const CommandArguments& Command);
+	static int ExecuteUeActions(const CommandArguments& Command);
 	static int RefreshWatches(const CommandArguments& Command);
 	static int FinalizeTarget(const CommandArguments& Command);
 };

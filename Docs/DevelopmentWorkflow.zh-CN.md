@@ -43,6 +43,23 @@ $inputs = @("--configuration", "Development", "--metadata", $bundle)
 
 Bundle 的四个文件位于 `Metadata/`。文件名基于 `Project/` 和 `Engine/` 逻辑根。Options 和 Blueprint 数据使用反射名、参数角色与标量字段结构。消费目标会检查配置投影与生产方输入是否一致，不兼容的重定向、架构专用配置、蓝图包变化、源码漂移和负载损坏都会导致失败。C++ 布局、编译参数、Hook 对象和 ABI 由目标自身的编译数据库生成。Blueprint 使用反射结构体时，目标会以加载的反射类型校验字段结构。`Intermediate/` 下的 Bundle 为构建产物。
 
+## 独立调用 Development 阶段
+
+[命令配置](../.github/development-commands.json)采用 Schema 1，包含 14 组命令参数。每组参数都从候选源码根目录执行。本地可设置同样的 CI 环境变量并运行[阶段脚本](../Scripts/development_commands.py)。`build-editor` 构建正常的 Editor。随后用 `ModBuildTool test-ue-target` 执行并检查无界面自动化测试。
+
+| Job | 命令顺序 |
+| --- | --- |
+| Editor | `build-native-tools` → `prepare-libclang` → `prepare-editor-bootstrap` → `export-metadata` → `validate-metadata` → `build-editor` |
+| Game Prepare | `build-native-tools` → `prepare-libclang` → `prepare-game` → `save-checkpoint` → `validate-checkpoint` |
+| Game | `restore-checkpoint` → `validate-checkpoint` → `validate-metadata` → `import-metadata` → `resume-game` → `verify-game` |
+| 原生工具 | `test-native-development <原生工具二进制目录>` |
+
+`UMF_SOURCE`、`UMF_WORK`、`UMF_SDK`、`UMF_EVIDENCE`、`UMF_METADATA_PAYLOAD`、`UMF_CHECKPOINT_PAYLOAD` 和 `UMF_TOOLCHAIN` 指定源码、工作目录、SDK、报告目录、两份产物目录及工具链 JSON。`UMF_TARGET`、`UMF_METADATA_TARGET`、`UMF_CONFIGURATION`、`UMF_ARCHITECTURE`、`UMF_UBT_PLATFORM` 和 `UMF_UBT_ARCHITECTURE` 指定消费和生产目标。`UMF_ENGINE_VERSION`、`UMF_UPSTREAM_COMMIT`、`UMF_LOCK_SHA256` 和 `UMF_COMMIT` 指定 SDK 和源码提交。Game Prepare 使用干净的目标工作目录。恢复端在新的工作目录中使用相同的锁定 SDK 和工具链。对于 UBT 标记为 `AbsolutePath` 的编译 Action，两台 Runner 需使用相同的工程、SDK 和编译器绝对根路径。
+
+Game Prepare 运行 UBT 和标准 UHT，再执行依赖图里所有符合条件的 Action。链接及负责导出的模块等待 Metadata。Checkpoint 保存已准备的原生工具、libclang、符合复用条件的项目对象文件及其输入清单。恢复端使用本地 SDK 重建 PCH、缺少依赖清单的资源编译及运行时文件拷贝。MHT 生成目标代码后，恢复端重新导出 UBT 图，核验原编译命令和依赖摘要，恢复匹配的对象文件，再执行剩余 Action。Win64 分段构建使用 UBT 的确定性编译，并在链接前核验重新生成的 MSVC PCH 调试对象。两类交接产物均存放于授权的私有存储。
+
+阶段脚本在报告目录生成 `metadata.json`、`checkpoint.json` 和 `game.json`。Metadata 与 Checkpoint 的报告在生产和消费端逐字节一致。Game 报告记录可执行文件和 Host Link Receipt 路径、实际复用与重跑数量，以及剩余构建和链接耗时。
+
 ## 合并检查
 
 Fork PR 在只读权限下运行 [Development](../.github/workflows/development.yml)。`Development public` 汇总命名、文本和格式、API 文档、四个原生工具及 COFF、ELF 和 Mach-O Hook 链接用例。Pages 仍独立发布。 [API Pages](../.github/workflows/pages.yml)
