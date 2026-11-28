@@ -44,6 +44,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
+      engine: ${{ steps.candidate.outputs.engine }}
       identity: ${{ steps.candidate.outputs.identity }}
       source: ${{ steps.candidate.outputs.source }}
       commit: ${{ steps.candidate.outputs.commit }}
@@ -75,7 +76,7 @@ jobs:
           CI_IDENTITY: ${{ steps.candidate.outputs.identity }}
         run: python Scripts/CI/development.py verify
       - name: Validate PR Title, Branch, And Commits
-        if: github.event_name == 'pull_request' || github.event.repository.private
+        if: github.event_name == 'pull_request' || inputs.pr_number != ''
         env:
           CI_IDENTITY: ${{ steps.candidate.outputs.identity }}
           PUBLIC_READ_TOKEN: ${{ github.event_name == 'pull_request' && github.token || '' }}
@@ -197,11 +198,7 @@ jobs:
         working-directory: source
         run: python ../Scripts/CI/check_source_analysis.py "$RUNNER_TEMP/umf-native/bin/Release/ModSourceTool"
       - name: Validate Native Development Protocols
-        if: >-
-          github.event_name == 'workflow_dispatch' &&
-          github.event.repository.private &&
-          github.repository_owner == 'Nelaric' &&
-          github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: ${{ needs.code-quality.outputs.engine == 'true' }}
         env:
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
         run: |
@@ -211,11 +208,8 @@ jobs:
   editor-windows-x64:
     name: Editor / Windows X64
     needs: code-quality
-    if: &authorized >-
-      github.event_name == 'workflow_dispatch' &&
-      github.event.repository.private &&
-      github.repository_owner == 'Nelaric' &&
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: &authorized ${{ needs.code-quality.outputs.engine == 'true' }}
+    environment: development-engine
     runs-on: windows-2022
     timeout-minutes: 35
     outputs:
@@ -240,11 +234,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   editor-linux-x64:
     name: Editor / Linux X64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     outputs:
@@ -269,11 +267,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   editor-macos-x64:
     name: Editor / MacOS X64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: macos-15-intel
     timeout-minutes: 35
     outputs:
@@ -298,11 +300,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   editor-macos-arm64:
     name: Editor / MacOS ARM64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: macos-15
     timeout-minutes: 35
     outputs:
@@ -327,11 +333,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-windows-x64:
     name: Game Prepare / Windows X64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: windows-2022
     timeout-minutes: 35
     outputs:
@@ -359,11 +369,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-windows-arm64:
     name: Game Prepare / Windows ARM64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: windows-11-arm
     timeout-minutes: 35
     outputs:
@@ -391,11 +405,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-linux-x64:
     name: Game Prepare / Linux X64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     outputs:
@@ -423,11 +441,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-linux-arm64:
     name: Game Prepare / Linux ARM64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 35
     outputs:
@@ -455,11 +477,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-macos-x64:
     name: Game Prepare / MacOS X64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: macos-15-intel
     timeout-minutes: 35
     outputs:
@@ -487,11 +513,15 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-macos-arm64:
     name: Game Prepare / MacOS ARM64
     needs: code-quality
     if: *authorized
+    environment: development-engine
     runs-on: macos-15
     timeout-minutes: 35
     outputs:
@@ -519,16 +549,16 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-windows-x64:
     name: Game / Windows X64
     needs: [prepare-game-windows-x64, editor-windows-x64]
-    if: *authorized
+    environment: development-engine
     runs-on: windows-2022
     timeout-minutes: 25
-    permissions:
-      contents: read
-      actions: read
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
     steps:
@@ -552,17 +582,17 @@ jobs:
           checkpoint-name: ${{ needs.prepare-game-windows-x64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-windows-x64.outputs.artifact-id }}
           metadata-name: ${{ needs.editor-windows-x64.outputs.artifact-name }}
-          artifact-token: ${{ github.token }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-windows-arm64:
     name: Game / Windows ARM64
     needs: [prepare-game-windows-arm64, editor-windows-x64]
-    if: *authorized
+    environment: development-engine
     runs-on: windows-11-arm
     timeout-minutes: 25
-    permissions:
-      contents: read
-      actions: read
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
     steps:
@@ -586,17 +616,17 @@ jobs:
           checkpoint-name: ${{ needs.prepare-game-windows-arm64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-windows-x64.outputs.artifact-id }}
           metadata-name: ${{ needs.editor-windows-x64.outputs.artifact-name }}
-          artifact-token: ${{ github.token }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-linux-x64:
     name: Game / Linux X64
     needs: [prepare-game-linux-x64, editor-linux-x64]
-    if: *authorized
+    environment: development-engine
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    permissions:
-      contents: read
-      actions: read
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
     steps:
@@ -620,17 +650,17 @@ jobs:
           checkpoint-name: ${{ needs.prepare-game-linux-x64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-linux-x64.outputs.artifact-id }}
           metadata-name: ${{ needs.editor-linux-x64.outputs.artifact-name }}
-          artifact-token: ${{ github.token }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-linux-arm64:
     name: Game / Linux ARM64
     needs: [prepare-game-linux-arm64, editor-linux-x64]
-    if: *authorized
+    environment: development-engine
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 25
-    permissions:
-      contents: read
-      actions: read
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
     steps:
@@ -654,17 +684,17 @@ jobs:
           checkpoint-name: ${{ needs.prepare-game-linux-arm64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-linux-x64.outputs.artifact-id }}
           metadata-name: ${{ needs.editor-linux-x64.outputs.artifact-name }}
-          artifact-token: ${{ github.token }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-macos-x64:
     name: Game / MacOS X64
     needs: [prepare-game-macos-x64, editor-macos-x64]
-    if: *authorized
+    environment: development-engine
     runs-on: macos-15-intel
     timeout-minutes: 25
-    permissions:
-      contents: read
-      actions: read
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
     steps:
@@ -688,17 +718,17 @@ jobs:
           checkpoint-name: ${{ needs.prepare-game-macos-x64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-macos-x64.outputs.artifact-id }}
           metadata-name: ${{ needs.editor-macos-x64.outputs.artifact-name }}
-          artifact-token: ${{ github.token }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-macos-arm64:
     name: Game / MacOS ARM64
     needs: [prepare-game-macos-arm64, editor-macos-arm64]
-    if: *authorized
+    environment: development-engine
     runs-on: macos-15
     timeout-minutes: 25
-    permissions:
-      contents: read
-      actions: read
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
     steps:
@@ -722,7 +752,10 @@ jobs:
           checkpoint-name: ${{ needs.prepare-game-macos-arm64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-macos-arm64.outputs.artifact-id }}
           metadata-name: ${{ needs.editor-macos-arm64.outputs.artifact-name }}
-          artifact-token: ${{ github.token }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
+          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   development-result:
     name: Development Result
@@ -745,29 +778,34 @@ jobs:
       - game-linux-arm64
       - game-macos-x64
       - game-macos-arm64
-    if: >-
-      always() &&
-      github.event_name == 'workflow_dispatch' &&
-      github.event.repository.private &&
-      github.repository_owner == 'Nelaric' &&
-      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: always() && needs.code-quality.outputs.engine == 'true'
+    environment: development-engine
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
-      actions: write
+      actions: read
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
+      - name: Set Up ORAS
+        if: needs.code-quality.result == 'success'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+        with:
+          version: '1.3.6'
       - name: Aggregate Development Results
+        if: always() && !cancelled()
         id: aggregate
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
-          ARTIFACT_TOKEN: ${{ github.token }}
+          ACTIONS_READ_TOKEN: ${{ github.token }}
+          CI_TRANSFER_PACKAGE: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          UMF_TRANSFER_USER: ${{ vars.UMF_TRANSFER_USER }}
+          UMF_TRANSFER_TOKEN: ${{ secrets.UMF_TRANSFER_TOKEN }}
         run: python3 Scripts/CI/development.py aggregate
       - name: Create Status Publisher Token
         id: publisher
@@ -792,7 +830,9 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
-          ARTIFACT_TOKEN: ${{ github.token }}
+          CI_TRANSFER_PACKAGE: ${{ vars.UMF_TRANSFER_PACKAGE }}
+          UMF_TRANSFER_USER: ${{ vars.UMF_TRANSFER_USER }}
+          UMF_TRANSFER_TOKEN: ${{ secrets.UMF_TRANSFER_TOKEN }}
         run: python3 Scripts/CI/development.py cleanup
       - name: Enforce Development Result
         if: always()

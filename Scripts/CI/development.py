@@ -90,13 +90,27 @@ def event():
     return json_object(os.environ["GITHUB_EVENT_PATH"])
 
 
-def private_dispatch():
-    repository = event()["repository"]
+def manual_engine_run(payload):
+    repository = payload["repository"]
     return (
         os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch"
-        and repository.get("private") is True
+        and bool((payload.get("inputs") or {}).get("pr_number"))
         and repository["owner"]["login"].lower() == "nelaric"
+        and (repository["full_name"] == REPOSITORY or repository.get("private") is True)
         and os.environ["GITHUB_REF"] == f"refs/heads/{repository['default_branch']}"
+    )
+
+
+def engine_run(payload=None):
+    if payload is None:
+        payload = event()
+    if os.environ["GITHUB_EVENT_NAME"] != "pull_request":
+        return manual_engine_run(payload)
+    repository = payload["repository"]
+    pr = payload["pull_request"]
+    return (
+        repository["full_name"] == REPOSITORY and pr["base"]["ref"] == "main"
+        and (pr["head"]["repo"] or {}).get("id") == repository["id"]
     )
 
 
@@ -119,17 +133,17 @@ def resolve_candidate():
     payload = event()
     repo = os.environ["GITHUB_REPOSITORY"]
     commit = os.environ["GITHUB_SHA"]
-    candidate = {"repository": repo, "commit": commit, "pr": 0, "base": "", "head": "", "private": False}
+    candidate = {"repository": repo, "commit": commit, "pr": 0, "base": "", "head": "", "engine": engine_run(payload)}
     if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
         pr = payload["pull_request"]
         candidate.update(pr=payload["number"], base=pr["base"]["sha"], head=pr["head"]["sha"])
-    elif payload["repository"]["private"]:
-        require(private_dispatch(), "Engine verification requires a private Nelaric default-branch dispatch")
-        args = payload.get("inputs") or {}
+    elif (payload.get("inputs") or {}).get("pr_number"):
+        require(candidate["engine"], "PR dispatch requires the default branch of an authorized repository")
+        args = payload["inputs"]
         require(re.fullmatch(r"[1-9][0-9]*", args.get("pr_number", "")), "Expected an open public PR number")
         candidate.update(
             repository=REPOSITORY, pr=int(args["pr_number"]), base=args.get("base_sha"),
-            head=args.get("head_sha"), commit=args.get("candidate_sha"), private=True,
+            head=args.get("head_sha"), commit=args.get("candidate_sha"),
         )
     require(is_digest(candidate["commit"], 40), "Expected an exact candidate commit SHA")
     if candidate["pr"]:
@@ -138,6 +152,7 @@ def resolve_candidate():
     output("source", candidate["repository"])
     output("commit", candidate["commit"])
     output("identity", json.dumps(candidate, separators=(",", ":")))
+    output("engine", str(candidate["engine"]).lower())
 
 
 def verify_checkout(source, candidate):
@@ -187,10 +202,10 @@ def engine_lock(full=False):
 
 
 def build_commands():
-    require(COMMAND_FILE.is_file(), "The protected Development build command file is missing")
+    require(COMMAND_FILE.is_file(), "The Development build command file is missing")
     document = json_object(COMMAND_FILE)
     require(document["schemaVersion"] == 1 and set(document["commands"]) == COMMANDS,
-            "The private command configuration must provide every Development CI phase")
+            "The command configuration must provide every Development CI phase")
     for name, argv in document["commands"].items():
         require(
             isinstance(argv, list) and argv and all(isinstance(arg, str) and arg and "\x00" not in arg for arg in argv),
@@ -200,7 +215,7 @@ def build_commands():
 
 
 def validate_configuration():
-    if not private_dispatch():
+    if not engine_run():
         engine_lock()
         return
     issues = []
@@ -210,24 +225,6 @@ def validate_configuration():
         except (KeyError, OSError, TypeError, ValueError) as error:
             issues.append(str(error))
     require(not issues, "\n".join(issues))
-
-
-def artifact_info(kind, target, commit, artifact_id, name, token, *, check_age=True):
-    require(re.fullmatch(r"[1-9][0-9]*", str(artifact_id)), f"{kind}: missing artifact ID for {target}")
-    match = re.fullmatch(rf"{kind}-{target}-{commit}-([1-9][0-9]*)", name)
-    require(match and int(match[1]) <= int(os.environ["GITHUB_RUN_ATTEMPT"]), f"{kind}: wrong producer artifact")
-    owner = os.environ["GITHUB_REPOSITORY"]
-    artifact = api(f"/repos/{owner}/actions/artifacts/{artifact_id}", token)
-    require(
-        artifact["name"] == name and not artifact["expired"]
-        and str(artifact["workflow_run"]["id"]) == os.environ["GITHUB_RUN_ID"]
-        and artifact["size_in_bytes"] > 0,
-        f"{kind}: missing, expired or outside this run",
-    )
-    if check_age:
-        age = (datetime.now(timezone.utc) - timestamp(artifact["created_at"])).total_seconds()
-        require(0 <= age < 3600, f"{kind}: its one-hour consumption window expired. Re-run all jobs.")
-    return artifact, int(match[1])
 
 
 def timestamp(value):
@@ -262,8 +259,8 @@ def required_timings(job):
     if job.startswith("prepare-game-"):
         return {"Engine Installation", "Toolchain Preparation", "Native Tool Compilation", "Metadata Independent Build",
                 "Checkpoint Serialization", "Checkpoint Upload"}
-    return {"Checkpoint Download", "Checkpoint Restoration", "Metadata Download", "Metadata Import",
-            "Metadata Dependent Build", "Final Linking"}
+    return {"Engine Installation", "Toolchain Preparation", "Checkpoint Download", "Checkpoint Restoration",
+            "Metadata Download", "Metadata Import", "Metadata Dependent Build", "Final Linking"}
 
 
 def critical_path(durations):
@@ -276,11 +273,14 @@ def critical_path(durations):
 
 
 def aggregate():
+    from artifact_store import ArtifactStore
+
     started = datetime.now(timezone.utc)
     needs = json.loads(os.environ["NEEDS_JSON"])
     candidate = json.loads(os.environ.get("CI_IDENTITY") or "{}")
     version = json_object(LOCK).get("ueVersion", "Unavailable")
-    token = os.environ["ARTIFACT_TOKEN"]
+    token = os.environ["ACTIONS_READ_TOKEN"]
+    store = None
     lines = [
         "## Development Result", "",
         f"- Source Commit `{candidate.get('commit', 'Unavailable')}`",
@@ -335,12 +335,13 @@ def aggregate():
                     metadata = checkpoint = "Valid"
                     kind = None
                 if kind:
-                    info, _ = artifact_info(
-                        kind, target, candidate["commit"], values.get("artifact-id", ""),
-                        values.get("artifact-name", ""), token, check_age=False,
+                    if store is None:
+                        store = ArtifactStore()
+                    size, _ = store.inspect(
+                        kind, target, candidate["commit"], values.get("artifact-name", ""),
+                        values.get("artifact-id", ""), check_age=False,
                     )
-                    size = str(info["size_in_bytes"])
-            except (KeyError, TypeError, ValueError, OSError) as error:
+            except (KeyError, TypeError, ValueError, OSError, subprocess.CalledProcessError) as error:
                 if state == "success":
                     issues.append(f"{name}: {error}")
                 if job.startswith("editor-") and metadata == "—":
@@ -349,7 +350,7 @@ def aggregate():
                     checkpoint = "Missing or Invalid"
         duration = f"{durations[name]:.2f}" if name in durations else "—"
         lines.append(f"| {name} | {state} | {duration} | {tests} | {metadata} | {checkpoint} | {size} | {reused} | {replayed} |")
-    if candidate.get("private"):
+    if candidate.get("engine"):
         try:
             validate_live_pr(candidate, check_base=True)
         except (OSError, ValueError, KeyError) as error:
@@ -377,9 +378,9 @@ def aggregate():
 
 
 def publish():
-    require(private_dispatch(), "Status publication requires an authorized private dispatch")
+    require(engine_run(), "Status publication requires an authorized Development build")
     candidate = json.loads(os.environ["CI_IDENTITY"])
-    require(candidate["private"] and candidate["repository"] == REPOSITORY, "Wrong public status repository")
+    require(candidate["engine"] and candidate["repository"] == REPOSITORY, "Wrong public status repository")
     validate_live_pr(candidate, check_base=True)
     success = os.environ["PASSED"] == "true"
     api(f"/repos/{REPOSITORY}/statuses/{candidate['commit']}", os.environ["STATUS_TOKEN"], {
@@ -390,26 +391,28 @@ def publish():
 
 
 def cleanup():
-    require(private_dispatch(), "Artifact cleanup requires the private Development run")
+    from artifact_store import ArtifactStore
+
+    require(engine_run(), "Artifact cleanup requires an authorized Development build")
     candidate = json.loads(os.environ["CI_IDENTITY"])
     needs = json.loads(os.environ["NEEDS_JSON"])
-    token = os.environ["ARTIFACT_TOKEN"]
-    repo = os.environ["GITHUB_REPOSITORY"]
-    for job, item in needs.items():
-        values = item["outputs"]
-        artifact_id = values.get("artifact-id")
-        if job.startswith("editor-"):
-            kind, target = "metadata", job.removeprefix("editor-") + "-editor"
-        elif job.startswith("prepare-game-"):
-            kind, target = "checkpoint", job.removeprefix("prepare-game-") + "-game"
-        else:
-            continue
-        try:
-            artifact_info(kind, target, candidate["commit"], artifact_id, values.get("artifact-name", ""),
-                          token, check_age=False)
-            api(f"/repos/{repo}/actions/artifacts/{artifact_id}", token, method="DELETE")
-        except (OSError, KeyError, ValueError):
-            print(f"::warning::Could not remove {kind} for {target}. GitHub's one-day fallback retention applies.")
+    try:
+        store = ArtifactStore()
+        transfers = []
+        for job, item in needs.items():
+            if job.startswith("editor-"):
+                kind, target = "metadata", job.removeprefix("editor-") + "-editor"
+            elif job.startswith("prepare-game-"):
+                kind, target = "checkpoint", job.removeprefix("prepare-game-") + "-game"
+            else:
+                continue
+            name = item["outputs"]["artifact-name"]
+            artifact_id = item["outputs"]["artifact-id"]
+            store.inspect(kind, target, candidate["commit"], name, artifact_id, check_age=False)
+            transfers.append((name, artifact_id))
+        store.remove(transfers)
+    except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
+        print(f"::warning::Could not remove the private artifacts ({error})")
 
 
 def main():

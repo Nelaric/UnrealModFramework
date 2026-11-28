@@ -1,11 +1,9 @@
 # Copyright (c) 2026 Nelaric Contributors
 """Regression tests for Development CI's evidence and run boundaries."""
 
-import io
 import json
 import os
 import sys
-import tarfile
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -15,28 +13,70 @@ from unittest.mock import patch
 from check_automation_report import DEVELOPMENT_TESTS, check_development_report
 
 sys.path.insert(0, str(Path(__file__).parent / "CI"))
+import artifact_store as storage
 import build_target as target
 import development as ci
+
+
+class AuthorizationTests(unittest.TestCase):
+    def test_same_repository_pull_request_enters_engine_validation(self):
+        payload = {
+            "repository": {"full_name": ci.REPOSITORY, "id": 42},
+            "pull_request": {"base": {"ref": "main"}, "head": {"repo": {"id": 42}}},
+        }
+        with patch.dict(os.environ, GITHUB_EVENT_NAME="pull_request"):
+            self.assertTrue(ci.engine_run(payload))
+            payload["pull_request"]["head"]["repo"]["id"] = 43
+            self.assertFalse(ci.engine_run(payload))
+            payload["pull_request"]["head"]["repo"] = None
+            self.assertFalse(ci.engine_run(payload))
 
 
 class ArtifactTests(unittest.TestCase):
     def test_artifact_can_come_from_a_successful_earlier_attempt_only_in_the_same_run(self):
         commit = "a" * 40
         name = f"metadata-linux-x64-editor-{commit}-1"
-        info = {
-            "name": name, "workflow_run": {"id": 42}, "size_in_bytes": 10, "expired": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+        digest = "sha256:" + "b" * 64
+        manifest = {
+            "artifactType": storage.ARTIFACT_TYPE + "metadata.v1",
+            "annotations": {storage.CREATED: datetime.now(timezone.utc).isoformat()},
+            "layers": [{"size": 5, "annotations": {storage.TITLE: filename}}
+                       for filename in ("envelope.json", "payload")],
         }
-        with patch.dict(os.environ, GITHUB_RUN_ID="42", GITHUB_RUN_ATTEMPT="2", GITHUB_REPOSITORY="Nelaric/build"):
-            with patch.object(ci, "api", return_value=info):
-                self.assertEqual(ci.artifact_info("metadata", "linux-x64-editor", commit, "7", name, "")[1], 1)
-                info["workflow_run"]["id"] = 41
-                with self.assertRaisesRegex(ValueError, "outside this run"):
-                    ci.artifact_info("metadata", "linux-x64-editor", commit, "7", name, "")
-                info["workflow_run"]["id"] = 42
-                info["created_at"] = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-                with self.assertRaisesRegex(ValueError, "consumption window expired"):
-                    ci.artifact_info("metadata", "linux-x64-editor", commit, "7", name, "")
+        with patch.dict(os.environ, GITHUB_RUN_ID="42", GITHUB_RUN_ATTEMPT="2", GITHUB_REPOSITORY_ID="12",
+                        CI_TRANSFER_PACKAGE="ghcr.io/nelaric/build", UMF_TRANSFER_USER="test", UMF_TRANSFER_TOKEN="test"):
+            store = storage.ArtifactStore()
+            with (
+                patch.object(storage, "api", return_value={"visibility": "private"}),
+                patch.object(store, "oras", side_effect=[json.dumps({"digest": digest}), json.dumps(manifest)]) as oras,
+            ):
+                self.assertEqual(store.inspect("metadata", "linux-x64-editor", commit, name, digest), (10, 1))
+                self.assertEqual(oras.call_args_list[0].args[-1], f"ghcr.io/nelaric/build:umf-12-42-{name}")
+                with self.assertRaisesRegex(ValueError, "producing attempt"):
+                    store.inspect("metadata", "linux-x64-editor", commit, name[:-1] + "3", digest)
+            with (
+                patch.object(storage, "api", return_value={"visibility": "private"}),
+                patch.object(store, "oras", return_value=json.dumps({"digest": "sha256:" + "c" * 64})),
+            ):
+                with self.assertRaisesRegex(ValueError, "tag does not match"):
+                    store.inspect("metadata", "linux-x64-editor", commit, name, digest)
+            manifest["annotations"][storage.CREATED] = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+            with self.assertRaisesRegex(ValueError, "reuse window expired"):
+                storage.validate_manifest(manifest, "metadata", check_age=True)
+
+    def test_public_storage_is_rejected_before_upload(self):
+        commit = "a" * 40
+        name = f"checkpoint-linux-x64-game-{commit}-1"
+        with patch.dict(os.environ, GITHUB_RUN_ID="42", GITHUB_RUN_ATTEMPT="1", GITHUB_REPOSITORY_ID="12",
+                        CI_TRANSFER_PACKAGE="ghcr.io/nelaric/build", UMF_TRANSFER_USER="test", UMF_TRANSFER_TOKEN="test"):
+            store = storage.ArtifactStore()
+            with (
+                patch.object(storage, "api", return_value={"visibility": "public"}),
+                patch.object(store, "oras") as oras,
+                self.assertRaisesRegex(ValueError, "storage must be private"),
+            ):
+                store.push(Path.cwd(), "checkpoint", "linux-x64-game", commit, name)
+            oras.assert_not_called()
 
     def test_corrupt_payload_or_wrong_identity_cannot_be_restored(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -56,25 +96,22 @@ class ArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "corrupt"):
                 target.verify_payload(directory, "metadata", expected, 2)
 
-    def test_sdk_restore_preserves_contents_and_blocks_out_of_tree_members(self):
+    def test_checkpoint_requires_exact_engine_manifest_without_an_engine_archive(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            archive = root / "sdk.tar.gz"
-            with tarfile.open(archive, "w:gz") as stream:
-                member = tarfile.TarInfo("./Engine/tool")
-                member.mode = 0o755
-                member.size = 3
-                stream.addfile(member, io.BytesIO(b"SDK"))
-            sdk = root / "sdk"
-            target.restore_sdk(archive, sdk)
-            self.assertEqual((sdk / "Engine/tool").read_bytes(), b"SDK")
-            if os.name != "nt":
-                self.assertTrue((sdk / "Engine/tool").stat().st_mode & 0o100)
-            with tarfile.open(archive, "w:gz") as stream:
-                stream.addfile(tarfile.TarInfo("../outside"))
-            with self.assertRaises(tarfile.OutsideDestinationError):
-                target.restore_sdk(archive, root / "invalid")
-            self.assertFalse((root / "outside").exists())
+            directory = Path(temp)
+            payload = directory / "payload"
+            payload.write_bytes(b"project objects")
+            identity = {"engine_manifest_sha256": "a" * 64}
+            target.write_json(directory / "envelope.json", {
+                "identity": identity, "attempt": 1, "evidence": {},
+                "files": {"payload": {"sha256": ci.sha256(payload), "bytes": payload.stat().st_size}},
+            })
+            target.verify_payload(directory, "checkpoint", identity, 1)
+            with self.assertRaisesRegex(ValueError, "identity mismatch"):
+                target.verify_payload(directory, "checkpoint", {"engine_manifest_sha256": "b" * 64}, 1)
+            (directory / "sdk.tar.gz").touch()
+            with self.assertRaisesRegex(ValueError, "unexpected entries"):
+                target.verify_payload(directory, "checkpoint", identity, 1)
 
 
 class ResultTests(unittest.TestCase):
@@ -88,7 +125,7 @@ class ResultTests(unittest.TestCase):
                 target.verify_reuse(checkpoint, {**game, key: value})
 
     def test_aggregate_requires_every_job_and_all_editor_proof(self):
-        candidate = {"private": True, "commit": "a" * 40}
+        candidate = {"engine": True, "commit": "a" * 40}
         needs = {}
         for job in ci.JOBS:
             values = {}
@@ -102,13 +139,14 @@ class ResultTests(unittest.TestCase):
             needs[job] = {"result": "success", "outputs": values}
         durations = dict.fromkeys(ci.JOBS.values(), 1.5)
         with (
-            patch.dict(os.environ, CI_IDENTITY=json.dumps(candidate), ARTIFACT_TOKEN=""),
+            patch.dict(os.environ, CI_IDENTITY=json.dumps(candidate), ACTIONS_READ_TOKEN=""),
             patch.object(ci, "job_durations", return_value=durations),
-            patch.object(ci, "artifact_info", return_value=({"size_in_bytes": 10}, 1)),
+            patch.object(storage, "ArtifactStore") as artifact_store,
             patch.object(ci, "validate_live_pr"),
             patch.object(ci, "summary") as report,
             patch.object(ci, "output") as outcome,
         ):
+            artifact_store.return_value.inspect.return_value = (10, 1)
             for state in ("success", "skipped", "failure", "cancelled"):
                 needs["game-linux-arm64"]["result"] = state
                 with patch.dict(os.environ, NEEDS_JSON=json.dumps(needs)):

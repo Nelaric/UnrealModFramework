@@ -15,37 +15,37 @@
 
 ## Development CI
 
-[Development CI](../.github/workflows/development.yml) 对 GitHub 的 PR 测试合并提交运行 Code Quality。Native Tools 依赖 Code Quality。公开 PR 和手动运行覆盖无引擎任务。在授权私有运行中，四个 Editor 和六个 Game Prepare 也依赖 Code Quality。每个 Game 同时等待自己的 Game Prepare 和指定 Editor。Windows 和 Linux ARM64 使用同系统 X64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。Development Result 汇总 18 个上游 Job。
+[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发，对测试合并提交运行 Code Quality。Native Tools 依赖 Code Quality。同仓库 PR 的四个 Editor 和六个 Game Prepare 也依赖 Code Quality，并使用受保护的 `development-engine` 环境。Fork PR 运行无引擎任务。每个 Game 同时等待自己的 Game Prepare 和指定 Editor。Windows 和 Linux ARM64 使用同系统 X64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。Development Result 汇总 18 个上游 Job。
 
-Editor 导出、校验并上传 Metadata，然后构建正常 Editor，以无界面模式运行 `Nelaric.*` Automation Tests。Game Prepare 执行所有不依赖 Metadata 的 Action。Game 在另一台原生 Runner 上恢复已安装的 SDK 和项目 Checkpoint，核对恢复状态、导入 Metadata，并完成 Monolithic Development 目标。Development Result 记录测试数量、Artifact 字节数、阶段耗时、Action 复用次数和不可移植原因。
+Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界面模式运行 `Nelaric.*` Automation Tests。Game Prepare 执行所有不依赖 Metadata 的 Action。Game 在另一台原生 Runner 上安装同一份锁定的私有 SDK，恢复项目 Checkpoint、导入 Metadata，并完成 Monolithic Development 目标。Development Result 记录测试数量、Artifact 字节数、阶段耗时、Action 复用次数和不可移植原因。
 
-### 配置并启动私有运行
+### 配置引擎任务
 
-1. 将这个工作流、本地 Composite Action、`Scripts/CI/`、`Scripts/check_git_naming.py` 和 `Scripts/check_automation_report.py` 部署到 Nelaric 授权私有仓库的受保护默认分支。仅维护者可修改工作流和启动运行。给 `UMFCI_READ_TOKEN` 授予读取私有 UMFCI 安装器与发行版的权限。安装仅可向公开 UMF 仓库写入 Commit Status 的 GitHub App，并在私有仓库设置 `UMF_STATUS_APP_ID` 和 `UMF_STATUS_APP_PRIVATE_KEY`。
-2. 在私有副本的[引擎锁](../.github/engine-lock.json)中，为十个目标分别填写不可变 UMFCI 发行版标签、Recipe 和 Manifest 摘要，并设置安装器提交、上游引擎提交、准确的 .NET SDK 版本及工具链配置。
-3. 在受保护的默认分支添加下述命令文件。
-4. 使用 PR 编号、已审查的 PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 启动运行。工作流使用这三个 SHA 标识候选提交，并将 `ci/development` 回传至测试合并提交。同一 PR 更新时会取消旧的公开运行。同一 PR 的新授权运行会取消旧的私有运行。
+1. 配置 `development-engine` GitHub 环境，由维护者审查候选提交。将可读取私有 UMFCI 安装器与发行版的 `UMFCI_READ_TOKEN` 放入该环境。为回传 `ci/development` 的 GitHub App 设置 `UMF_STATUS_APP_ID` 和 `UMF_STATUS_APP_PRIVATE_KEY`。
+2. 建立 Nelaric 专用的私有 Container Package。将完整的 `ghcr.io/nelaric/<package>` 地址设为环境变量 `UMF_TRANSFER_PACKAGE`，将包账户设为 `UMF_TRANSFER_USER`。在环境 Secret `UMF_TRANSFER_TOKEN` 中存放可读取、发布和删除该包版本的凭据。将包访问权限限定于受保护的环境凭据。
+3. 在[引擎锁](../.github/engine-lock.json)中为十个目标分别填写不可变 UMFCI 发行版标签、Recipe 和 Manifest 摘要，并设置安装器提交、上游引擎提交、准确的 .NET SDK 版本及工具链配置。添加下述命令文件。
+4. 如需手动运行已审查的 PR，从受保护的默认分支使用 PR 编号、PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 发起运行。同一 PR 更新时会取消旧运行。
 
 ### 接入构建阶段
 
-私有仓库的 `.github/development-commands.json` 包含值为 `1` 的 `schemaVersion` 和 `commands` 对象。每项都是调用已实现接口的真实工具或经审查适配器的非空参数数组。CI 从候选源码目录直接执行参数数组。可引用 `{source}`、`{control}`、`{work}`、`{sdk}`、`{evidence}`、`{target}`、`{configuration}`、`{architecture}`、`{ubt_platform}`、`{ubt_architecture}`、`{commit}`、`{lock_sha256}`、`{engine_version}`、`{upstream_commit}`、`{toolchain}`、`{metadata_target}`、`{metadata_payload}` 和 `{checkpoint_payload}`。构建命令也能读取对应的大写 `UMF_` 环境变量。原生 Checkpoint 格式负责保留可执行权限和路径重定位资料。
+`.github/development-commands.json` 包含值为 `1` 的 `schemaVersion` 和 `commands` 对象。每项都是调用已实现接口的真实工具或经审查适配器的非空参数数组。CI 从候选源码目录直接执行参数数组。可引用 `{source}`、`{control}`、`{work}`、`{sdk}`、`{evidence}`、`{target}`、`{configuration}`、`{architecture}`、`{ubt_platform}`、`{ubt_architecture}`、`{commit}`、`{lock_sha256}`、`{engine_version}`、`{upstream_commit}`、`{toolchain}`、`{metadata_target}`、`{metadata_payload}` 和 `{checkpoint_payload}`。构建命令也能读取对应的大写 `UMF_` 环境变量。原生 Checkpoint 格式负责保留可执行权限和路径重定位资料。
 
 | 命令键 | 职责 |
 | --- | --- |
 | `build-native-tools`、`prepare-libclang` | 每个生产者 Job 构建一次必要工具并准备对应宿主 libclang。Game Prepare 将可恢复的工具与依赖纳入 Checkpoint。 |
 | `prepare-editor-bootstrap`、`export-metadata`、`validate-metadata`、`build-editor` | 导出器确实需要时才执行 Bootstrap。将原生 Metadata 写入 `{metadata_payload}`，通过项目接口校验，然后构建正常 Editor。CI 直接运行 Editor 测试。Game 在指定的 `{metadata_target}` 上调用同一校验接口。 |
-| `prepare-game`、`save-checkpoint`、`validate-checkpoint` | 解析真实 Target、Module 和 Action Graph，执行所有可在缺少 Metadata 时执行的工作。将项目 Checkpoint 写入 `{checkpoint_payload}`，由项目校验 Action、输入指纹、工具链、原生工具、ABI 输入和路径重定位。CI 将已安装的 SDK 随项目 Checkpoint 传递。 |
-| `restore-checkpoint`、`import-metadata`、`resume-game`、`verify-game` | 使用已恢复的 SDK 还原项目状态并校验实际宿主工具链，继续执行剩余工作。校验 Monolithic 目标的原生链接回执，并把已经链接的可执行文件交给 MBT 检查架构。 |
+| `prepare-game`、`save-checkpoint`、`validate-checkpoint` | 解析真实 Target、Module 和 Action Graph，执行所有可在缺少 Metadata 时执行的工作。将项目 Checkpoint 写入 `{checkpoint_payload}`，由项目校验 Action、输入指纹、工具链、原生工具、ABI 输入和路径重定位。 |
+| `restore-checkpoint`、`import-metadata`、`resume-game`、`verify-game` | 使用重新安装的锁定 SDK 还原项目状态，继续执行剩余工作。校验 Monolithic 目标的原生链接回执，并把已经链接的可执行文件交给 MBT 检查架构。 |
 | `test-native-development` | 在 Native Tools Job 内运行已实现的 Metadata、Checkpoint、SDK Plan 和 Manifest 测试。该命令可引用 `{source}`、`{control}` 和已经生成工具的 `{native}` 目录。 |
 
 项目校验接口应在 `{evidence}` 生成如下报告。报告必须源于真实工具输出和构建状态。Checkpoint 的序列化和构建续跑继续由项目接口完成。
 
 - 所有报告均包含 `target`、`source_commit`、`engine_lock_sha256`、`engine_version`、`configuration`、`architecture` 和 `input_sha256`。Metadata 使用生产者 Editor 的目标与架构。
 - `metadata.json` 包含 `bundle_valid`。校验器要在 Editor 和 Game Runner 上独立计算相同的 Metadata 输入。
-- `checkpoint.json` 还包含 `toolchain_sha256`、`build_manifest_sha256`、`paths_valid`、`native_tools_runnable`、`inputs_valid`、`actions_valid`、`completed_actions`、`pending_actions`、`metadata_independent_pending_actions` 和记录原因及数量的 `nonportable_actions` 对象。恢复适配器必须核验当前 Runner 的工具链，并重建同一份规范化 `{toolchain}` 文件。CI 会与生产者的 SHA-256 比较，并要求可提前执行的待处理 Action 为零。
+- `checkpoint.json` 还包含 `toolchain_sha256`、`build_manifest_sha256`、`paths_valid`、`native_tools_runnable`、`inputs_valid`、`actions_valid`、`completed_actions`、`pending_actions`、`metadata_independent_pending_actions` 和记录原因及数量的 `nonportable_actions` 对象。CI 独立配置续跑 Runner 的工具链，在恢复 Checkpoint 之前将规范化 `{toolchain}` 文件的 SHA-256 与生产者的记录比对。
 - `game.json` 写入为 `Monolithic` 的 `link_type`、`link_receipt_valid`、相对源码目录的 `link_receipt` 和 `binary`、相对工作目录的 `mbt`、`metadata_input_sha256`、`reused_actions`、`reexecuted_actions`、`reexecuted_portable_actions`、`pending_actions`、`metadata_dependent_seconds` 和 `link_seconds`。重执行 Action 必须在 Checkpoint 标明的不可移植范围内，可移植 Action 的重复执行数量必须为零。
 
-工作流使用生产者的不可变 Artifact ID、目标、Commit 和 Attempt。失败 Job 重跑时，可以使用同一 Workflow Run 内上传未满一小时的产物。超过该窗口或 Development Result 已清理产物时，重跑整个工作流以重新生成。GitHub 原生最短保留期为一天。[GitHub Artifact 保留期限](https://github.com/actions/upload-artifact#retention-period)。
+私有包传递 Metadata 和项目 Checkpoint。每份产物记录 OCI Manifest 摘要、目标、Commit、Run 和 Attempt。Checkpoint 封套记录不可变的 UMFCI SDK Manifest，Runner 直接从对应的私有发行版安装 SDK。构建日志随 Actions Job 展示。失败 Job 重跑时，可使用同一 Workflow Run 内发布未满一小时的产物。超过该窗口或 Development Result 已清理产物时，重跑整个工作流。
 
 ### 切换合并门禁
 

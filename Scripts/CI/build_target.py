@@ -12,16 +12,14 @@ import shutil
 import stat
 import subprocess
 import sys
-import tarfile
 import time
 from pathlib import Path
 
+from artifact_store import ArtifactStore, FILES as ARTIFACT_FILES
 from development import (
-    COMMAND_FILE, CONTROL, EDITORS, LOCK, PLATFORMS, artifact_info, build_commands, engine_lock,
-    is_digest, json_object, numeric, output, private_dispatch, require, sha256, validate_live_pr, verify_checkout,
+    COMMAND_FILE, CONTROL, EDITORS, LOCK, PLATFORMS, build_commands, engine_lock, engine_run,
+    is_digest, json_object, numeric, output, require, sha256, validate_live_pr, verify_checkout,
 )
-
-ARTIFACT_FILES = {"metadata": ("payload",), "checkpoint": ("payload", "sdk.tar.gz")}
 
 LABELS = {
     "install": "Engine Installation",
@@ -35,7 +33,10 @@ LABELS = {
     "prepare-game": "Metadata Independent Build",
     "save-checkpoint": "Checkpoint Serialization",
     "seal-checkpoint": "Checkpoint Serialization",
-    "restore-sdk": "Checkpoint Restoration",
+    "upload-checkpoint": "Checkpoint Upload",
+    "download-checkpoint": "Checkpoint Download",
+    "upload-metadata": "Metadata Upload",
+    "download-metadata": "Metadata Download",
     "restore-checkpoint": "Checkpoint Restoration",
     "import-metadata": "Metadata Import",
 }
@@ -80,17 +81,11 @@ def verify_payload(directory, kind, expected, attempt):
     return record["evidence"]
 
 
-def restore_sdk(archive, destination):
-    destination.mkdir()
-    with tarfile.open(archive, "r|gz") as stream:
-        stream.extractall(destination, filter="data")
-
-
 class Target:
     def __init__(self):
-        require(private_dispatch(), "Engine and artifact operations require an authorized private run")
+        require(engine_run(), "Engine and artifact operations require an authorized Development run")
         self.candidate = json.loads(os.environ["CI_IDENTITY"])
-        require(self.candidate["private"], "Candidate was not authorized for a private build")
+        require(self.candidate["engine"], "Candidate was not authorized for an engine build")
         self.slug = os.environ["CI_TARGET"]
         self.key, self.profile = self.slug.rsplit("-", 1)
         self.editor = EDITORS[self.key] + "-editor"
@@ -123,12 +118,6 @@ class Target:
         write_json(self.metrics, {"timings": {}})
         output("installer", self.lock["installerCommit"])
         output("dotnet", self.lock["dotnetSdk"])
-        for kind in ARTIFACT_FILES:
-            output(f"{kind}-path", (self.work / kind).as_posix())
-            output(
-                f"{kind}-name",
-                f"{kind}-{self.slug}-{self.candidate['commit']}-{os.environ['GITHUB_RUN_ATTEMPT']}",
-            )
 
     def identity(self, target):
         return {
@@ -144,6 +133,7 @@ class Target:
         return {
             **self.identity(target),
             "run_id": os.environ["GITHUB_RUN_ID"],
+            "engine_manifest_sha256": self.lock["targets"][target]["manifestSha256"],
             "command_sha256": self.command_hash,
         }
 
@@ -256,7 +246,7 @@ class Target:
         environment = self.work / "toolchain-env.json"
         if environment.is_file():
             env.update(json_object(environment))
-        for token in ("GH_TOKEN", "GITHUB_TOKEN", "ARTIFACT_TOKEN", "STATUS_TOKEN", "SDK_TOKEN"):
+        for token in ("GH_TOKEN", "GITHUB_TOKEN", "PUBLIC_READ_TOKEN", "STATUS_TOKEN", "SDK_TOKEN", "UMF_TRANSFER_TOKEN"):
             env.pop(token, None)
         argv = [argument.format_map(variables) for argument in self.commands[name]]
         subprocess.run(argv, cwd=self.source, env=env, check=True)
@@ -353,10 +343,6 @@ class Target:
     def seal(self, kind):
         validate_live_pr(self.candidate)
         directory = self.work / kind
-        if kind == "checkpoint":
-            self.verify_sdk()
-            with tarfile.open(directory / "sdk.tar.gz", "w:gz", compresslevel=1) as archive:
-                archive.add(self.sdk, arcname=".")
         record = json_object(self.evidence / f"{kind}.json")
         files = {}
         for name in ARTIFACT_FILES[kind]:
@@ -370,24 +356,24 @@ class Target:
             "evidence": record, "files": files,
         })
 
-    def artifact(self, kind):
+    def upload(self, kind):
+        commit = self.candidate["commit"]
+        name = f"{kind}-{self.slug}-{commit}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+        digest = ArtifactStore().push(self.work / kind, kind, self.slug, commit, name)
+        output("artifact-id", digest)
+        output("artifact-name", name)
+
+    def download(self, kind):
         prefix = kind.upper()
         target = self.slug if kind == "checkpoint" else self.editor
-        return artifact_info(
-            kind, target, self.candidate["commit"], os.environ[f"{prefix}_ID"], os.environ[f"{prefix}_NAME"],
-            os.environ["ARTIFACT_TOKEN"],
+        attempt = ArtifactStore().pull(
+            self.work / kind, kind, target, self.candidate["commit"],
+            os.environ[f"{prefix}_NAME"], os.environ[f"{prefix}_ID"],
         )
-
-    def received(self, kind):
-        _, attempt = self.artifact(kind)
-        target = self.slug if kind == "checkpoint" else self.editor
-        verify_payload(self.work / kind, kind, self.transport_identity(target), attempt)
-
-    def restore_engine(self):
-        archive = self.work / "checkpoint" / "sdk.tar.gz"
-        restore_sdk(archive, self.sdk)
-        self.verify_sdk()
-        archive.unlink()
+        evidence = verify_payload(self.work / kind, kind, self.transport_identity(target), attempt)
+        if kind == "checkpoint":
+            require(evidence["toolchain_sha256"] == sha256(self.work / "toolchain.json"),
+                    "Checkpoint toolchain differs from the toolchain on the resume runner")
 
     def metrics_update(self, **metrics):
         current = json_object(self.metrics)
@@ -400,23 +386,15 @@ class Target:
         timings[label] = timings.get(label, 0) + seconds
         write_json(self.metrics, current)
 
-    def mark(self, label, end=False):
-        path = self.work / f"{label}.time"
-        if end:
-            self.add_time(label, time.monotonic() - float(path.read_text()))
-        else:
-            path.write_text(str(time.monotonic()))
-
     def step(self, name):
         actions = {
-            "configure": self.configure, "install": self.install, "toolchain": self.toolchain, "restore-sdk": self.restore_engine,
+            "configure": self.configure, "install": self.install, "toolchain": self.toolchain,
+            "verify-artifact-store": lambda: ArtifactStore().verify_private(),
             "validate-metadata": self.verified_metadata, "validate-checkpoint": self.verified_checkpoint,
             "test-editor": self.run_automation, "verify-editor": self.verified_editor, "verify-game": self.verified_game,
             "seal-metadata": lambda: self.seal("metadata"), "seal-checkpoint": lambda: self.seal("checkpoint"),
-            "check-metadata-artifact": lambda: self.artifact("metadata"),
-            "check-checkpoint-artifact": lambda: self.artifact("checkpoint"),
-            "verify-metadata-artifact": lambda: self.received("metadata"),
-            "verify-checkpoint-artifact": lambda: self.received("checkpoint"),
+            "upload-metadata": lambda: self.upload("metadata"), "upload-checkpoint": lambda: self.upload("checkpoint"),
+            "download-metadata": lambda: self.download("metadata"), "download-checkpoint": lambda: self.download("checkpoint"),
             "metrics": lambda: output("value", json.dumps(json_object(self.metrics), separators=(",", ":"), ensure_ascii=True)),
         }
         started = time.monotonic()
@@ -431,7 +409,7 @@ class Target:
 
 
 def test_native_development():
-    require(private_dispatch(), "Protected native test commands require an authorized private run")
+    require(engine_run(), "Native Development protocol tests require an eligible Development run")
     command = build_commands()["test-native-development"]
     source = Path("source").resolve()
     native = Path(os.environ["RUNNER_TEMP"]).resolve() / "umf-native" / "bin" / "Release"
@@ -444,15 +422,11 @@ def main():
     if name == "test-native-development":
         test_native_development()
         return
-    target = Target()
-    if name in {"start-timing", "finish-timing"}:
-        target.mark(sys.argv[2], end=name == "finish-timing")
-    else:
-        target.step(name)
+    Target().step(name)
 
 
 if __name__ == "__main__":
     try:
         main()
-    except (KeyError, OSError, ValueError, subprocess.CalledProcessError, tarfile.TarError) as error:
+    except (KeyError, OSError, ValueError, subprocess.CalledProcessError) as error:
         sys.exit(str(error))
