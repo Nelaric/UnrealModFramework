@@ -32,20 +32,47 @@ class AuthorizationTests(unittest.TestCase):
 
 
 class ArtifactTests(unittest.TestCase):
-    def test_checkpoint_requires_the_locked_engine_and_a_fresh_build_record(self):
+    def test_checkpoint_requires_the_same_sdk_release_and_a_fresh_build_record(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
-            identity = {"source_commit": "a" * 40, "architecture": "arm64", "engine_manifest_sha256": "b" * 64}
+            identity = {"source_commit": "a" * 40, "architecture": "arm64", "engine_release": "v1.0.1"}
             contents = {
                 "sealed_at": time.time(), "identity": identity, "evidence": {"completed_actions": 8},
             }
             target.write_json(directory / "envelope.json", contents)
             self.assertEqual(target.handoff_evidence(directory, "checkpoint", identity), contents["evidence"])
             with self.assertRaisesRegex(ValueError, "identity mismatch"):
-                target.handoff_evidence(directory, "checkpoint", {**identity, "engine_manifest_sha256": "c" * 64})
+                target.handoff_evidence(directory, "checkpoint", {**identity, "engine_release": "v1.0.2"})
             with patch.object(target.time, "time", return_value=contents["sealed_at"] + 3600):
                 with self.assertRaisesRegex(ValueError, "one-hour consumption window expired"):
                     target.handoff_evidence(directory, "checkpoint", identity)
+
+
+class SdkReleaseTests(unittest.TestCase):
+    def test_package_selection_is_specific_to_target_and_release(self):
+        arm64 = {"target": "windows-arm64-game", "archive": "UE-5.6.1-Windows-arm64-Game.tar.zst"}
+        index = {
+            "schema_version": 1, "release": "v1.0.1", "ue_version": "5.6.1",
+            "packages": [{"target": "source"}, {"target": "windows-x64-editor"}, arm64],
+        }
+        self.assertEqual(target.sdk_package(index, "v1.0.1", "windows-arm64-game"), arm64)
+        with self.assertRaisesRegex(ValueError, "incompatible release index"):
+            target.sdk_package(index, "v1.0.2", "windows-arm64-game")
+        with self.assertRaisesRegex(ValueError, "exactly one SDK"):
+            target.sdk_package(index, "v1.0.1", "linux-x64-game")
+
+    def test_sdk_release_requires_immutable_published_assets(self):
+        release = {
+            "id": 12, "tag_name": "v1.0.1", "immutable": True, "published_at": "2026-11-28T00:00:00Z",
+            "draft": False, "prerelease": False, "assets": [{"name": "v1.0.1-metadata.zip", "id": 7}],
+        }
+        with patch.object(target, "api", side_effect=[{"private": True}, release]):
+            self.assertEqual(target.resolve_sdk_release("v1.0.1", "test"), {
+                "id": 12, "assets": {"v1.0.1-metadata.zip": 7},
+            })
+        with patch.object(target, "api", side_effect=[{"private": True}, {**release, "immutable": False}]):
+            with self.assertRaisesRegex(ValueError, "published, immutable"):
+                target.resolve_sdk_release("v1.0.1", "test")
 
 
 class ResultTests(unittest.TestCase):

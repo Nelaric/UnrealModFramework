@@ -34,6 +34,7 @@ defaults:
 env:
   PYTHONUTF8: '1'
   PYTHONDONTWRITEBYTECODE: '1'
+  UMFCI_RELEASE_TAG: v1.0.1
 
 jobs:
   code-quality:

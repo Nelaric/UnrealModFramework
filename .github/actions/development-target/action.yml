@@ -42,22 +42,24 @@ runs:
       with:
         python-version: '3.12'
         architecture: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
-    - name: Resolve Engine Lock
-      id: lock
+    - name: Resolve UMFCI Release
+      id: sdk
+      env:
+        GH_TOKEN: ${{ inputs.sdk-token }}
       shell: bash
       run: python Scripts/CI/build_target.py configure
-    - name: Checkout Locked Engine Installer
+    - name: Checkout UMFCI Installer
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         repository: Nelaric/UMFCI
-        ref: ${{ steps.lock.outputs.installer }}
+        ref: ${{ steps.sdk.outputs.installer-ref }}
         token: ${{ inputs.sdk-token }}
         path: umfci
         persist-credentials: false
-    - name: Set Up Locked .NET SDK
+    - name: Set Up UMFCI .NET SDK
       uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
       with:
-        dotnet-version: ${{ steps.lock.outputs.dotnet }}
+        global-json-file: umfci/global.json
     - name: Install Native Linux ARM64 Toolchain Prerequisites
       if: env.CI_TARGET == 'linux-arm64-game'
       shell: bash
@@ -110,8 +112,8 @@ runs:
       with:
         name: metadata-${{ env.CI_TARGET }}-${{ inputs.commit }}-${{ github.run_attempt }}
         path: |
-          ${{ steps.lock.outputs.metadata-path }}/envelope.json
-          ${{ steps.lock.outputs.metadata-path }}/payload
+          ${{ steps.sdk.outputs.metadata-path }}/envelope.json
+          ${{ steps.sdk.outputs.metadata-path }}/payload
         if-no-files-found: error
         retention-days: 1
         compression-level: 0
@@ -158,8 +160,8 @@ runs:
       with:
         name: checkpoint-${{ env.CI_TARGET }}-${{ inputs.commit }}-${{ github.run_attempt }}
         path: |
-          ${{ steps.lock.outputs.checkpoint-path }}/envelope.json
-          ${{ steps.lock.outputs.checkpoint-path }}/payload
+          ${{ steps.sdk.outputs.checkpoint-path }}/envelope.json
+          ${{ steps.sdk.outputs.checkpoint-path }}/payload
         if-no-files-found: error
         retention-days: 1
         compression-level: 0
@@ -176,7 +178,7 @@ runs:
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         artifact-ids: ${{ inputs.checkpoint-id || '0' }}
-        path: ${{ steps.lock.outputs.checkpoint-path }}
+        path: ${{ steps.sdk.outputs.checkpoint-path }}
         merge-multiple: true
     - name: Record Checkpoint Download Time
       if: inputs.phase == 'resume'
@@ -199,7 +201,7 @@ runs:
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         artifact-ids: ${{ inputs.metadata-id || '0' }}
-        path: ${{ steps.lock.outputs.metadata-path }}
+        path: ${{ steps.sdk.outputs.metadata-path }}
         merge-multiple: true
     - name: Record Metadata Download Time
       if: inputs.phase == 'resume'
@@ -222,7 +224,7 @@ runs:
       shell: bash
       run: python Scripts/CI/build_target.py verify-game
     - name: Collect Build Metrics
-      if: always() && steps.lock.outcome == 'success'
+      if: always() && steps.sdk.outcome == 'success'
       id: metrics
       shell: bash
       run: python Scripts/CI/build_target.py metrics

@@ -22,7 +22,7 @@ Editor exports, validates, and publishes metadata before building the normal tar
 ### Configure Engine Jobs
 
 1. Configure the `development-engine` GitHub environment with maintainer review of the candidate. Store `UMFCI_READ_TOKEN` there with read access to the private UMFCI installer and releases. Set `UMF_STATUS_APP_ID` and `UMF_STATUS_APP_PRIVATE_KEY` for the GitHub App that publishes `ci/development` on the public test merge commit.
-2. In [the engine lock](../.github/engine-lock.json), set the immutable UMFCI release tag, recipe, and manifest digest for each of the ten targets. Set the installer revision, upstream engine commit, exact .NET SDK version, and toolchain settings. Add the command file described below.
+2. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the published immutable UMFCI release for all ten SDK targets. The runner uses the installer and .NET SDK configuration at that tag. The release index maps each target to its named SDK archive and installation manifest. Add the command file described below.
 3. For a manual run of a reviewed PR, dispatch from the protected default branch with the PR number, PR head SHA, current `main` base SHA, and GitHub test merge SHA. PR updates cancel older runs for the same PR.
 
 ### Connect The Build Phases
@@ -39,7 +39,7 @@ The `.github/development-commands.json` file contains `schemaVersion` set to `1`
 
 Project validators supply the following small reports in `{evidence}`. Derive reports from actual tool output and build state. Checkpoint serialization and resume remain responsibilities of the project's native interfaces.
 
-- Each report includes `target`, `source_commit`, `engine_lock_sha256`, `engine_version`, `configuration`, `architecture`, and `input_sha256`. For metadata, use the Editor producer's target and architecture.
+- Each report includes `target`, `source_commit`, `engine_lock_sha256`, `engine_version`, `configuration`, `architecture`, and `input_sha256`. Use the supplied `UMF_LOCK_SHA256` value for `engine_lock_sha256`. CI derives it from the UMFCI release ID and tag. For metadata, use the Editor producer's target and architecture.
 - `metadata.json` contains `bundle_valid`. The validator must compute the same source inputs independently on the Editor and Game runners.
 - `checkpoint.json` adds `toolchain_sha256`, `build_manifest_sha256`, `paths_valid`, `native_tools_runnable`, `inputs_valid`, `actions_valid`, `completed_actions`, `pending_actions`, `metadata_independent_pending_actions`, and `nonportable_actions` as an object mapping reasons to counts. CI independently configures the resume runner's toolchain and compares the normalized `{toolchain}` SHA-256 to the producer's before restoring the checkpoint.
 - `game.json` includes `link_type` set to `Monolithic`, `link_receipt_valid`, the checkout-relative `link_receipt` and `binary`, the work-directory-relative `mbt`, `metadata_input_sha256`, `reused_actions`, `reexecuted_actions`, `reexecuted_portable_actions`, `pending_actions`, `metadata_dependent_seconds`, and `link_seconds`. Replayed actions must fit the checkpoint's reported nonportable actions and the count of replayed portable actions must be zero.

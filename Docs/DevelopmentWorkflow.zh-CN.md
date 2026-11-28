@@ -22,7 +22,7 @@ Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界
 ### 配置引擎任务
 
 1. 配置 `development-engine` GitHub 环境，由维护者审查候选提交。将可读取私有 UMFCI 安装器与发行版的 `UMFCI_READ_TOKEN` 放入该环境。为回传 `ci/development` 的 GitHub App 设置 `UMF_STATUS_APP_ID` 和 `UMF_STATUS_APP_PRIVATE_KEY`。
-2. 在[引擎锁](../.github/engine-lock.json)中为十个目标分别填写不可变 UMFCI 发行版标签、Recipe 和 Manifest 摘要，并设置安装器提交、上游引擎提交、准确的 .NET SDK 版本及工具链配置。添加下述命令文件。
+2. 把 [Development CI](../.github/workflows/development.yml) 中的 `UMFCI_RELEASE_TAG` 设为包含全部十个 SDK 目标的不可变 UMFCI 正式发行版标签。Runner 使用该标签上的安装器和 .NET SDK 配置，并按发行版索引为各目标选择对应的 SDK 归档和安装清单。添加下述命令文件。
 3. 如需手动运行已审查的 PR，从受保护的默认分支使用 PR 编号、PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 发起运行。同一 PR 更新时会取消旧运行。
 
 ### 接入构建阶段
@@ -39,7 +39,7 @@ Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界
 
 项目校验接口应在 `{evidence}` 生成如下报告。报告必须源于真实工具输出和构建状态。Checkpoint 的序列化和构建续跑继续由项目接口完成。
 
-- 所有报告均包含 `target`、`source_commit`、`engine_lock_sha256`、`engine_version`、`configuration`、`architecture` 和 `input_sha256`。Metadata 使用生产者 Editor 的目标与架构。
+- 所有报告均包含 `target`、`source_commit`、`engine_lock_sha256`、`engine_version`、`configuration`、`architecture` 和 `input_sha256`。`engine_lock_sha256` 使用 CI 提供的 `UMF_LOCK_SHA256`，其值根据 UMFCI 发行版 ID 和标签生成。Metadata 使用生产者 Editor 的目标与架构。
 - `metadata.json` 包含 `bundle_valid`。校验器要在 Editor 和 Game Runner 上独立计算相同的 Metadata 输入。
 - `checkpoint.json` 还包含 `toolchain_sha256`、`build_manifest_sha256`、`paths_valid`、`native_tools_runnable`、`inputs_valid`、`actions_valid`、`completed_actions`、`pending_actions`、`metadata_independent_pending_actions` 和记录原因及数量的 `nonportable_actions` 对象。CI 独立配置续跑 Runner 的工具链，在恢复 Checkpoint 之前将规范化 `{toolchain}` 文件的 SHA-256 与生产者的记录比对。
 - `game.json` 写入为 `Monolithic` 的 `link_type`、`link_receipt_valid`、相对源码目录的 `link_receipt` 和 `binary`、相对工作目录的 `mbt`、`metadata_input_sha256`、`reused_actions`、`reexecuted_actions`、`reexecuted_portable_actions`、`pending_actions`、`metadata_dependent_seconds` 和 `link_seconds`。重执行 Action 必须在 Checkpoint 标明的不可移植范围内，可移植 Action 的重复执行数量必须为零。

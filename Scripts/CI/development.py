@@ -15,6 +15,9 @@ from urllib.request import Request, urlopen
 
 CONTROL = Path(__file__).resolve().parents[2]
 REPOSITORY = "Nelaric/UnrealModFramework"
+UMFCI_REPOSITORY = "Nelaric/UMFCI"
+ENGINE_VERSION = "5.6.1"
+ENGINE_CONFIGURATION = "Development"
 PLATFORMS = {
     "windows-x64": ("Windows X64", "windows-2022", "Windows", "x64", "Win64"),
     "windows-arm64": ("Windows ARM64", "windows-11-arm", "Windows", "arm64", "Win64"),
@@ -29,7 +32,6 @@ JOBS.update({f"editor-{key}": f"Editor / {PLATFORMS[key][0]}" for key in dict.fr
 JOBS.update({f"prepare-game-{key}": f"Game Prepare / {value[0]}" for key, value in PLATFORMS.items()})
 JOBS.update({f"game-{key}": f"Game / {value[0]}" for key, value in PLATFORMS.items()})
 
-LOCK = CONTROL / ".github/engine-lock.json"
 COMMAND_FILE = CONTROL / ".github/development-commands.json"
 COMMANDS = {
     "build-native-tools", "prepare-libclang", "prepare-editor-bootstrap", "export-metadata", "validate-metadata",
@@ -69,20 +71,24 @@ def summary(lines):
         stream.write("\n".join(lines) + "\n")
 
 
-def api(path, token="", body=None, method=None):
+def open_api(path, token="", body=None, method=None, *, accept="application/vnd.github+json", timeout=30):
     headers = {
-        "Accept": "application/vnd.github+json",
+        "Accept": accept,
         "User-Agent": "umf-development-ci",
         "X-GitHub-Api-Version": "2022-11-28",
     }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     encoded = None
     if body is not None:
         headers["Content-Type"] = "application/json"
         encoded = json.dumps(body).encode()
     request = Request(os.environ["GITHUB_API_URL"] + path, headers=headers, data=encoded, method=method)
-    with urlopen(request, timeout=30) as response:
+    if token:
+        request.add_unredirected_header("Authorization", f"Bearer {token}")
+    return urlopen(request, timeout=timeout)
+
+
+def api(path, token="", body=None, method=None):
+    with open_api(path, token, body, method) as response:
         return json.load(response) if response.status != 204 else None
 
 
@@ -165,40 +171,11 @@ def verify_checkout(source, candidate):
         require(parents == [candidate["base"], candidate["head"]], "PR merge parents differ from the reviewed base and head")
 
 
-def engine_lock(full=False):
-    lock = json_object(LOCK)
-    require(lock["schemaVersion"] == 1 and lock["repository"] == "Nelaric/UMFCI", "Unknown engine lock format")
-    require(
-        lock["ueVersion"] == "5.6.1" and lock["configuration"] == "Development"
-        and type(lock["maxInstalledBytes"]) is int and 0 < lock["maxInstalledBytes"] <= 5_000_000_000,
-        "Invalid Development SDK version, configuration or size limit",
-    )
-    targets = {f"{key}-game" for key in PLATFORMS} | {f"{key}-editor" for key in EDITORS.values()}
-    require(set(lock["targets"]) == targets, "Engine lock must include the ten Development SDK targets")
-    for target, entry in lock["targets"].items():
-        key, profile = target.rsplit("-", 1)
-        _, runner, _, arch, platform = PLATFORMS[key]
-        require(
-            (entry["runner"], entry["architecture"], entry["ubtPlatform"], entry["profile"])
-            == (runner, arch, platform, profile.capitalize())
-            and entry["ubtArchitecture"] == arch,
-            f"{target}: runner, UBT target or architecture differs from the lock",
-        )
-        populated = (entry["release"], entry["recipe"], entry["manifestSha256"])
-        if full or any(value is not None for value in populated):
-            require(
-                isinstance(entry["release"], str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", entry["release"])
-                and entry["release"].lower() != "latest" and isinstance(entry["recipe"], str) and entry["recipe"]
-                and is_digest(entry["manifestSha256"]) and lock["toolchains"].get(entry["toolchain"]),
-                f"{target}: an accepted immutable SDK release and toolchain must be locked",
-            )
-    if full or any(entry["release"] for entry in lock["targets"].values()):
-        require(
-            is_digest(lock["installerCommit"], 40) and is_digest(lock["upstreamCommit"], 40)
-            and isinstance(lock["dotnetSdk"], str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", lock["dotnetSdk"]),
-            "Pin the UMFCI installer, upstream engine commit and exact .NET SDK",
-        )
-    return lock
+def engine_release_tag():
+    tag = os.environ.get("UMFCI_RELEASE_TAG", "")
+    require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tag) and tag.lower() != "latest",
+            "Set UMFCI_RELEASE_TAG to an explicit UMFCI release tag")
+    return tag
 
 
 def build_commands():
@@ -215,16 +192,9 @@ def build_commands():
 
 
 def validate_configuration():
-    if not engine_run():
-        engine_lock()
-        return
-    issues = []
-    for check in (lambda: engine_lock(full=True), build_commands):
-        try:
-            check()
-        except (KeyError, OSError, TypeError, ValueError) as error:
-            issues.append(str(error))
-    require(not issues, "\n".join(issues))
+    engine_release_tag()
+    if engine_run():
+        build_commands()
 
 
 def timestamp(value):
@@ -291,14 +261,14 @@ def aggregate():
     started = datetime.now(timezone.utc)
     needs = json.loads(os.environ["NEEDS_JSON"])
     candidate = json.loads(os.environ.get("CI_IDENTITY") or "{}")
-    version = json_object(LOCK).get("ueVersion", "Unavailable")
     token = os.environ["ACTIONS_READ_TOKEN"]
     lines = [
         "## Development Result", "",
         f"- Source Commit `{candidate.get('commit', 'Unavailable')}`",
         f"- PR Head `{candidate.get('head', 'Unavailable')}`",
         f"- Base Commit `{candidate.get('base', 'Unavailable')}`",
-        f"- Engine Version `{version}`", "",
+        f"- Engine Version `{ENGINE_VERSION}`",
+        f"- UMFCI Release `{os.environ.get('UMFCI_RELEASE_TAG', 'Unavailable')}`", "",
         "| Job | Result | Job Time (s) | Automation Tests | Metadata | Checkpoint | Artifact Bytes | Reused | Reexecuted |",
         "| --- | --- | ---: | ---: | --- | --- | ---: | ---: | ---: |",
     ]
