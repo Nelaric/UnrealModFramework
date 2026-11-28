@@ -151,6 +151,11 @@ internal static class UbtPreparation
 			if (units.Count != 0 && CompilerCompatibility(database, units.First().Value[0]) is string compatibility)
 			{
 				analysis.Insert(1, "-fms-compatibility-version=" + compatibility);
+				if (variant.Architecture == "arm64")
+				{
+					analysis.Add("-include");
+					analysis.Add(PrepareMsvcArm64NeonHeader(variantDirectory));
+				}
 			}
 			analysis.Add(
 				"--target="
@@ -500,6 +505,26 @@ internal static class UbtPreparation
 			throw new UhtException($"ModRuntime MHT: expected one LLVM resource directory under \"{directory}\".");
 		}
 		return matches[0];
+	}
+
+	private static string PrepareMsvcArm64NeonHeader(string variantDirectory)
+	{
+		// Model MSVC's NEON implementation without hiding Clang from the standard library.
+		string path = Path.Combine(variantDirectory, "MsvcArm64Neon.h");
+		ModRuntimeExporter.WriteFileIfChanged(
+			path,
+			"""
+			#pragma once
+			#include "CoreTypes.h"
+			#include "Math/Float16.h"
+			#include <arm64_neon.h>
+			#pragma push_macro("__clang__")
+			#undef __clang__
+			#include "Math/VectorRegister.h"
+			#pragma pop_macro("__clang__")
+			"""u8.ToArray()
+		);
+		return path;
 	}
 
 	private static string? CompilerCompatibility(string database, string source)

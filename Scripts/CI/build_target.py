@@ -305,19 +305,22 @@ class Target:
         self.metrics_update(automation_tests=check_development_report(self.report / "index.json"))
 
     def run_automation(self):
+        platform_name = self.key.split("-", 1)[0]
         editor = {
             "windows": "Win64/UnrealEditor-Cmd.exe",
             "linux": "Linux/UnrealEditor",
             "macos": "Mac/UnrealEditor.app/Contents/MacOS/UnrealEditor",
-        }[self.key.split("-", 1)[0]]
+        }[platform_name]
         project = self.source / "UnrealModFramework/UnrealModFrameworkDev.uproject"
         executable = self.sdk / "Engine" / "Binaries" / editor
-        subprocess.run(
-            [str(executable), str(project), "-unattended", "-nullrhi", "-nosound", "-nosplash",
-             "-ExecCmds=Automation RunTests StartsWith:Nelaric.;SoftQuit", f"-ReportExportPath={self.report}",
-             f"-abslog={self.report / 'automation.log'}", "-stdout", "-FullStdOutLogOutput"],
-            cwd=project.parent, check=True,
-        )
+        arguments = [
+            str(executable), str(project), "-unattended", "-nullrhi", "-nosound", "-nosplash",
+            "-ExecCmds=Automation RunTests StartsWith:Nelaric.;SoftQuit", f"-ReportExportPath={self.report}",
+            f"-abslog={self.report / 'automation.log'}", "-stdout", "-FullStdOutLogOutput",
+        ]
+        if platform_name == "macos":
+            arguments.extend(("-skipminspeccheck", "-buildmachine"))
+        subprocess.run(arguments, cwd=project.parent, check=True)
 
     def verified_game(self):
         self.command("verify-game")
