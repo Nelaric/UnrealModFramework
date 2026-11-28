@@ -24,7 +24,9 @@ cd UnrealModFramework
 | --- | --- | --- |
 | Windows | MSVC and the Windows SDK | `.\Setup.bat` |
 | Linux | GNU `g++` | `sh Setup.sh` |
-| macOS | GNU `g++`, selected via `CXX` for Setup and the host build | `sh Setup.sh` |
+| macOS | AppleClang from Xcode or Xcode Command Line Tools | `sh Setup.sh` |
+
+On macOS, Setup and host builds use the active developer directory by default. If `CXX` is set, point it to AppleClang.
 
 Setup reuses CMake 3.20 or later from its cache or `PATH`; when none is available, it downloads a pinned archive and verifies its SHA-256 digest. It prefers Ninja and falls back to NMake on Windows or Make on Linux and macOS. [CMake package manifest](Setup/CMakePackages.txt)
 

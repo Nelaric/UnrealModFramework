@@ -188,7 +188,8 @@ class Build:
         self.require_game()
         path = self.work / "prepare-graph.json"
         ready = read_json(self.work / "prepare-complete.json")
-        require(ready["graph_sha256"] == file_sha(path) and ready["source_sha256"] == project_inputs(self.project.parent),
+        require(ready["graph_sha256"] == file_sha(path)
+                and ready["source_sha256"] == project_inputs(self.project.parent),
                 "Project inputs or the completed Game preparation graph changed")
         self.checkpoint.parent.mkdir(parents=True, exist_ok=True)
         require(not self.checkpoint.exists() or not any(self.checkpoint.iterdir()), "Checkpoint destination must be empty")

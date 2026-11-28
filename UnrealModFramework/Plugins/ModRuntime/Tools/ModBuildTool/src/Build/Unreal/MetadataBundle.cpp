@@ -588,13 +588,28 @@ void MetadataBundle::Prepare(const UeHookTarget& Producer, EPhase Phase)
 	const auto Targets = AllowedTargets(Types, Producer);
 	const auto RawOptions = Stage.Path / "options.json";
 	const auto RawBlueprints = Stage.Path / "blueprints.json";
-	UeInvocation::Run(Editor,
-	                  {Path::PathToUtf8(Files.Project), "-run=ModExportBlueprints",
-	                   "-Output=" + Path::PathToUtf8(RawBlueprints), "-OptionsOutput=" + Path::PathToUtf8(RawOptions),
-	                   "-abslog=" + Path::PathToUtf8(Output.parent_path() / "metadata-export.log"), "-unattended",
-	                   "-nullrhi", "-nosound", "-nosplash", "-SkipCompile", "-noP4", "-stdout",
-	                   "-ddc=InstalledNoZenLocalFallback"},
-	                  Files.Project.parent_path(), ProcessEnvironment::CaptureEnvironment(), "metadata commandlet");
+	std::vector<std::string> Arguments{Path::PathToUtf8(Files.Project),
+	                                   "-run=ModExportBlueprints",
+	                                   "-Output=" + Path::PathToUtf8(RawBlueprints),
+	                                   "-OptionsOutput=" + Path::PathToUtf8(RawOptions),
+	                                   "-abslog=" + Path::PathToUtf8(Output.parent_path() / "metadata-export.log"),
+	                                   "-unattended",
+	                                   "-nullrhi",
+	                                   "-nosound",
+	                                   "-nosplash",
+	                                   "-SkipCompile",
+	                                   "-noP4",
+	                                   "-stdout",
+	                                   "-FullStdOutLogOutput",
+	                                   "-ddc=InstalledNoZenLocalFallback"};
+	if (Producer.Platform == "Mac")
+	{
+		// LaunchMac can display a hardware prompt before the headless commandlet starts.
+		// Keep early TraceLog callbacks on the main thread while thread-local memory tracking initializes.
+		Arguments.insert(Arguments.end(), {"-skipminspeccheck", "-buildmachine", "-notracethreading"});
+	}
+	UeInvocation::Run(Editor, Arguments, Files.Project.parent_path(), ProcessEnvironment::CaptureEnvironment(),
+	                  "metadata commandlet");
 
 	Json Options = ContextDocument::ReadJson(RawOptions);
 	Json Blueprints = ContextDocument::ReadJson(RawBlueprints);

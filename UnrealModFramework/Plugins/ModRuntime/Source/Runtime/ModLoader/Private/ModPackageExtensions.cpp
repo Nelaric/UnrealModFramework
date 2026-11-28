@@ -74,7 +74,7 @@ bool IsId(const FString& Text, bool bModId = false)
 	return true;
 }
 
-bool Signature(const FJsonObject& Json, FString& Out)
+bool ReadSignature(const FJsonObject& Json, FString& Out)
 {
 	if (!Json.TryGetStringField(TEXT("signature"), Out) || Out.Len() != 64)
 	{
@@ -227,7 +227,8 @@ bool Private::ReadExtensions(const FJsonObject& Manifest, FLoadResult& Result)
 		        {
 			        FServiceOffer Entry;
 			        if (!Name(Json, TEXT("id"), Entry.Id) || !Name(Json, TEXT("typeId"), Entry.TypeId) ||
-			            !Signature(Json, Entry.Signature) || !Json.TryGetStringField(TEXT("version"), Entry.Version) ||
+			            !ReadSignature(Json, Entry.Signature) ||
+			            !Json.TryGetStringField(TEXT("version"), Entry.Version) ||
 			            !FVersionRange{}.Contains(Entry.Version) ||
 			            (Json.HasField(TEXT("permission")) && !Name(Json, TEXT("permission"), Entry.Permission)) ||
 			            (Json.HasField(TEXT("patch")) && !Name(Json, TEXT("patch"), Entry.Patch)) ||
@@ -288,7 +289,7 @@ bool Private::ReadExtensions(const FJsonObject& Manifest, FLoadResult& Result)
 		               if (!Name(Json, TEXT("id"), Entry.Id) || Services.Contains(Entry.Id) ||
 		                   !Json.TryGetStringField(TEXT("provider"), Entry.Provider) || !IsId(Entry.Provider, true) ||
 		                   Entry.Provider == Package.ModId || !Name(Json, TEXT("typeId"), Entry.TypeId) ||
-		                   !Signature(Json, Entry.Signature) || !ReadRange(Json, Entry.Versions) ||
+		                   !ReadSignature(Json, Entry.Signature) || !ReadRange(Json, Entry.Versions) ||
 		                   !Required(Json, Entry.bRequired))
 		               {
 			               return false;
@@ -305,7 +306,7 @@ bool Private::ReadExtensions(const FJsonObject& Manifest, FLoadResult& Result)
 		                   (!Id.StartsWith(TEXT("hook/"), ESearchCase::CaseSensitive) &&
 		                    !Id.StartsWith(TEXT("event/"), ESearchCase::CaseSensitive)) ||
 		                   !IsId(Id.RightChop(Id.Find(TEXT("/")) + 1).Replace(TEXT("/"), TEXT("."))) ||
-		                   Id != Id.ToLower() || !Signature(Json, Entry.Signature))
+		                   Id != Id.ToLower() || !ReadSignature(Json, Entry.Signature))
 		               {
 			               return false;
 		               }

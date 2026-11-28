@@ -465,6 +465,42 @@ def verify_msvc_source_analysis(root, args):
 
 
 
+def verify_arm64_source_analysis(root, args):
+    engine = root / "Engine/Source/Runtime"
+    mesh = engine / "Engine/Classes/Engine/SkeletalMesh.h"
+    object_header = engine / "CoreUObject/Public/UObject/Object.h"
+    for header in (mesh, object_header):
+        header.parent.mkdir(parents=True)
+    mesh.write_text("class USkeletalMesh {};\n", encoding="utf-8")
+    object_header.write_text("bool IsValid(const USkeletalMesh* Mesh);\n", encoding="utf-8")
+    source = root / "probe.cpp"
+    source.write_text(
+        '#include "Engine/Source/Runtime/Engine/Classes/Engine/SkeletalMesh.h"\n'
+        '#include "Engine/Source/Runtime/CoreUObject/Public/UObject/Object.h"\n'
+        'bool CheckMesh(USkeletalMesh* Mesh) { if (!IsValid(Mesh)) return false; return true; }\n',
+        encoding="utf-8",
+    )
+    database = write_json(root / "compile_commands.json", [{
+        "directory": str(root),
+        "file": str(source),
+        # ARM64 source analysis needs no native compiler invocation to report its source evidence.
+        "arguments": [str(root / "missing" / "clang++"), "--target=aarch64-unknown-linux-gnu",
+                      "-std=c++20", "-DUE_TARGET_NAME=Game", '-DUE_MODULE_NAME="Probe"',
+                      "-DWITH_EDITOR=0", "-c", str(source)],
+    }])
+    request = write_json(root / "SourceAnalysisRequest.json", {
+        "format": "UMF.SourceAnalysisRequest", "schemaVersion": 2, "compilationDatabase": database,
+        "target": "Game", "projectRoot": str(root), "libclang": str(args.libclang),
+        "resourceDirectory": str(args.resource_dir), "analysisArguments": [],
+        "members": [{"id": "api/ci/probe/arm64", "module": "Probe", "function": "CheckMesh",
+                     "translationUnit": str(source), "source": str(source), "failureReturn": False}],
+    })
+    (member,) = json.loads(run([args.mst, "analyze-errors", request], capture_output=True).stdout)["members"]
+    failures = member["failures"]
+    assert {entry["key"] for entry in failures} == {"InvalidMeshNull", "InvalidMeshGarbage"}, member
+    assert all(entry["classification"]["assembly"]["kind"] == "unavailable" for entry in failures), member
+
+
 def verify_cross_file_exceptions(root, args):
     root.mkdir()
     source = root / "caller.cpp"
@@ -704,7 +740,9 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
     obj = root / ("character.obj" if platform == "Win64" else "character.o")
     analysis_flags = []
     if platform == "Linux":
-        analysis_flags = ["-MD", f"-MF{obj.with_suffix('.d')}", "-Werror=unused-command-line-argument"]
+        analysis_flags = [
+            "-MD", f"-MF{obj.with_suffix('.d')}", "-gz=zlib", "-Werror=unused-command-line-argument",
+        ]
     database = write_json(
         root / "compile_commands.json",
         [
@@ -715,6 +753,9 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
             }
         ],
     )
+    analysis_arguments = ["-resource-dir=" + str(args.resource_dir)]
+    if platform == "Mac":
+        analysis_arguments.append("-UTARGET_OS_UEFI")
     build_input = write_json(
         root / "BuildInput.json",
         {
@@ -727,7 +768,7 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
             "configuration": "Development",
             "architecture": arch,
             "compilationDatabase": database,
-            "analysisArguments": ["-resource-dir=" + str(args.resource_dir)],
+            "analysisArguments": analysis_arguments,
             "reflection": [{"cpp": "AGameCharacter", "module": "Game", "path": "/Script/Game.GameCharacter",
                             "file": str(header), "legacyId": "game.character"}],
             "modules": [{"name": "Game", "sourceDirectory": str(module), "translationUnits": [str(source)]}],
@@ -803,6 +844,11 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
     (unit,) = json.loads(source_map.read_bytes())["units"]
     assert Path(unit["source"]) == source
     witness = unit["witness"]
+    if platform == "Mac":
+        verify_source = (generated / "Host/Game/Game.modverify.cpp").read_text(encoding="utf-8-sig")
+        verify_macros = verify_source.splitlines()
+        assert "#ifdef TARGET_OS_UEFI" not in verify_macros
+        assert "#ifdef UE_BUILD_DEVELOPMENT" in verify_macros
     host = (generated / "Host/Game/Game.modhost.cpp").read_text(encoding="utf-8-sig")
     assert f'extern "C" UMF_HOOK_LOCAL void {witness}();' in host and f"    {witness}();" in host
     assert host.count('Entry.DispatchId = FName(TEXT("hook/game.character/adjust-health"));') == 2
@@ -996,6 +1042,7 @@ if __name__ == "__main__":
         verify_long_project_path(Path(directory), args)
         verify_msvc_source_analysis(Path(directory) / "msvc-source-analysis", args)
         verify_cross_file_exceptions(Path(directory) / "clang-source-analysis", args)
+        verify_arm64_source_analysis(Path(directory) / "arm64-source-analysis", args)
         for target in (
             ("Win64", "x64", "x86_64-pc-windows-msvc"),
             ("Win64", "arm64", "aarch64-pc-windows-msvc"),

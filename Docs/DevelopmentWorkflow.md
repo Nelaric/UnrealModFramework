@@ -2,18 +2,69 @@
 
 English | [简体中文](DevelopmentWorkflow.zh-CN.md)
 
-# Development and Release Validation
+# Development and CI Workflow
 
-Development uses UE 5.6.1 Development SDKs from immutable, independently verified private UMFCI releases. The [engine lock](../.github/engine-lock.json) records the installer commit, UE revision, target profiles, recipes, manifest SHA-256 values, .NET SDK and platform toolchains. An empty release entry blocks that target. The installer verifies the release and streams the archive, checking every file and the 5 GB installation limit.
+This page describes Development CI, local builds, Release Validation, and documentation publishing. Start with the [contribution guide](../CONTRIBUTING.md) when preparing a change.
 
-| Editor producer | Game consumers |
+## From a change to `main`
+
+1. Make a focused change on a branch or fork, and run the relevant [local checks](CodingStandards/BuildAndReview.md#local-checks).
+2. Open a pull request to `main` using the [PR template](../.github/pull_request_template.md), and link any related issue when applicable.
+3. Resolve any check failures and complete maintainer review before merging. Maintainers should configure branch protection to require the applicable checks.
+4. Once [API Pages is enabled](Hosting/README.md), merging to `main` publishes the generated API documentation.
+
+## Development CI
+
+[Development CI](../.github/workflows/development.yml) starts automatically for PRs to `main`. Code Quality pins GitHub's test merge commit for all later jobs. Native Tools runs on Linux x86_64 after Code Quality. For PRs from branches in this repository, Code Quality also starts the four Editor jobs and six Game Prepare jobs in the same run. A fork PR starts with Code Quality and Native Tools. A maintainer can request a full run for its exact test merge SHA after reviewing that candidate. Each Game waits for its own Game Prepare and assigned Editor. Windows and Linux ARM64 use their platform's x86_64 Editor metadata. Each MacOS Game uses metadata from the Editor of the same architecture. Development Result summarizes the 18 upstream jobs and rechecks the PR and `main` before reporting the result.
+
+Each macOS Editor and Game Prepare job builds its native tools with AppleClang. Editor exports, validates, and publishes metadata before building the normal target and running headless `Nelaric.*` Automation Tests. Game Prepare executes all metadata-independent actions. Game installs the same locked private SDK on a fresh native runner, restores the project's checkpoint, imports metadata, and finishes the monolithic Development target. Development Result reports automation counts, artifact sizes, phase durations, action reuse, and the reasons for nonportable actions.
+
+### Configure Engine Jobs
+
+1. Configure the `development-engine` environment to accept PR test merge refs and requests issued for an exact SHA. In **Deployment branches and tags**, select **No restriction** so GitHub can accept a request whose run has a commit SHA and no named ref.
+2. Store `UMFCI_READ_TOKEN` as an environment secret with `Contents: read` access limited to the private UMFCI repository.
+3. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the immutable official UMFCI release that contains all ten SDK targets. Runners use the installer and .NET SDK configuration at that release and select the target archive and installation manifest from its index.
+
+### Request Full Validation For A Fork
+
+Review the exact GitHub test merge commit, including its workflow and build scripts. From a checkout you trust, sign in to GitHub CLI with repository Maintain or Admin access and run:
+
+```text
+python Scripts/CI/approve_development.py <PR-number> <reviewed-test-merge-SHA>
+```
+
+The command checks the reviewed SHA against the current PR head and `main`, then records a GitHub deployment request for that commit. GitHub attaches the native checks to the test merge commit. New updates cancel older runs for the same PR. If the test merge SHA changes, request validation for the new candidate. Use **Re-run all jobs** on the existing run to repeat the same candidate. **Run workflow** runs the public checks for the selected ref.
+
+### Connect The Build Phases
+
+The [Development command configuration](../.github/development-commands.json) sets `schemaVersion` to `1` and maps each phase to an argument array for `Scripts/development_commands.py`. CI executes each array directly from the candidate checkout. Arguments can use `{source}`, `{control}`, `{work}`, `{sdk}`, `{evidence}`, `{target}`, `{configuration}`, `{architecture}`, `{ubt_platform}`, `{ubt_architecture}`, `{commit}`, `{lock_sha256}`, `{engine_version}`, `{upstream_commit}`, `{toolchain}`, `{metadata_target}`, `{metadata_payload}`, and `{checkpoint_payload}`. The engine phases also receive the corresponding upper-case `UMF_` variables. Keep executable permissions and relocation data in the project's checkpoint format.
+
+| Command Keys | Required Behavior |
 | --- | --- |
-| Windows x86_64 | Windows x86_64 and ARM64 |
-| Linux x86_64 | Linux x86_64 and ARM64 |
-| macOS x86_64 | macOS x86_64 |
-| macOS ARM64 | macOS ARM64 |
+| `build-native-tools`, `prepare-libclang` | Build the required tools once per producer job and prepare the host libclang used by its target. Store restorable tools and dependencies with the checkpoint. |
+| `prepare-editor-bootstrap`, `export-metadata`, `validate-metadata`, `build-editor` | Bootstrap only when the exporter requires it. Write the native metadata bundle to `{metadata_payload}`, validate it through the project, and build the normal Editor. The workflow runs the Editor test suite directly. The Game consumer calls the same validator with its assigned `{metadata_target}`. |
+| `prepare-game`, `save-checkpoint`, `validate-checkpoint` | Resolve the real target, module and action graph. Execute all work permitted without metadata. Save the native project checkpoint to `{checkpoint_payload}` and use the project validator for action validity, input fingerprints, toolchain, native tools, ABI inputs, and path relocation. |
+| `restore-checkpoint`, `import-metadata`, `resume-game`, `verify-game` | Restore project state against the freshly installed locked SDK and resume the remaining work. Verify the monolithic target's native link receipt and provide the linked executable path to MBT's binary inspector. |
+| `test-native-development` | Run the implemented metadata, checkpoint, SDK plan and manifest tests in the Native Tools job. This key receives `{source}`, `{control}`, and `{native}` for the already built executable directory. |
 
-The four Editor jobs run independently. Each Game group can start when its Editor job succeeds. Development Game jobs compile and link the monolithic target through UBT and verify its host-link receipt. Editor jobs run the normal target and verify the discovered and completed `Nelaric.*` tests in the headless automation report. The job logs record SDK installation, native tool preparation, metadata, reflection and generation, compile and link, and automation timings. The 5–10 minute cold critical path is a target for the full matrix.
+Project validators supply the following small reports in `{evidence}`. Derive reports from actual tool output and build state. Checkpoint serialization and resume remain responsibilities of the project's native interfaces.
+
+- Each report includes `target`, `source_commit`, `engine_lock_sha256`, `engine_version`, `configuration`, `architecture`, and `input_sha256`. Use the supplied `UMF_LOCK_SHA256` value for `engine_lock_sha256`. CI derives it from the UMFCI release ID and tag. For metadata, use the Editor producer's target and architecture.
+- `metadata.json` contains `bundle_valid`. The validator must compute the same source inputs independently on the Editor and Game runners.
+- `checkpoint.json` adds `toolchain_sha256`, `build_manifest_sha256`, `paths_valid`, `native_tools_runnable`, `inputs_valid`, `actions_valid`, `completed_actions`, `pending_actions`, `metadata_independent_pending_actions`, and `nonportable_actions` as an object mapping reasons to counts. CI independently configures the resume runner's toolchain and compares the normalized `{toolchain}` SHA-256 to the producer's before restoring the checkpoint.
+- `game.json` includes `link_type` set to `Monolithic`, `link_receipt_valid`, the checkout-relative `link_receipt` and `binary`, the work-directory-relative `mbt`, `metadata_input_sha256`, `reused_actions`, `reexecuted_actions`, `reexecuted_portable_actions`, `pending_actions`, `metadata_dependent_seconds`, and `link_seconds`. Replayed actions must fit the checkpoint's reported nonportable actions and the count of replayed portable actions must be zero.
+
+The workflow uploads each metadata bundle or project checkpoint and its build record as a GitHub Actions artifact. The project payload paths are reserved for outputs without Unreal Engine files. Each Game downloads the two upstream artifacts by ID within the same run. The checkpoint record identifies the locked UMFCI SDK, which the runner installs directly from its private release. Build logs are available in the Actions job. Each handoff can be used for one hour after it is sealed. GitHub's minimum retention is one day, and Development Result removes consumed artifacts after success. To regenerate artifacts after the handoff window or cleanup, rerun all jobs.
+
+### Merge Requirements
+
+The main branch requires the public Quality checks and the native Code Quality and Development Result checks.
+
+[The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires a full run for the current test merge commit. The ruleset requires the PR branch to include the current main commit before merging. The fork validation request starts that run after a maintainer reviews the candidate.
+
+## Quality Workflow
+
+Quality provides the current required checks for PR and commit naming, format and text, and API documentation. [Quality workflow](../.github/workflows/quality.yml)
 
 ## Build locally
 
@@ -43,54 +94,17 @@ Use a new report directory for each automation run. For UMFCI SDKs, set `UE_USE_
 
 The four bundle files live under `Metadata/`. Paths use `Project/` and `Engine/` roots. Options and Blueprint declarations carry reflected names, roles and scalar-field shapes. Target-side configuration projections must match the producer's inputs. Incompatible redirects, architecture-specific config layers, changed Blueprint packages, source drift and payload corruption fail validation. The target derives C++ declarations, layout, compiler arguments, Hook objects and ABI from its own compile database. When a Blueprint uses a reflected struct, the target checks the field shape against its loaded reflected type. Bundle files are generated, and `Intermediate/` is ignored by Git.
 
-## Call individual Development phases
+## Read Unreal automation results
 
-The [command file](../.github/development-commands.json) binds schema version 1 to 14 argument arrays. Execute each array from the candidate checkout. The same [phase driver](../Scripts/development_commands.py) can run locally with the CI environment. `build-editor` builds the normal target. Run `ModBuildTool test-ue-target` afterwards to execute and validate headless Automation.
+Each independent framework capability requires behavior-focused automated tests as specified in the [review standard](CodingStandards/BuildAndReview.md#automation-tests), without a numeric coverage threshold. For an existing Unreal automation run, `Scripts/check_automation_report.py` validates the exported report, log, and editor exit code:
 
-| Job | Commands in order |
-| --- | --- |
-| Editor | `build-native-tools` → `prepare-libclang` → `prepare-editor-bootstrap` → `export-metadata` → `validate-metadata` → `build-editor` |
-| Game Prepare | `build-native-tools` → `prepare-libclang` → `prepare-game` → `save-checkpoint` → `validate-checkpoint` |
-| Game | `restore-checkpoint` → `validate-checkpoint` → `validate-metadata` → `import-metadata` → `resume-game` → `verify-game` |
-| Native tools | `test-native-development <native-binary-directory>` |
-
-Set `UMF_SOURCE`, `UMF_WORK`, `UMF_SDK`, `UMF_EVIDENCE`, `UMF_METADATA_PAYLOAD`, `UMF_CHECKPOINT_PAYLOAD` and `UMF_TOOLCHAIN` to the checkout, work and artifact directories, and toolchain JSON respectively. Set `UMF_TARGET`, `UMF_METADATA_TARGET`, `UMF_CONFIGURATION`, `UMF_ARCHITECTURE`, `UMF_UBT_PLATFORM` and `UMF_UBT_ARCHITECTURE` to the consumer and producer target identities. The SDK identity and checked-out commit come from `UMF_ENGINE_VERSION`, `UMF_UPSTREAM_COMMIT`, `UMF_LOCK_SHA256` and `UMF_COMMIT`. Run Game Prepare in a clean target workspace and restore in a fresh workspace with the same locked SDK and toolchain. UBT actions flagged `AbsolutePath` require matching absolute project, SDK and compiler roots on the two runners.
-
-Game Prepare runs UBT and standard UHT, then executes every eligible action in the prerequisite graph. The linker and export-owning modules wait for metadata. The checkpoint contains the prepared native tools, libclang, eligible project object files and an inventory of their inputs. PCH files, resource compilation without dependency manifests and runtime file copies are replayed against the consumer's SDK. The consumer exports a fresh UBT graph after MHT runs, validates the original compiler recipes and their recorded dependencies, and restores the matching objects before executing the remaining actions. Split Win64 builds request deterministic UBT output and check the regenerated MSVC PCH debug objects before linking. Store both handoffs in authorized private storage.
-
-The driver writes `metadata.json`, `checkpoint.json` and `game.json` to the evidence directory. Producer and consumer compare the Metadata and Checkpoint reports byte for byte. The Game report contains the linked binary and host-link receipt paths, reuse and replay counts, and measured remaining build and link durations.
-
-## Required checks
-
-Fork PRs run [Development](../.github/workflows/development.yml) with read-only permissions. The public aggregate `Development public` requires naming, text and formatting, API documentation, four native-tool checks, and synthetic COFF, ELF and Mach-O Hook links. Pages publishes independently. [API Pages](../.github/workflows/pages.yml)
-
-The maintainer reviews the exact PR head and manually dispatches the engine workflow from an authorized **private** repository. Approve only a commit whose build scripts, dependencies and UE code are suitable for that environment. Configure a zero-spend Actions budget and set `UMF_ZERO_SPEND=true` in the private caller. Give `UMFCI_READ_TOKEN` read access to the private SDK releases and installer repository. Give the separate `UMF_STATUS_TOKEN` Commit statuses write access to UnrealModFramework. Only the final aggregation step receives the status token.
-
-The private caller pins a reviewed revision of the reusable workflow.
-
-```yaml
-name: Reviewed Development
-on:
-  workflow_dispatch:
-    inputs:
-      pull_request: { type: number, required: true }
-      commit: { type: string, required: true }
-jobs:
-  development:
-    uses: Nelaric/UnrealModFramework/.github/workflows/development.yml@<reviewed-workflow-commit>
-    with:
-      pull_request: ${{ inputs.pull_request }}
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-      UMF_STATUS_TOKEN: ${{ secrets.UMF_STATUS_TOKEN }}
+```text
+python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
 ```
 
-The reusable workflow matches the supplied SHA to the open PR's head and runs standard GitHub-hosted runners. A complete run reports `ci/development` on that SHA. The bundle passes between jobs only as a short-lived artifact of the private caller. Keep engine files, build products, logs containing restricted UE data and caches within authorized storage. A missing SDK, unavailable free runners or incomplete jobs cannot produce a success status.
-
-Use the [versioned ruleset](../.github/rulesets/protect-main.json) after an authorized run has passed the entire matrix and the public aggregate is available. Keep the live required checks until then. Retire the old CircleCI trigger and webhook in the account once the new checks are enforcing the gate.
-
 ## Release Validation
+
+Release Validation uses the [engine lock](../.github/engine-lock.json) for its full engine revision.
 
 Use [Release Validation](../.github/workflows/release-validation.yml) from a private manual caller with the exact reviewed Release Candidate SHA. Its Win64 x64 `umf-release` runner uses a complete UE installation set by `UMF_FULL_UE`. This can be an authorized workstation with no paid runner. The same entry point can run directly on that workstation.
 
@@ -104,6 +118,8 @@ The release flow stages the integration assets under their existing package name
 
 Run `python Test/Performance/run_benchmark.py --engine <full-ue> --report <result.md>` to build, cook and measure the standalone benchmark. The benchmark builds the native extension for the selected desktop Game platform and architecture and includes the 200 host and packaged-Mod API cases. The Mod C++ samples time the C ABI Hook round trip and the host's engine call. The Mod Blueprint samples use graphs loaded from the same archive.
 
-## Phase 1 verification
+## If a check fails
 
-The current lock pins the Windows x86_64 Editor and five Game releases for Windows x86_64, Windows ARM64, Linux x86_64, Linux ARM64 and macOS ARM64. The remaining four entries await qualified releases. The full Windows UE 5.6.1 Editor and the verified Windows x86_64 Game SDK provide local coverage while those entries are unavailable. The four-producer critical path, both ARM64 Game jobs and the full Release Validation run require their real runner and SDK environments.
+Open the failed Actions job to read its log and summary. When asking for review assistance, include the failed run link and the diagnosis you have already tried.
+
+Workflow definitions live in [Development CI](../.github/workflows/development.yml), [Quality](../.github/workflows/quality.yml), and [API Pages](../.github/workflows/pages.yml).

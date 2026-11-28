@@ -185,7 +185,8 @@ std::vector<std::string> AnalysisArguments::AnalysisCommand(const std::vector<st
 		for (std::size_t I = 1; I < Expanded.size(); ++I)
 		{
 			const std::string& Arg = Expanded[I];
-			if (Arg == "-c" || Arg == "-fsyntax-only")
+			// Debug section compression only applies when writing object files.
+			if (Arg == "-c" || Arg == "-fsyntax-only" || Arg == "-gz" || Arg.starts_with("-gz="))
 			{
 				continue;
 			}

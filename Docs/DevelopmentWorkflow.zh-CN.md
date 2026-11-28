@@ -2,18 +2,69 @@
 
 [English](DevelopmentWorkflow.md) | 简体中文
 
-# 开发与发布验证
+# 开发与 CI 流程
 
-日常开发使用 UE 5.6.1 Development SDK。SDK 来源为 UMFCI 独立验收后发布的私有不可变发行版。[引擎锁](../.github/engine-lock.json)固定安装器提交、UE 上游提交、目标配置、制包版本、Manifest SHA-256、.NET SDK 和平台工具链。发行字段为空的目标会明确失败。安装器以流式方式读取归档，逐文件校验，并检查 5 GB 体积上限。
+本页介绍 Development CI、本地构建、发布验证和文档发布。准备改动前，请先阅读[贡献指南](../CONTRIBUTING.zh-CN.md)。
 
-| Editor 生产方 | Game 消费方 |
+## 从改动到 `main`
+
+1. 在分支或 Fork 中完成主题集中的改动，并运行相关的[本地检查](CodingStandards/BuildAndReview.zh-CN.md#本地检查)。
+2. 使用 [PR 模板](../.github/pull_request_template.md)向 `main` 发起 PR，并在适用时关联相关 Issue。
+3. 修复所有检查失败并完成维护者审查后再合并。维护者应通过分支保护规则要求相关检查通过。
+4. [启用 API Pages](Hosting/README.zh-CN.md) 后，合并到 `main` 会发布生成的 API 文档。
+
+## Development CI
+
+[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发。Code Quality 固定后续 Job 共用的 GitHub 测试合并提交。Native Tools 在 Code Quality 之后使用 Linux x86_64 Runner。本仓库分支的 PR 在同一次运行中，由 Code Quality 启动四个 Editor 和六个 Game Prepare。Fork PR 先执行 Code Quality 和 Native Tools，维护者审查后可为确切的测试合并 SHA 发起完整运行。每个 Game 等待自己的 Game Prepare 和指定 Editor。Windows 和 Linux ARM64 使用同系统 x86_64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。Development Result 汇总 18 个上游 Job，并在报告结果前核对当前 PR 和 `main`。
+
+每个 macOS Editor 和 Game Prepare Job 都使用 AppleClang 构建原生工具。Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界面模式运行 `Nelaric.*` Automation Tests。Game Prepare 执行所有不依赖 Metadata 的 Action。Game 在另一台原生 Runner 上安装同一份锁定的私有 SDK，恢复项目 Checkpoint、导入 Metadata，并完成 Monolithic Development 目标。Development Result 记录测试数量、Artifact 字节数、阶段耗时、Action 复用次数和不可移植原因。
+
+### 配置引擎任务
+
+1. 配置 `development-engine` 环境，使其接受 PR 测试合并引用和按确切 SHA 发起的请求。在 **Deployment branches and tags** 中选择 **No restriction**，使 GitHub 能接受只有 Commit SHA 的运行。
+2. 将仅有私有 UMFCI 仓库 `Contents: read` 权限的 `UMFCI_READ_TOKEN` 保存为环境 Secret。
+3. 将 [Development CI](../.github/workflows/development.yml) 中的 `UMFCI_RELEASE_TAG` 设为包含全部十个 SDK 目标的不可变 UMFCI 正式发行版标签。Runner 使用该发行版中的安装器和 .NET SDK 配置，并按发行版索引选择对应的 SDK 归档和安装清单。
+
+### 为 Fork 申请完整验证
+
+审查确切的 GitHub 测试合并提交，包括其中的工作流和构建脚本。在可信的工作树中，使用拥有仓库 Maintain 或 Admin 权限的账号登录 GitHub CLI 后执行以下命令。
+
+```text
+python Scripts/CI/approve_development.py <PR 编号> <已审查的测试合并 SHA>
+```
+
+命令核对该 SHA 是否对应当前 PR Head 和 `main`，再为该提交创建 GitHub Deployment 请求。GitHub 将原生检查关联到该测试合并提交。同一 PR 更新会取消旧运行。测试合并 SHA 变化后，请为新候选提交发起验证。重试同一候选提交时，在该次运行中选择 **Re-run all jobs**。**Run workflow** 为所选引用运行公开检查。
+
+### 接入构建阶段
+
+[Development 命令配置](../.github/development-commands.json) 将 `schemaVersion` 设为 `1`，并为各阶段配置调用 `Scripts/development_commands.py` 的参数数组。CI 从候选源码目录直接执行参数数组。可引用 `{source}`、`{control}`、`{work}`、`{sdk}`、`{evidence}`、`{target}`、`{configuration}`、`{architecture}`、`{ubt_platform}`、`{ubt_architecture}`、`{commit}`、`{lock_sha256}`、`{engine_version}`、`{upstream_commit}`、`{toolchain}`、`{metadata_target}`、`{metadata_payload}` 和 `{checkpoint_payload}`。引擎阶段也能读取对应的大写 `UMF_` 环境变量。原生 Checkpoint 格式负责保留可执行权限和路径重定位资料。
+
+| 命令键 | 职责 |
 | --- | --- |
-| Windows x86_64 | Windows x86_64、ARM64 |
-| Linux x86_64 | Linux x86_64、ARM64 |
-| macOS x86_64 | macOS x86_64 |
-| macOS ARM64 | macOS ARM64 |
+| `build-native-tools`、`prepare-libclang` | 每个生产者 Job 构建一次必要工具并准备对应宿主 libclang。Game Prepare 将可恢复的工具与依赖纳入 Checkpoint。 |
+| `prepare-editor-bootstrap`、`export-metadata`、`validate-metadata`、`build-editor` | 导出器确实需要时才执行 Bootstrap。将原生 Metadata 写入 `{metadata_payload}`，通过项目接口校验，然后构建正常 Editor。CI 直接运行 Editor 测试。Game 在指定的 `{metadata_target}` 上调用同一校验接口。 |
+| `prepare-game`、`save-checkpoint`、`validate-checkpoint` | 解析真实 Target、Module 和 Action Graph，执行所有可在缺少 Metadata 时执行的工作。将项目 Checkpoint 写入 `{checkpoint_payload}`，由项目校验 Action、输入指纹、工具链、原生工具、ABI 输入和路径重定位。 |
+| `restore-checkpoint`、`import-metadata`、`resume-game`、`verify-game` | 使用重新安装的锁定 SDK 还原项目状态，继续执行剩余工作。校验 Monolithic 目标的原生链接回执，并把已经链接的可执行文件交给 MBT 检查架构。 |
+| `test-native-development` | 在 Native Tools Job 内运行已实现的 Metadata、Checkpoint、SDK Plan 和 Manifest 测试。该命令可引用 `{source}`、`{control}` 和已经生成工具的 `{native}` 目录。 |
 
-四个 Editor Job 各自调度。一组 Editor 成功后，对应的 Game Job 即可启动。Development Game 通过 UBT 编译和链接 Monolithic 目标并校验 Host Link Receipt。Editor Job 构建正常目标，在无界面环境下运行 `Nelaric.*`，并检查报告中的发现和执行情况。日志记录 SDK 安装、原生工具、元数据、反射与生成、编译链接和自动化阶段耗时。完整矩阵的冷构建关键路径目标为 5～10 分钟。
+项目校验接口应在 `{evidence}` 生成如下报告。报告必须源于真实工具输出和构建状态。Checkpoint 的序列化和构建续跑继续由项目接口完成。
+
+- 所有报告均包含 `target`、`source_commit`、`engine_lock_sha256`、`engine_version`、`configuration`、`architecture` 和 `input_sha256`。`engine_lock_sha256` 使用 CI 提供的 `UMF_LOCK_SHA256`，其值根据 UMFCI 发行版 ID 和标签生成。Metadata 使用生产者 Editor 的目标与架构。
+- `metadata.json` 包含 `bundle_valid`。校验器要在 Editor 和 Game Runner 上独立计算相同的 Metadata 输入。
+- `checkpoint.json` 还包含 `toolchain_sha256`、`build_manifest_sha256`、`paths_valid`、`native_tools_runnable`、`inputs_valid`、`actions_valid`、`completed_actions`、`pending_actions`、`metadata_independent_pending_actions` 和记录原因及数量的 `nonportable_actions` 对象。CI 独立配置续跑 Runner 的工具链，在恢复 Checkpoint 之前将规范化 `{toolchain}` 文件的 SHA-256 与生产者的记录比对。
+- `game.json` 写入为 `Monolithic` 的 `link_type`、`link_receipt_valid`、相对源码目录的 `link_receipt` 和 `binary`、相对工作目录的 `mbt`、`metadata_input_sha256`、`reused_actions`、`reexecuted_actions`、`reexecuted_portable_actions`、`pending_actions`、`metadata_dependent_seconds` 和 `link_seconds`。重执行 Action 必须在 Checkpoint 标明的不可移植范围内，可移植 Action 的重复执行数量必须为零。
+
+工作流将 Metadata 或项目 Checkpoint 及其构建记录上传为 GitHub Actions Artifact。项目产物路径只存放不含 Unreal Engine 文件的构建输出。每个 Game 在同一次运行中按 ID 下载两个上游 Artifact。Checkpoint 记录锁定的 UMFCI SDK，Runner 直接从对应的私有发行版安装 SDK。构建日志随 Actions Job 展示。产物封存后一小时内可用于续跑。GitHub 最短保留期为一天，Development Result 成功后清理已使用的 Artifact。超过续跑窗口或产物已清理时，重跑整个工作流。
+
+### 合并门禁
+
+main 分支要求通过 Quality 工作流的公开检查，以及 GitHub 原生的 Code Quality 和 Development Result 检查。
+
+[main 规则集](../.github/rulesets/protect-main.json)使用 GitHub Actions 原生检查 `Code Quality` 和 `Development Result`。Development Result 要求当前测试合并提交具备完整的引擎验证。合并前，规则集要求 PR 分支包含 main 的当前提交。Fork 候选提交由维护者审查后发起这次运行。
+
+## Quality 工作流
+
+Quality 提供目前用于合并的 PR 和提交命名、格式与文本、API 文档三项检查。[Quality 工作流](../.github/workflows/quality.yml)
 
 ## 本地构建
 
@@ -43,54 +94,17 @@ $inputs = @("--configuration", "Development", "--metadata", $bundle)
 
 Bundle 的四个文件位于 `Metadata/`。文件名基于 `Project/` 和 `Engine/` 逻辑根。Options 和 Blueprint 数据使用反射名、参数角色与标量字段结构。消费目标会检查配置投影与生产方输入是否一致，不兼容的重定向、架构专用配置、蓝图包变化、源码漂移和负载损坏都会导致失败。C++ 布局、编译参数、Hook 对象和 ABI 由目标自身的编译数据库生成。Blueprint 使用反射结构体时，目标会以加载的反射类型校验字段结构。`Intermediate/` 下的 Bundle 为构建产物。
 
-## 独立调用 Development 阶段
+## 查看 Unreal 自动化测试结果
 
-[命令配置](../.github/development-commands.json)采用 Schema 1，包含 14 组命令参数。每组参数都从候选源码根目录执行。本地可设置同样的 CI 环境变量并运行[阶段脚本](../Scripts/development_commands.py)。`build-editor` 构建正常的 Editor。随后用 `ModBuildTool test-ue-target` 执行并检查无界面自动化测试。
+每项独立框架功能均须按[审查规范](CodingStandards/BuildAndReview.zh-CN.md#自动化测试)配备面向行为的自动化测试，但不设数值化覆盖率门槛。对于已完成的 Unreal 自动化运行，可使用 `Scripts/check_automation_report.py` 校验导出报告、日志及编辑器退出码：
 
-| Job | 命令顺序 |
-| --- | --- |
-| Editor | `build-native-tools` → `prepare-libclang` → `prepare-editor-bootstrap` → `export-metadata` → `validate-metadata` → `build-editor` |
-| Game Prepare | `build-native-tools` → `prepare-libclang` → `prepare-game` → `save-checkpoint` → `validate-checkpoint` |
-| Game | `restore-checkpoint` → `validate-checkpoint` → `validate-metadata` → `import-metadata` → `resume-game` → `verify-game` |
-| 原生工具 | `test-native-development <原生工具二进制目录>` |
-
-`UMF_SOURCE`、`UMF_WORK`、`UMF_SDK`、`UMF_EVIDENCE`、`UMF_METADATA_PAYLOAD`、`UMF_CHECKPOINT_PAYLOAD` 和 `UMF_TOOLCHAIN` 指定源码、工作目录、SDK、报告目录、两份产物目录及工具链 JSON。`UMF_TARGET`、`UMF_METADATA_TARGET`、`UMF_CONFIGURATION`、`UMF_ARCHITECTURE`、`UMF_UBT_PLATFORM` 和 `UMF_UBT_ARCHITECTURE` 指定消费和生产目标。`UMF_ENGINE_VERSION`、`UMF_UPSTREAM_COMMIT`、`UMF_LOCK_SHA256` 和 `UMF_COMMIT` 指定 SDK 和源码提交。Game Prepare 使用干净的目标工作目录。恢复端在新的工作目录中使用相同的锁定 SDK 和工具链。对于 UBT 标记为 `AbsolutePath` 的编译 Action，两台 Runner 需使用相同的工程、SDK 和编译器绝对根路径。
-
-Game Prepare 运行 UBT 和标准 UHT，再执行依赖图里所有符合条件的 Action。链接及负责导出的模块等待 Metadata。Checkpoint 保存已准备的原生工具、libclang、符合复用条件的项目对象文件及其输入清单。恢复端使用本地 SDK 重建 PCH、缺少依赖清单的资源编译及运行时文件拷贝。MHT 生成目标代码后，恢复端重新导出 UBT 图，核验原编译命令和依赖摘要，恢复匹配的对象文件，再执行剩余 Action。Win64 分段构建使用 UBT 的确定性编译，并在链接前核验重新生成的 MSVC PCH 调试对象。两类交接产物均存放于授权的私有存储。
-
-阶段脚本在报告目录生成 `metadata.json`、`checkpoint.json` 和 `game.json`。Metadata 与 Checkpoint 的报告在生产和消费端逐字节一致。Game 报告记录可执行文件和 Host Link Receipt 路径、实际复用与重跑数量，以及剩余构建和链接耗时。
-
-## 合并检查
-
-Fork PR 在只读权限下运行 [Development](../.github/workflows/development.yml)。`Development public` 汇总命名、文本和格式、API 文档、四个原生工具及 COFF、ELF 和 Mach-O Hook 链接用例。Pages 仍独立发布。 [API Pages](../.github/workflows/pages.yml)
-
-维护者审查准确的 PR head 后，从受授权的**私有**仓库手动发起引擎验证。审查该提交的构建脚本、依赖和 UE 源码后再调度。私有调用方配置零付费预算，设置 `UMF_ZERO_SPEND=true`。`UMFCI_READ_TOKEN` 只需读取私有 SDK 发行和安装器仓库，独立的 `UMF_STATUS_TOKEN` 只需对 UnrealModFramework 写入提交检查状态。只有最终汇总步骤取得状态令牌。
-
-私有调用方使用固定并已审查的工作流提交。
-
-```yaml
-name: Reviewed Development
-on:
-  workflow_dispatch:
-    inputs:
-      pull_request: { type: number, required: true }
-      commit: { type: string, required: true }
-jobs:
-  development:
-    uses: Nelaric/UnrealModFramework/.github/workflows/development.yml@<reviewed-workflow-commit>
-    with:
-      pull_request: ${{ inputs.pull_request }}
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-      UMF_STATUS_TOKEN: ${{ secrets.UMF_STATUS_TOKEN }}
+```text
+python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
 ```
 
-工作流核对 SHA 与当前打开的 PR head，并调度标准 GitHub-hosted runner。完整运行会向该 SHA 上报 `ci/development`。Bundle 只通过私有调用仓库中短期保留的 Artifact 传递。引擎文件、构建产物、含受限 UE 数据的日志与缓存留在授权存储中。SDK 缺失、免费运行资源不可用或 Job 未完成时，聚合检查无法成功。
-
-首次在授权环境完整通过矩阵且公开汇总可用后，应用[版本化 Ruleset](../.github/rulesets/protect-main.json)。在此之前保留线上必需检查。新检查接管准入后，在服务端清理旧 CircleCI 触发器和 webhook。
-
 ## 发布验证
+
+Release Validation 使用[引擎锁](../.github/engine-lock.json)固定完整引擎的上游版本。
 
 从受授权的私有仓库以明确的 Release Candidate SHA 调用 [Release Validation](../.github/workflows/release-validation.yml)。Win64 x64 的 `umf-release` runner 通过 `UMF_FULL_UE` 提供可执行 Cook 和 Package 的完整 UE。可以使用既有的授权工作站，同一入口也可在该工作站直接运行。
 
@@ -104,6 +118,8 @@ python -m Test.SharedRuntime.release_validation --engine <完整 UE> --work <新
 
 使用 `python Test/Performance/run_benchmark.py --engine <完整 UE> --report <结果.md>` 构建、Cook 并测量独立性能基准。脚本为目标桌面 Game 平台和架构编译原生扩展，并覆盖宿主和打包 Mod 的 200 项 API 用例。Mod C++ 栏包含 C ABI Hook 往返和宿主 UE 调用的耗时。Mod 蓝图栏使用从同一个归档中加载的蓝图。
 
-## Phase 1 验证情况
+## 检查失败时
 
-当前锁定 Windows x86_64 Editor，以及 Windows x86_64、Windows ARM64、Linux x86_64、Linux ARM64 和 macOS ARM64 五个 Game SDK。其余四个目标等待正式发行。本地使用完整 UE 5.6.1 验证 Windows Editor，并使用正式的 Windows x86_64 最小 Game SDK 验证消费链路。四组关键路径、两个 ARM64 Game Job 以及完整发布验证仍需在各自环境中运行。
+打开失败的 Actions Job 查看日志与摘要。请求协助排查时，请附上失败运行的链接及已尝试的排查步骤。
+
+各工作流配置分别位于 [Development CI](../.github/workflows/development.yml)、[Quality](../.github/workflows/quality.yml)和 [API Pages](../.github/workflows/pages.yml)。

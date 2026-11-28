@@ -40,12 +40,19 @@ Json SourceAnalyzer::AnalyzeErrors(const std::vector<SourceRequest>& Requests)
 	{
 		const auto Command = CompilationDatabase::LoadCompileCommand(Clang, *Group.front());
 		auto Unit = TranslationUnitParser::ParseUnit(Clang, Index.get(), Command, File);
+		const std::unique_ptr<CXTargetInfoImpl, decltype(Clang.clang_TargetInfo_dispose)> Target(
+		    Clang.clang_getTranslationUnitTargetInfo(Unit.get()), Clang.clang_TargetInfo_dispose);
+		if (!Target)
+		{
+			throw std::runtime_error("Cannot identify the source analysis target architecture.");
+		}
+		const auto Triple = Clang.String(Clang.clang_TargetInfo_getTriple(Target.get()));
 		std::optional<std::string> Listing;
 		for (const auto* Request : Group)
 		{
 			auto Report = Analyzer(Clang, Index.get(), Unit.get(), *Request, Command.Directory).Run();
 			AssemblyAnalysis::AnalyzeAssembly(*Request, Path::PathFromUtf8(Command.Compiler), Command.Directory,
-			                                  Command.NativeArguments, Listing, Report);
+			                                  Command.NativeArguments, Triple, Listing, Report);
 			Codes.Bind(Report.at("failures"));
 			Report["memberId"] = Request->MemberId;
 			Report["errorCodeEncodingVersion"] = Tools::ErrorCodes::StructuredErrorCodeVersion;

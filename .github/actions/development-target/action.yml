@@ -1,0 +1,233 @@
+# Copyright (c) 2026 Nelaric Contributors
+name: Development Target
+description: Build an Editor, prepare a Game checkpoint, or restore and continue a Game build.
+inputs:
+  phase:
+    description: Editor, prepare, or resume phase
+    required: true
+  repository:
+    description: Reviewed source repository
+    required: true
+  commit:
+    description: Reviewed immutable source commit
+    required: true
+  sdk-token:
+    description: Read-only access to the private UMFCI installer and release
+    required: true
+  checkpoint-id:
+    description: Checkpoint producer artifact ID
+    required: false
+  metadata-id:
+    description: Metadata producer artifact ID
+    required: false
+outputs:
+  artifact-id:
+    description: Published Actions artifact ID
+    value: ${{ steps.metadata.outputs.artifact-id || steps.checkpoint.outputs.artifact-id }}
+  metrics:
+    description: Validated build metrics for Development Result
+    value: ${{ steps.metrics.outputs.value }}
+runs:
+  using: composite
+  steps:
+    - name: Checkout Source
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.commit }}
+        path: source
+        fetch-depth: 2
+        persist-credentials: false
+    - name: Set Up Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065b # v5.6.0
+      with:
+        python-version: '3.12'
+        architecture: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+    - name: Resolve UMFCI Release
+      id: sdk
+      env:
+        GH_TOKEN: ${{ inputs.sdk-token }}
+      shell: bash
+      run: python Scripts/CI/build_target.py configure
+    - name: Checkout UMFCI Installer
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        repository: Nelaric/UMFCI
+        ref: ${{ steps.sdk.outputs.installer-ref }}
+        token: ${{ inputs.sdk-token }}
+        path: umfci
+        persist-credentials: false
+    - name: Set Up UMFCI .NET SDK
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      with:
+        global-json-file: umfci/global.json
+    - name: Install Native Linux ARM64 Toolchain Prerequisites
+      if: env.CI_TARGET == 'linux-arm64-game'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y --no-install-recommends clang-18 lld-18 llvm-18
+    - name: Set Up Engine Installer Dependencies
+      shell: bash
+      run: python -m pip install --disable-pip-version-check -r umfci/requirements.txt
+    - name: Install Engine SDK
+      env:
+        GH_TOKEN: ${{ inputs.sdk-token }}
+      shell: bash
+      run: python Scripts/CI/build_target.py install
+    - name: Prepare Toolchain
+      shell: bash
+      run: python Scripts/CI/build_target.py toolchain
+    - name: Build Native Tools
+      if: inputs.phase == 'editor' || inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py build-native-tools
+    - name: Prepare LibClang
+      if: inputs.phase == 'editor' || inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py prepare-libclang
+    - name: Prepare Editor Bootstrap
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py prepare-editor-bootstrap
+    - name: Export Metadata
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py export-metadata
+    - name: Validate Metadata
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py validate-metadata
+    - name: Seal Metadata Artifact
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py seal-metadata
+    - name: Start Metadata Upload Timing
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py start-timing "Metadata Upload"
+    - name: Upload Metadata
+      if: inputs.phase == 'editor'
+      id: metadata
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: metadata-${{ env.CI_TARGET }}-${{ inputs.commit }}-${{ github.run_attempt }}
+        path: |
+          ${{ steps.sdk.outputs.metadata-path }}/envelope.json
+          ${{ steps.sdk.outputs.metadata-path }}/payload
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+    - name: Record Metadata Upload Time
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py finish-timing "Metadata Upload"
+    - name: Build Normal Editor
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py build-editor
+    - name: Run Automation Tests
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py test-editor
+    - name: Verify Automation Test Results
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py verify-editor
+    - name: Execute Metadata Independent Actions
+      if: inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py prepare-game
+    - name: Save Build Checkpoint
+      if: inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py save-checkpoint
+    - name: Validate Build Checkpoint
+      if: inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py validate-checkpoint
+    - name: Seal Build Checkpoint
+      if: inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py seal-checkpoint
+    - name: Start Checkpoint Upload Timing
+      if: inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py start-timing "Checkpoint Upload"
+    - name: Upload Checkpoint
+      if: inputs.phase == 'prepare'
+      id: checkpoint
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: checkpoint-${{ env.CI_TARGET }}-${{ inputs.commit }}-${{ github.run_attempt }}
+        path: |
+          ${{ steps.sdk.outputs.checkpoint-path }}/envelope.json
+          ${{ steps.sdk.outputs.checkpoint-path }}/payload
+        if-no-files-found: error
+        # The validated payload includes the libclang .sha256 marker.
+        include-hidden-files: true
+        retention-days: 1
+        compression-level: 0
+    - name: Record Checkpoint Upload Time
+      if: inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py finish-timing "Checkpoint Upload"
+    - name: Start Checkpoint Download Timing
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py start-timing "Checkpoint Download"
+    - name: Download Checkpoint
+      if: inputs.phase == 'resume'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        artifact-ids: ${{ inputs.checkpoint-id || '0' }}
+        path: ${{ steps.sdk.outputs.checkpoint-path }}
+        merge-multiple: true
+    - name: Record Checkpoint Download Time
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py finish-timing "Checkpoint Download"
+    - name: Restore Build Checkpoint
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py restore-checkpoint
+    - name: Validate Restored Build Checkpoint
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py validate-checkpoint
+    - name: Start Metadata Download Timing
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py start-timing "Metadata Download"
+    - name: Download Metadata
+      if: inputs.phase == 'resume'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        artifact-ids: ${{ inputs.metadata-id || '0' }}
+        path: ${{ steps.sdk.outputs.metadata-path }}
+        merge-multiple: true
+    - name: Record Metadata Download Time
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py finish-timing "Metadata Download"
+    - name: Validate Downloaded Metadata
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py validate-metadata
+    - name: Import Metadata
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py import-metadata
+    - name: Resume Pending Build Actions
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py resume-game
+    - name: Verify Link Receipt And Binary Architecture
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py verify-game
+    - name: Collect Build Metrics
+      if: always() && steps.sdk.outcome == 'success'
+      id: metrics
+      shell: bash
+      run: python Scripts/CI/build_target.py metrics

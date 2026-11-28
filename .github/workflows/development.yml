@@ -1,340 +1,783 @@
 # Copyright (c) 2026 Nelaric Contributors
-name: Development
+name: Development CI
 
 on:
   pull_request:
     branches: [main]
-    types: [opened, reopened, synchronize, edited]
-  workflow_call:
-    inputs:
-      pull_request:
-        type: number
-        required: true
-      commit:
-        type: string
-        required: true
-    secrets:
-      UMFCI_READ_TOKEN:
-        required: true
-      UMF_STATUS_TOKEN:
-        required: true
+    types: [opened, synchronize, reopened, edited]
+  deployment:
+  workflow_dispatch:
+
+concurrency:
+  group: >-
+    ${{ github.event_name == 'pull_request' && format('development-ci-{0}', github.event.pull_request.number)
+        || github.event_name == 'deployment' && github.event.deployment.task == 'umf-development-ci'
+        && github.event.deployment.environment == 'development-ci-approval'
+        && github.event.deployment.payload.pull_request
+        && format('development-ci-{0}', github.event.deployment.payload.pull_request)
+        || format('development-ci-{0}', github.ref || github.run_id) }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
+env:
+  PYTHONUTF8: '1'
+  PYTHONDONTWRITEBYTECODE: '1'
+  UMFCI_RELEASE_TAG: v1.0.1
+
 jobs:
-  naming:
-    if: github.event_name == 'pull_request'
-    name: PR and commit naming
-    runs-on: ubuntu-latest
+  code-quality:
+    name: Code Quality
+    if: github.event_name != 'deployment' || github.event.deployment.environment != 'github-pages' || github.event.sender.type != 'Bot'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: read
+    outputs:
+      engine: ${{ steps.candidate.outputs.engine }}
+      identity: ${{ steps.candidate.outputs.identity }}
+      source: ${{ steps.candidate.outputs.source }}
+      commit: ${{ steps.candidate.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Set Up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065b # v5.6.0
         with:
           python-version: '3.12'
-      - name: Check PR title, branch, and commits
+      - name: Resolve Candidate
+        id: candidate
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: python Scripts/check_git_naming.py
-
-  format:
-    if: github.event_name == 'pull_request'
-    name: Format and text
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+          PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
+        run: python Scripts/CI/development.py resolve
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          python-version: '3.12'
-      - uses: actions/setup-dotnet@v4
+          repository: ${{ steps.candidate.outputs.source }}
+          ref: ${{ steps.candidate.outputs.commit }}
+          path: source
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify Candidate Commit
+        env:
+          CI_IDENTITY: ${{ steps.candidate.outputs.identity }}
+        run: python Scripts/CI/development.py verify
+      - name: Validate PR Title, Branch, And Commits
+        if: steps.candidate.outputs.pr != '0'
+        env:
+          CI_IDENTITY: ${{ steps.candidate.outputs.identity }}
+          PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
+        run: python Scripts/CI/check_repository.py naming
+      - name: Set Up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.x'
-      - name: Install pinned formatters
+      - name: Install Pinned Formatters
+        working-directory: source
         run: |
           python -m pip install clang-format==18.1.8
           dotnet tool restore
-      - name: Check text conventions
-        run: python Scripts/check_text.py
-      - name: Check build and automation script syntax
-        run: python -m compileall -q Scripts Test
-      - name: Check C++ and build-script format
+      - name: Validate Source Format
+        working-directory: source
         run: python Scripts/check_format.py
+      - name: Validate Text Encoding
+        working-directory: source
+        run: python Scripts/check_text.py
+      - name: Validate Copyright Notices
+        env:
+          CI_IDENTITY: ${{ steps.candidate.outputs.identity }}
+        run: python Scripts/CI/check_repository.py copyright
+      - name: Validate Public API Documentation
+        working-directory: source
+        run: python Scripts/check_public_docs.py
+      - name: Validate Doxygen Comments
+        working-directory: source
+        run: python Scripts/check_doxygen_style.py
+      - name: Install Doxygen And Actionlint
+        run: bash Scripts/CI/setup_quality.sh
+      - name: Build Doxygen Documentation
+        working-directory: source
+        run: python Scripts/run_doxygen.py
+      - name: Validate Python Scripts
+        working-directory: source
+        run: |
+          python -m compileall -q Scripts
+          python -m unittest discover -s Scripts -p 'test_*.py'
+      - name: Validate Workflow Syntax
+        working-directory: source
+        run: actionlint -shellcheck= -pyflakes=
+      - name: Validate Repository Configuration
+        run: |
+          python Scripts/CI/check_repository.py configuration
+          python Scripts/CI/development.py validate-config
 
-  api-docs:
-    if: github.event_name == 'pull_request'
-    name: API documentation
-    runs-on: ubuntu-latest
+  native-tools:
+    name: Native Tools
+    needs: code-quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Set Up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065b # v5.6.0
         with:
           python-version: '3.12'
-      - name: Install Doxygen 1.18.0
-        run: bash Scripts/install_doxygen.sh
-      - name: Check public header comments
-        run: python Scripts/check_public_docs.py
-      - name: Check Doxygen comment style
-        run: python Scripts/check_doxygen_style.py
-      - name: Build API documentation
-        run: python Scripts/run_doxygen.py
-
-  mst-compilers:
-    if: github.event_name == 'pull_request'
-    name: MST source analysis on Linux with GCC and Clang
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build the four standalone native tools
+      - name: Checkout Source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ needs.code-quality.outputs.source }}
+          ref: ${{ needs.code-quality.outputs.commit }}
+          path: source
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify Candidate Commit
+        env:
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        run: python Scripts/CI/development.py verify
+      - name: Prepare Native Toolchain
         run: |
-          tools=UnrealModFramework/Plugins/ModRuntime/Tools
-          cmake -S "$tools" -B "$RUNNER_TEMP/mst" -DCMAKE_BUILD_TYPE=Release
-          cmake --build "$RUNNER_TEMP/mst" --parallel 4
-      - name: Compile and link automatic Hooks for COFF, ELF and Mach-O targets
-        run: |
-          # LLD 19 supports both visionOS device and simulator platform versions.
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends clang-19 lld-19 llvm-19 libclang-19-dev
+      - name: Build Native Tools
+        working-directory: source
+        run: |
+          tools=UnrealModFramework/Plugins/ModRuntime/Tools
+          build="$RUNNER_TEMP/umf-native"
+          cmake -S "$tools" -B "$build" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
+          targets=$(cmake --build "$build" --target help)
+          dev_tool=ModSDKTool
+          if grep -Fxq '... ModDevTool' <<< "$targets"; then
+            dev_tool=ModDevTool
+          fi
+          cmake --build "$build" --target ModRuntimeUhtTools "$dev_tool" --parallel 2
+          echo "CI_DEV_TOOL=$dev_tool" >> "$GITHUB_ENV"
+      - name: Verify Native Tool Executables
+        run: |
+          bin="$RUNNER_TEMP/umf-native/bin/Release"
+          "$bin/ModHeaderTool" --help
+          "$bin/ModBuildTool" --version
+          "$bin/ModSourceTool" --version
+          test -x "$bin/$CI_DEV_TOOL"
+          if [[ "$CI_DEV_TOOL" == ModSDKTool ]]; then
+            "$bin/$CI_DEV_TOOL" --version
+          fi
+      - name: Prepare LibClang
+        working-directory: source
+        run: |
           tools=UnrealModFramework/Plugins/ModRuntime/Tools
           cmake -P "$tools/SetupLibClang.cmake"
           read -r library_path < "$tools/build/libclang-Linux-x64.path"
           libclang=$(realpath "$tools/build/$library_path")
-          python3 Scripts/test_hook_targets.py --clang /usr/lib/llvm-19/bin/clang \
-            --resource-dir "$(dirname "$libclang")/clang/21" --libclang "$libclang" \
-            --mbt "$RUNNER_TEMP/mst/bin/Release/ModBuildTool" --mht "$RUNNER_TEMP/mst/bin/Release/ModHeaderTool" \
-            --mst "$RUNNER_TEMP/mst/bin/Release/ModSourceTool"
-      - name: Verify Metadata, Game checkpoints and SDK planning
-        run: python Scripts/development_commands.py test-native-development "$RUNNER_TEMP/mst/bin/Release"
-      - name: Compare existing cross-file exception paths
+          test -f "$libclang"
+          echo "FIXTURE_LIBCLANG=$libclang" >> "$GITHUB_ENV"
+      - name: Verify COFF, ELF, And Mach-O Hooks
+        working-directory: source
         run: |
-          export MST_RESOURCE_DIR="$(clang++-19 -print-resource-dir)"
-          python3 - <<'PY'
-          import json
-          import os
-          import shutil
-          import subprocess
-          import tempfile
-          from pathlib import Path
-
-          runner = Path(os.environ["RUNNER_TEMP"])
-          mst = runner / "mst/bin/Release/ModSourceTool"
-          root = Path(tempfile.mkdtemp(prefix="mst-compilers-", dir=runner))
-          tools = Path("UnrealModFramework/Plugins/ModRuntime/Tools")
-          common = root / "Common"
-          shutil.copytree(tools / "Common", common)
-          response = common / "Process/ResponseFile.cpp"
-          filesystem = common / "Files/File.cpp"
-          sources = (
-              response, filesystem,
-              common / "Process/ProcessArguments.cpp",
-              common / "Files/Path.cpp",
-              common / "Files/TemporaryName.cpp",
-          )
-          member = "api/ci/build-tool/write-response"
-          function = "Mod::BuildTool::ResponseFile::WriteResponseFile"
-
-          previous = None
-          for compiler in ("g++", "clang++-19"):
-              driver = shutil.which(compiler)
-              if not driver:
-                  raise SystemExit(f"Missing native compiler {compiler}")
-              directory = root / compiler
-              directory.mkdir()
-              database = directory / "compile_commands.json"
-              database.write_text(json.dumps([{
-                  "directory": str(directory),
-                  "file": str(source),
-                  "arguments": [
-                      driver, "-std=c++20", "-O2", "-g", "-fexceptions", "-I" + str(root),
-                      "-DUE_TARGET_NAME=MSTNative", '-DUE_MODULE_NAME="ModBuildTool"',
-                      "-DWITH_EDITOR=0", "-c", str(source), "-o", source.with_suffix(".o").name,
-                  ],
-              } for source in sources]), encoding="utf-8")
-              request = directory / "SourceAnalysisRequest.json"
-              request.write_text(json.dumps({
-                  "format": "UMF.SourceAnalysisRequest",
-                  "schemaVersion": 2,
-                  "compilationDatabase": str(database),
-                  "target": "MSTNative",
-                  "projectRoot": str(root),
-                  "members": [{"id": member, "function": function, "module": "ModBuildTool",
-                               "source": str(response), "translationUnit": str(response)}],
-                  "libclang": "/usr/lib/llvm-19/lib/libclang.so",
-                  "resourceDirectory": os.environ["MST_RESOURCE_DIR"],
-                  "analysisArguments": [],
-              }), encoding="utf-8")
-              command = [str(mst), "analyze-errors", str(request)]
-              result = json.loads(subprocess.check_output(command, text=True))["members"][0]
-              failures = result["failures"]
-              direct = any(
-                  item["originFunction"] == "Mod::BuildTool::ResponseFile::WriteResponseFile"
-                  and item["exitKind"] == "throw" and not item["callChain"]
-                  for item in failures
-              )
-              rethrow = any(
-                  item["originFunction"] == "Mod::BuildTool::File::WriteFileAtomically"
-                  and item["exitKind"] == "throw" and item["callChain"] and item.get("rethrowLocations")
-                  for item in failures
-              )
-              if not direct or not rethrow or str(filesystem) not in result["analyzedFiles"]:
-                  raise SystemExit(f"{compiler} did not resolve the direct and cross-file rethrow paths")
-              codes = {item["key"]: (item["macro"], item["code"]) for item in failures}
-              snapshot = (codes, catalog.read_bytes())
-              if previous is not None and snapshot != previous:
-                  raise SystemExit("GCC and Clang disagree on the persisted error reasons")
-              previous = snapshot
-              print(compiler, json.dumps(codes, sort_keys=True))
-          PY
-
-  public:
-    name: Development public
-    if: ${{ always() && github.event_name == 'pull_request' }}
-    runs-on: ubuntu-24.04
-    needs: [naming, format, api-docs, mst-compilers]
-    steps:
-      - env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
-        run: jq -e 'length == 4 and all(.[]; . == "success")' <<< "$RESULTS"
-
-  review:
-    name: Verify reviewed candidate
-    if: github.event_name == 'workflow_dispatch' && github.event.repository.private
-    runs-on: ubuntu-24.04
-    steps:
-      - env:
-          PR: ${{ inputs.pull_request }}
-          COMMIT: ${{ inputs.commit }}
-          ZERO_SPEND: ${{ vars.UMF_ZERO_SPEND }}
+          bin="$RUNNER_TEMP/umf-native/bin/Release"
+          python Scripts/test_hook_targets.py --clang /usr/lib/llvm-19/bin/clang \
+            --resource-dir "$(dirname "$FIXTURE_LIBCLANG")/clang/21" --libclang "$FIXTURE_LIBCLANG" \
+            --mbt "$bin/ModBuildTool" --mht "$bin/ModHeaderTool" --mst "$bin/ModSourceTool"
+      - name: Validate GCC And Clang Source Analysis
+        working-directory: source
+        run: python ../Scripts/CI/check_source_analysis.py "$RUNNER_TEMP/umf-native/bin/Release/ModSourceTool"
+      - name: Validate Native Development Protocols
+        if: ${{ needs.code-quality.outputs.engine == 'true' }}
+        env:
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
         run: |
-          set -euo pipefail
-          test "$ZERO_SPEND" = true
-          [[ "$PR" =~ ^[1-9][0-9]*$ && "$COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          curl -fsSL "https://api.github.com/repos/Nelaric/UnrealModFramework/pulls/$PR" |
-            jq -e --arg commit "$COMMIT" '.state == "open" and .base.ref == "main" and .head.sha == $commit'
-          echo "Reviewed candidate $COMMIT"
+          python Scripts/CI/development.py verify
+          python Scripts/CI/build_target.py test-native-development
 
-  windows_editor:
-    needs: review
-    uses: ./.github/workflows/_engine-target.yml
-    with:
-      target: windows-x64-editor
-      runner: windows-2022
-      producer: windows-x64-editor
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-
-  windows_game:
-    needs: windows_editor
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: windows-x64-game
-            runner: windows-2022
-          - target: windows-arm64-game
-            runner: windows-11-arm
-    uses: ./.github/workflows/_engine-target.yml
-    with:
-      target: ${{ matrix.target }}
-      runner: ${{ matrix.runner }}
-      producer: windows-x64-editor
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-
-  linux_editor:
-    needs: review
-    uses: ./.github/workflows/_engine-target.yml
-    with:
-      target: linux-x64-editor
-      runner: ubuntu-24.04
-      producer: linux-x64-editor
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-
-  linux_game:
-    needs: linux_editor
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux-x64-game
-            runner: ubuntu-24.04
-          - target: linux-arm64-game
-            runner: ubuntu-24.04-arm
-    uses: ./.github/workflows/_engine-target.yml
-    with:
-      target: ${{ matrix.target }}
-      runner: ${{ matrix.runner }}
-      producer: linux-x64-editor
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-
-  mac_x64_editor:
-    needs: review
-    uses: ./.github/workflows/_engine-target.yml
-    with:
-      target: macos-x64-editor
-      runner: macos-15-intel
-      producer: macos-x64-editor
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-
-  mac_x64_game:
-    needs: mac_x64_editor
-    uses: ./.github/workflows/_engine-target.yml
-    with:
-      target: macos-x64-game
-      runner: macos-15-intel
-      producer: macos-x64-editor
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-
-  mac_arm64_editor:
-    needs: review
-    uses: ./.github/workflows/_engine-target.yml
-    with:
-      target: macos-arm64-editor
-      runner: macos-15
-      producer: macos-arm64-editor
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-
-  mac_arm64_game:
-    needs: mac_arm64_editor
-    uses: ./.github/workflows/_engine-target.yml
-    with:
-      target: macos-arm64-game
-      runner: macos-15
-      producer: macos-arm64-editor
-      commit: ${{ inputs.commit }}
-    secrets:
-      UMFCI_READ_TOKEN: ${{ secrets.UMFCI_READ_TOKEN }}
-
-  engine:
-    name: Development engine
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.event.repository.private && needs.review.result == 'success' }}
-    runs-on: ubuntu-24.04
-    needs: [review, windows_editor, windows_game, linux_editor, linux_game, mac_x64_editor, mac_x64_game, mac_arm64_editor, mac_arm64_game]
+  editor-windows-x64:
+    name: Editor / Windows x86_64
+    needs: code-quality
+    if: &authorized ${{ needs.code-quality.outputs.engine == 'true' }}
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: windows-2022
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
     steps:
-      - env:
-          GH_TOKEN: ${{ secrets.UMF_STATUS_TOKEN }}
-          COMMIT: ${{ inputs.commit }}
-          RESULTS: ${{ toJSON(needs.*.result) }}
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Build And Test Editor
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: windows-x64-editor
+          CI_RUNNER: windows-2022
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: editor
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  editor-linux-x64:
+    name: Editor / Linux x86_64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Build And Test Editor
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: linux-x64-editor
+          CI_RUNNER: ubuntu-24.04
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: editor
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  editor-macos-x64:
+    name: Editor / MacOS x86_64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: macos-15-intel
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Build And Test Editor
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: macos-x64-editor
+          CI_RUNNER: macos-15-intel
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: editor
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  editor-macos-arm64:
+    name: Editor / MacOS ARM64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: macos-15
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Build And Test Editor
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: macos-arm64-editor
+          CI_RUNNER: macos-15
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: editor
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  prepare-game-windows-x64:
+    name: Game Prepare / Windows x86_64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: windows-2022
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+      identity: ${{ needs.code-quality.outputs.identity }}
+      source: ${{ needs.code-quality.outputs.source }}
+      commit: ${{ needs.code-quality.outputs.commit }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Prepare Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: windows-x64-game
+          CI_RUNNER: windows-2022
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: prepare
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  prepare-game-windows-arm64:
+    name: Game Prepare / Windows ARM64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: windows-11-arm
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+      identity: ${{ needs.code-quality.outputs.identity }}
+      source: ${{ needs.code-quality.outputs.source }}
+      commit: ${{ needs.code-quality.outputs.commit }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Prepare Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: windows-arm64-game
+          CI_RUNNER: windows-11-arm
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: prepare
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  prepare-game-linux-x64:
+    name: Game Prepare / Linux x86_64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+      identity: ${{ needs.code-quality.outputs.identity }}
+      source: ${{ needs.code-quality.outputs.source }}
+      commit: ${{ needs.code-quality.outputs.commit }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Prepare Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: linux-x64-game
+          CI_RUNNER: ubuntu-24.04
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: prepare
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  prepare-game-linux-arm64:
+    name: Game Prepare / Linux ARM64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+      identity: ${{ needs.code-quality.outputs.identity }}
+      source: ${{ needs.code-quality.outputs.source }}
+      commit: ${{ needs.code-quality.outputs.commit }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Prepare Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: linux-arm64-game
+          CI_RUNNER: ubuntu-24.04-arm
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: prepare
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  prepare-game-macos-x64:
+    name: Game Prepare / MacOS x86_64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: macos-15-intel
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+      identity: ${{ needs.code-quality.outputs.identity }}
+      source: ${{ needs.code-quality.outputs.source }}
+      commit: ${{ needs.code-quality.outputs.commit }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Prepare Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: macos-x64-game
+          CI_RUNNER: macos-15-intel
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: prepare
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  prepare-game-macos-arm64:
+    name: Game Prepare / MacOS ARM64
+    needs: code-quality
+    if: *authorized
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: macos-15
+    timeout-minutes: 35
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+      artifact-id: ${{ steps.target.outputs.artifact-id }}
+      identity: ${{ needs.code-quality.outputs.identity }}
+      source: ${{ needs.code-quality.outputs.source }}
+      commit: ${{ needs.code-quality.outputs.commit }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Prepare Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: macos-arm64-game
+          CI_RUNNER: macos-15
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+        with:
+          phase: prepare
+          repository: ${{ needs.code-quality.outputs.source }}
+          commit: ${{ needs.code-quality.outputs.commit }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  game-windows-x64:
+    name: Game / Windows x86_64
+    needs: [prepare-game-windows-x64, editor-windows-x64]
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: windows-2022
+    timeout-minutes: 25
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Resume Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: windows-x64-game
+          CI_RUNNER: windows-2022
+          CI_IDENTITY: ${{ needs.prepare-game-windows-x64.outputs.identity }}
+        with:
+          phase: resume
+          repository: ${{ needs.prepare-game-windows-x64.outputs.source }}
+          commit: ${{ needs.prepare-game-windows-x64.outputs.commit }}
+          checkpoint-id: ${{ needs.prepare-game-windows-x64.outputs.artifact-id }}
+          metadata-id: ${{ needs.editor-windows-x64.outputs.artifact-id }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  game-windows-arm64:
+    name: Game / Windows ARM64
+    needs: [prepare-game-windows-arm64, editor-windows-x64]
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: windows-11-arm
+    timeout-minutes: 25
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Resume Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: windows-arm64-game
+          CI_RUNNER: windows-11-arm
+          CI_IDENTITY: ${{ needs.prepare-game-windows-arm64.outputs.identity }}
+        with:
+          phase: resume
+          repository: ${{ needs.prepare-game-windows-arm64.outputs.source }}
+          commit: ${{ needs.prepare-game-windows-arm64.outputs.commit }}
+          checkpoint-id: ${{ needs.prepare-game-windows-arm64.outputs.artifact-id }}
+          metadata-id: ${{ needs.editor-windows-x64.outputs.artifact-id }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  game-linux-x64:
+    name: Game / Linux x86_64
+    needs: [prepare-game-linux-x64, editor-linux-x64]
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Resume Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: linux-x64-game
+          CI_RUNNER: ubuntu-24.04
+          CI_IDENTITY: ${{ needs.prepare-game-linux-x64.outputs.identity }}
+        with:
+          phase: resume
+          repository: ${{ needs.prepare-game-linux-x64.outputs.source }}
+          commit: ${{ needs.prepare-game-linux-x64.outputs.commit }}
+          checkpoint-id: ${{ needs.prepare-game-linux-x64.outputs.artifact-id }}
+          metadata-id: ${{ needs.editor-linux-x64.outputs.artifact-id }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  game-linux-arm64:
+    name: Game / Linux ARM64
+    needs: [prepare-game-linux-arm64, editor-linux-x64]
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Resume Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: linux-arm64-game
+          CI_RUNNER: ubuntu-24.04-arm
+          CI_IDENTITY: ${{ needs.prepare-game-linux-arm64.outputs.identity }}
+        with:
+          phase: resume
+          repository: ${{ needs.prepare-game-linux-arm64.outputs.source }}
+          commit: ${{ needs.prepare-game-linux-arm64.outputs.commit }}
+          checkpoint-id: ${{ needs.prepare-game-linux-arm64.outputs.artifact-id }}
+          metadata-id: ${{ needs.editor-linux-x64.outputs.artifact-id }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  game-macos-x64:
+    name: Game / MacOS x86_64
+    needs: [prepare-game-macos-x64, editor-macos-x64]
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Resume Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: macos-x64-game
+          CI_RUNNER: macos-15-intel
+          CI_IDENTITY: ${{ needs.prepare-game-macos-x64.outputs.identity }}
+        with:
+          phase: resume
+          repository: ${{ needs.prepare-game-macos-x64.outputs.source }}
+          commit: ${{ needs.prepare-game-macos-x64.outputs.commit }}
+          checkpoint-id: ${{ needs.prepare-game-macos-x64.outputs.artifact-id }}
+          metadata-id: ${{ needs.editor-macos-x64.outputs.artifact-id }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  game-macos-arm64:
+    name: Game / MacOS ARM64
+    needs: [prepare-game-macos-arm64, editor-macos-arm64]
+    environment:
+      name: development-engine
+      deployment: false
+    runs-on: macos-15
+    timeout-minutes: 25
+    outputs:
+      metrics: ${{ steps.target.outputs.metrics }}
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Resume Game Build
+        id: target
+        uses: ./.github/actions/development-target
+        env:
+          CI_TARGET: macos-arm64-game
+          CI_RUNNER: macos-15
+          CI_IDENTITY: ${{ needs.prepare-game-macos-arm64.outputs.identity }}
+        with:
+          phase: resume
+          repository: ${{ needs.prepare-game-macos-arm64.outputs.source }}
+          commit: ${{ needs.prepare-game-macos-arm64.outputs.commit }}
+          checkpoint-id: ${{ needs.prepare-game-macos-arm64.outputs.artifact-id }}
+          metadata-id: ${{ needs.editor-macos-arm64.outputs.artifact-id }}
+          sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
+
+  development-result:
+    name: Development Result
+    needs:
+      - code-quality
+      - native-tools
+      - editor-windows-x64
+      - editor-linux-x64
+      - editor-macos-x64
+      - editor-macos-arm64
+      - prepare-game-windows-x64
+      - prepare-game-windows-arm64
+      - prepare-game-linux-x64
+      - prepare-game-linux-arm64
+      - prepare-game-macos-x64
+      - prepare-game-macos-arm64
+      - game-windows-x64
+      - game-windows-arm64
+      - game-linux-x64
+      - game-linux-arm64
+      - game-macos-x64
+      - game-macos-arm64
+    if: always() && (github.event_name != 'deployment' || github.event.deployment.environment != 'github-pages' || github.event.sender.type != 'Bot')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Checkout Workflow
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Aggregate Development Results
+        if: always() && !cancelled()
+        id: aggregate
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+          ACTIONS_READ_TOKEN: ${{ github.token }}
+        run: python3 Scripts/CI/development.py aggregate
+      - name: Verify Current Candidate
+        id: candidate
+        if: steps.aggregate.outputs.passed == 'true'
+        env:
+          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
+          PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
+        run: python3 Scripts/CI/development.py verify-current-candidate
+      - name: Remove Consumed Artifacts
+        if: success() && steps.candidate.outcome == 'success'
+        env:
+          ARTIFACT_IDS: ${{ steps.aggregate.outputs.artifact-ids }}
+          ACTIONS_TOKEN: ${{ github.token }}
+        run: python3 Scripts/CI/development.py cleanup
+      - name: Enforce Development Result
+        if: always()
+        env:
+          PASSED: ${{ job.status == 'success' && steps.aggregate.outputs.passed == 'true' && steps.candidate.outcome == 'success' }}
         run: |
-          set -euo pipefail
-          state=failure
-          if jq -e 'length == 9 and all(.[]; . == "success")' <<< "$RESULTS"; then
-            state=success
+          if [ "$PASSED" = true ]; then
+            printf '**Final Result** Success\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '**Final Result** Failure\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
-          gh api "repos/Nelaric/UnrealModFramework/statuses/$COMMIT" -f state="$state" \
-            -f context=ci/development -f description="Development SDK and target verification"
-          test "$state" = success

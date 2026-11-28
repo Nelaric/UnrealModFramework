@@ -36,9 +36,9 @@ All code contributions must follow [Epic Games' Unreal Engine C++ Coding Standar
 
 Run the checks relevant to your change as described in [Build Scripts, Tooling, and Review](Docs/CodingStandards/BuildAndReview.md). In your pull request, list the checks you ran and note any you could not run.
 
-GitHub Actions checks naming, formatting and text conventions, API documentation, standalone tools, and automatic Hook targets. Fork PRs can run the public checks. A maintainer reviews the exact PR head and dispatches the UE Development matrix in a private authorized environment. Independent capabilities require automation tests for observable behavior and meaningful failure cases. [Development and CI workflow](Docs/DevelopmentWorkflow.md)
+GitHub Actions checks naming, formatting, text conventions, API documentation, native tools, and automatic Hook targets. PR runs start with public checks. An authorized reviewer can start a full engine run in `development-engine` by approving the exact test merge SHA. Independent capabilities require automation tests for observable behavior and meaningful failure cases. [Development and CI workflow](Docs/DevelopmentWorkflow.md)
 
-Pull requests target `main`. The migrated ruleset requires `Development public` and `ci/development`. The existing live checks remain required until the full matrix first passes. Maintainers review correctness, module boundaries, API contracts, performance, and UE compatibility.
+Pull requests target `main`. Follow the required checks configured for the branch and obtain approval from a maintainer other than the last pusher before merging. Maintainers review correctness, module boundaries, API contracts, performance, security, and compatibility with Unreal Engine 5.6 and later.
 
 ## Large files and Git LFS
 

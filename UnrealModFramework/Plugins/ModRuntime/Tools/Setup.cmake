@@ -67,8 +67,9 @@ Prepare the host libclang and build all four standalone ModRuntime tools in Rele
 Windows:      Setup.bat [toolchain-directory] [--jobs count] [--generator name]
 Linux/macOS:  sh Setup.sh [toolchain-directory] [--jobs count] [--generator name]
 
-Requires CMake 3.20 or newer, MSVC and the Windows SDK on Windows, or GNU g++ on
-Linux and macOS. On macOS, set CXX to your installed GNU compiler.
+Requires CMake 3.20 or newer and a C++20 toolchain. Use MSVC with the Windows SDK
+on Windows, GNU g++ on Linux, or AppleClang from Xcode or Command Line Tools
+on macOS.
 ]=])
     return()
 endif()
