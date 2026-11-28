@@ -23,20 +23,8 @@ with tempfile.TemporaryDirectory(prefix="mst-compilers-") as directory:
         common / "Files/Path.cpp",
         common / "Files/TemporaryName.cpp",
     )
-    catalog = root / "Config/catalog.json"
-    catalog.parent.mkdir()
     member = "api/ci/build-tool/write-response"
-    catalog.write_text(json.dumps({
-        "format": "UMF.SourceErrorCatalog",
-        "schemaVersion": 2,
-        "members": {member: {
-            "function": "Mod::BuildTool::ResponseFile::WriteResponseFile",
-            "module": "ModBuildTool",
-            "source": str(response),
-            "reasons": {},
-        }},
-        "nextDetailByType": {},
-    }), encoding="utf-8")
+    function = "Mod::BuildTool::ResponseFile::WriteResponseFile"
 
     previous = None
     for compiler in ("g++", "clang++-19"):
@@ -58,21 +46,26 @@ with tempfile.TemporaryDirectory(prefix="mst-compilers-") as directory:
         request = directory / "SourceAnalysisRequest.json"
         request.write_text(json.dumps({
             "format": "UMF.SourceAnalysisRequest",
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "compilationDatabase": str(database),
             "target": "MSTNative",
-            "catalog": str(catalog),
-            "member": member,
+            "projectRoot": str(root),
+            "members": [{
+                "id": member,
+                "function": function,
+                "module": "ModBuildTool",
+                "source": str(response),
+                "translationUnit": str(response),
+            }],
             "libclang": "/usr/lib/llvm-19/lib/libclang.so",
             "resourceDirectory": resource_dir,
             "analysisArguments": [],
         }), encoding="utf-8")
-        action = "update-catalog" if previous is None else "analyze-errors"
-        command = [str(mst), action, str(request)]
-        result = json.loads(subprocess.check_output(command, text=True))
+        command = [str(mst), "analyze-errors", str(request)]
+        (result,) = json.loads(subprocess.check_output(command, text=True))["members"]
         failures = result["failures"]
         direct = any(
-            item["originFunction"] == "Mod::BuildTool::ResponseFile::WriteResponseFile"
+            item["originFunction"] == function
             and item["exitKind"] == "throw" and not item["callChain"]
             for item in failures
         )
@@ -84,8 +77,7 @@ with tempfile.TemporaryDirectory(prefix="mst-compilers-") as directory:
         if not direct or not rethrow or str(filesystem) not in result["analyzedFiles"]:
             raise SystemExit(f"{compiler} did not resolve the direct and cross-file rethrow paths")
         codes = {item["key"]: (item["macro"], item["code"]) for item in failures}
-        snapshot = (codes, catalog.read_bytes())
-        if previous is not None and snapshot != previous:
-            raise SystemExit("GCC and Clang disagree on the persisted error reasons")
-        previous = snapshot
-        print(compiler, json.dumps(codes, sort_keys=True))
+        print(compiler, json.dumps(codes, sort_keys=True), flush=True)
+        if previous is not None and codes != previous:
+            raise SystemExit("GCC and Clang disagree on the generated source error codes")
+        previous = codes
