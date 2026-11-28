@@ -87,6 +87,10 @@ public:
 					              FPackageName::MountPointExists(TEXT("/TestMod/")));
 					Pawn->RestoreMesh();
 					Extensions->Stop();
+					if (!Test.TestTrue(TEXT("The host can release the drained session"), Host->EndExtensionSession()))
+					{
+						return true;
+					}
 					Phase = EPhase::WaitForUnmount;
 				}
 				break;
@@ -140,8 +144,9 @@ private:
 	bool Prepare(UModExtensionSubsystem& Extensions, bool bIncludeFirst)
 	{
 		Mod::Extension::FWorldPolicy Policy;
+		const FName ModifyInputs(FString(HookId) + TEXT(".ModifyInputs"));
 		Policy.EnabledMods.Add(TEXT("sharedcaller"));
-		Policy.Grants.Add(TEXT("sharedcaller"), {FName(HookId), TEXT("WorldRead")});
+		Policy.Grants.Add(TEXT("sharedcaller"), {FName(HookId), ModifyInputs, TEXT("WorldRead")});
 		Mod::Extension::FContentSlot Meshes;
 		Meshes.AssetType = USkeletalMesh::StaticClass();
 		Meshes.bAllowReplace = true;
@@ -155,7 +160,8 @@ private:
 		if (bIncludeFirst)
 		{
 			Policy.EnabledMods.Add(TEXT("testmod"));
-			Policy.Grants.Add(TEXT("testmod"), {FName(HookId), TEXT("WorldRead"), TEXT("Content.character.mesh")});
+			Policy.Grants.Add(TEXT("testmod"),
+			                  {FName(HookId), ModifyInputs, TEXT("WorldRead"), TEXT("Content.character.mesh")});
 		}
 		FString Error;
 		const bool bReady = Extensions.Prepare(MoveTemp(Policy), Error);
@@ -177,6 +183,7 @@ private:
 			return false;
 		}
 		QueryAddress = reinterpret_cast<void*>(Query);
+		Test.TestFalse(TEXT("An active World pins the game session"), Host.EndExtensionSession());
 		const auto A = Host.OpenLocalPlayer<UGameLocalPlayerAPI>(&Player, {TEXT("WorldRead"), TEXT("WorldWrite")});
 		const auto B = Host.OpenLocalPlayer<UGameLocalPlayerAPI>(&Player, {TEXT("WorldRead")});
 		if (!Test.TestTrue(TEXT("Independent SDK callers"),

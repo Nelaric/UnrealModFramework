@@ -108,6 +108,11 @@ public:
 	 */
 	MODAPI_API TModResult<void> RevokeCaller(const Mod::API::FCaller& Caller);
 
+	/** @brief Releases the selected Mod set on the game thread.
+	 * @return Whether all extension Worlds have drained and the set can change.
+	 */
+	MODAPI_API bool EndExtensionSession();
+
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
