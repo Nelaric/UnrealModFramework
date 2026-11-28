@@ -1,5 +1,6 @@
 # Copyright (c) 2026 Nelaric Contributors
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,27 +13,31 @@ from game_checkpoint import (
 
 
 class CheckpointTests(unittest.TestCase):
-    def test_default_mac_resources_leave_project_inputs_unchanged(self):
+    def test_build_outputs_do_not_change_the_committed_project_input_set(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            project, engine = root / "Project", root / "Engine"
-            relative = Path("Build/Mac/Resources")
-            (project / relative).mkdir(parents=True)
-            (engine / relative).mkdir(parents=True)
-            (project / "Game.uproject").write_text("{}", encoding="utf-8")
-            before_link = project_inputs(project, engine)
+            project = root / "Project"
+            resources = project / "Build/Mac/Resources"
+            resources.mkdir(parents=True)
+            source = resources / "Project.entitlements"
+            source.write_text("Project signing options", encoding="utf-8")
+            (root / "OtherFile").write_text("Outside the project", encoding="utf-8")
+            commands = (
+                ["init", "--quiet"],
+                ["add", "."],
+                ["-c", "user.name=Development Test", "-c", "user.email=development@example.invalid",
+                 "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "fixtures"],
+            )
+            for command in commands:
+                subprocess.run(["git", "-C", str(root), *command], check=True, stdout=subprocess.DEVNULL)
+            before_link = project_inputs(project)
 
-            for name in ("Info.Template.plist", "Sandbox.Server.entitlements", "Sandbox.NoNet.entitlements"):
-                (engine / relative / name).write_text(name, encoding="utf-8")
-                (project / relative / name).write_bytes((engine / relative / name).read_bytes())
-            self.assertEqual(project_inputs(project, engine), before_link)
+            (resources / "Info.Template.plist").write_text("A generated Xcode template", encoding="utf-8")
+            (root / "OtherFile").write_text("Changed outside the project", encoding="utf-8")
+            self.assertEqual(project_inputs(project), before_link)
 
-            custom = project / relative / "Info.Template.plist"
-            custom.write_text("Project-specific info", encoding="utf-8")
-            self.assertNotEqual(project_inputs(project, engine), before_link)
-            after_customization = project_inputs(project, engine)
-            (project / relative / "AppIcon.icns").write_bytes(b"Project icon")
-            self.assertNotEqual(project_inputs(project, engine), after_customization)
+            source.write_text("Changed project signing options", encoding="utf-8")
+            self.assertNotEqual(project_inputs(project), before_link)
 
     def graph(self, root, absolute=False):
         project = root / "Project"

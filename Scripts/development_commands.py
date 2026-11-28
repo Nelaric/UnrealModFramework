@@ -55,8 +55,7 @@ class Build:
         self.tools = self.project.parent / "Plugins/ModRuntime/Tools"
         self.work = Path(supplied("work")).resolve()
         self.sdk = Path(supplied("sdk")).resolve()
-        self.engine = self.sdk / "Engine"
-        require(self.engine.is_dir(), f"Expected an installed SDK at {self.sdk}")
+        require((self.sdk / "Engine").is_dir(), f"Expected an installed SDK at {self.sdk}")
         self.evidence = Path(supplied("evidence")).resolve()
         self.metadata = Path(supplied("metadata_payload")).resolve()
         self.checkpoint = Path(supplied("checkpoint_payload")).resolve()
@@ -183,14 +182,14 @@ class Build:
         graph.execute(early, self.work / "prepare-actions.json", self.execute)
         graph.check_outputs(early)
         write_json(ready, {"graph_sha256": file_sha(self.work / "prepare-graph.json"),
-                          "source_sha256": project_inputs(self.project.parent, self.engine)})
+                          "source_sha256": project_inputs(self.project.parent)})
 
     def save_checkpoint(self):
         self.require_game()
         path = self.work / "prepare-graph.json"
         ready = read_json(self.work / "prepare-complete.json")
         require(ready["graph_sha256"] == file_sha(path)
-                and ready["source_sha256"] == project_inputs(self.project.parent, self.engine),
+                and ready["source_sha256"] == project_inputs(self.project.parent),
                 "Project inputs or the completed Game preparation graph changed")
         self.checkpoint.parent.mkdir(parents=True, exist_ok=True)
         require(not self.checkpoint.exists() or not any(self.checkpoint.iterdir()), "Checkpoint destination must be empty")
@@ -213,7 +212,7 @@ class Build:
         manifest = self.checkpoint / "manifest.json"
         document = read_json(manifest)
         require(document["schemaVersion"] == 1, "Unsupported Game checkpoint schema")
-        require(document["identity"] == self.report(self.target, project_inputs(self.project.parent, self.engine)),
+        require(document["identity"] == self.report(self.target, project_inputs(self.project.parent)),
                 "Checkpoint source inputs or build identity differ")
         require(document["toolchain_sha256"] == file_sha(self.toolchain), "Checkpoint toolchain differs")
         files = verify_inventory(self.checkpoint, document["files"])
