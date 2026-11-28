@@ -15,9 +15,9 @@
 
 ## Development CI
 
-[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发公开检查，包括 Fork PR。Code Quality 固定后续 Job 使用的测试合并提交。Native Tools 依赖 Code Quality。在 PR 运行中，它还会等待 Intel 和 ARM64 macOS Runner 完成四个独立工具的构建与启动检查。候选提交获批后，GitHub 在同一个测试合并 SHA 上启动完整运行。在这次运行中，四个 Editor 和六个 Game Prepare 也依赖 Code Quality。每个 Game 在自己的 Game Prepare 和指定 Editor 均成功后启动。Windows 和 Linux ARM64 使用同系统 x86_64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。原生检查 Development Result 汇总 18 个上游 Job，在判定成功前核对审批、当前 PR 和 `main`。
+[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发公开检查，包括 Fork PR。Code Quality 固定后续 Job 使用的测试合并提交。Native Tools 在 Code Quality 之后使用 Linux x86_64 Runner。候选提交获批后，GitHub 在同一个测试合并 SHA 上启动完整运行。在这次运行中，四个 Editor 和六个 Game Prepare 也依赖 Code Quality。每个 Game 在自己的 Game Prepare 和指定 Editor 均成功后启动。Windows 和 Linux ARM64 使用同系统 x86_64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。原生检查 Development Result 汇总 18 个上游 Job，在判定成功前核对审批、当前 PR 和 `main`。
 
-Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界面模式运行 `Nelaric.*` Automation Tests。Game Prepare 执行所有不依赖 Metadata 的 Action。Game 在另一台原生 Runner 上安装同一份锁定的私有 SDK，恢复项目 Checkpoint、导入 Metadata，并完成 Monolithic Development 目标。Development Result 记录测试数量、Artifact 字节数、阶段耗时、Action 复用次数和不可移植原因。
+每个 macOS Editor 和 Game Prepare Job 都使用 AppleClang 构建原生工具。Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界面模式运行 `Nelaric.*` Automation Tests。Game Prepare 执行所有不依赖 Metadata 的 Action。Game 在另一台原生 Runner 上安装同一份锁定的私有 SDK，恢复项目 Checkpoint、导入 Metadata，并完成 Monolithic Development 目标。Development Result 记录测试数量、Artifact 字节数、阶段耗时、Action 复用次数和不可移植原因。
 
 ### 配置引擎任务
 
