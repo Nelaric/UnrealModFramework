@@ -8,14 +8,18 @@ install_archive() {
   local directory="$RUNNER_TEMP/$name"
   mkdir -p "$directory"
   for url in "$@"; do
-    if curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
+    if ! curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
       --connect-timeout 15 --max-time 180 "$url" -o "$archive"; then
-      printf '%s  %s\n' "$digest" "$archive" | sha256sum --check --status
-      tar -xzf "$archive" -C "$directory"
-      return
+      continue
     fi
+    if ! printf '%s  %s\n' "$digest" "$archive" | sha256sum --check --status; then
+      printf 'Unexpected SHA-256 for %s from %s\n' "$name" "$url" >&2
+      continue
+    fi
+    tar -xzf "$archive" -C "$directory"
+    return
   done
-  printf 'Could not download %s\n' "$name" >&2
+  printf 'Could not obtain a verified %s archive\n' "$name" >&2
   return 1
 }
 
