@@ -254,7 +254,7 @@ class Target:
         environment = self.work / "toolchain-env.json"
         if environment.is_file():
             env.update(json_object(environment))
-        for token in ("GH_TOKEN", "GITHUB_TOKEN", "PUBLIC_READ_TOKEN", "STATUS_TOKEN", "SDK_TOKEN"):
+        for token in ("GH_TOKEN", "GITHUB_TOKEN", "PUBLIC_READ_TOKEN", "SDK_TOKEN"):
             env.pop(token, None)
         argv = [argument.format_map(variables) for argument in self.commands[name]]
         subprocess.run(argv, cwd=self.source, env=env, check=True)

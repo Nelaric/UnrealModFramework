@@ -709,8 +709,7 @@ jobs:
       - game-linux-arm64
       - game-macos-x64
       - game-macos-arm64
-    if: always() && needs.code-quality.outputs.engine == 'true'
-    environment: development-engine
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -731,27 +730,15 @@ jobs:
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
           ACTIONS_READ_TOKEN: ${{ github.token }}
         run: python3 Scripts/CI/development.py aggregate
-      - name: Create Status Publisher Token
-        id: publisher
-        if: steps.aggregate.outcome == 'success' && needs.code-quality.outputs.identity != '' && !cancelled()
-        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
-        with:
-          app-id: ${{ vars.UMF_STATUS_APP_ID }}
-          private-key: ${{ secrets.UMF_STATUS_APP_PRIVATE_KEY }}
-          owner: Nelaric
-          repositories: UnrealModFramework
-          permission-statuses: write
-      - name: Publish Candidate Status
-        id: publish
-        if: steps.publisher.outcome == 'success' && !cancelled()
+      - name: Verify Current Candidate
+        id: candidate
+        if: steps.aggregate.outputs.passed == 'true'
         env:
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
-          PASSED: ${{ steps.aggregate.outputs.passed }}
-          STATUS_TOKEN: ${{ steps.publisher.outputs.token }}
           PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
-        run: python3 Scripts/CI/development.py publish
+        run: python3 Scripts/CI/development.py verify-current-candidate
       - name: Remove Consumed Artifacts
-        if: success() && steps.aggregate.outputs.passed == 'true'
+        if: success() && steps.candidate.outcome == 'success'
         env:
           ARTIFACT_IDS: ${{ steps.aggregate.outputs.artifact-ids }}
           ACTIONS_TOKEN: ${{ github.token }}
@@ -759,7 +746,7 @@ jobs:
       - name: Enforce Development Result
         if: always()
         env:
-          PASSED: ${{ job.status == 'success' && steps.aggregate.outputs.passed == 'true' && steps.publish.outcome == 'success' }}
+          PASSED: ${{ job.status == 'success' && steps.aggregate.outputs.passed == 'true' && steps.candidate.outcome == 'success' }}
         run: |
           if [ "$PASSED" = true ]; then
             printf '**Final Result** Success\n' >> "$GITHUB_STEP_SUMMARY"

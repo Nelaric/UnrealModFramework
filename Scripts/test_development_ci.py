@@ -107,6 +107,11 @@ class ResultTests(unittest.TestCase):
             patch.object(ci, "summary") as report,
             patch.object(ci, "output") as outcome,
         ):
+            with patch.dict(os.environ, CI_IDENTITY=json.dumps({**candidate, "engine": False}),
+                            NEEDS_JSON=json.dumps(needs)):
+                ci.aggregate()
+            outcome.assert_called_with("passed", "false")
+            self.assertIn("Authorized engine validation is required", "\n".join(report.call_args.args[0]))
             for state in ("success", "skipped", "failure", "cancelled"):
                 needs["game-linux-arm64"]["result"] = state
                 with patch.dict(os.environ, NEEDS_JSON=json.dumps(needs)):
@@ -126,7 +131,7 @@ class ResultTests(unittest.TestCase):
             self.assertIn("Missing or expired Metadata artifact", "\n".join(report.call_args.args[0]))
             check_candidate.assert_not_called()
 
-    def test_publish_checks_the_live_candidate_once_before_posting_status(self):
+    def test_result_checks_the_live_candidate_once_and_rejects_a_moved_base(self):
         candidate = {
             "repository": ci.REPOSITORY, "pr": 129, "engine": True,
             "commit": "a" * 40, "head": "b" * 40, "base": "c" * 40,
@@ -138,19 +143,16 @@ class ResultTests(unittest.TestCase):
         prefix = f"/repos/{ci.REPOSITORY}"
         reads = [(f"{prefix}/pulls/129", "read"), (f"{prefix}/git/ref/heads/main", "read")]
         with (
-            patch.dict(os.environ, CI_IDENTITY=json.dumps(candidate), PASSED="true",
-                       PUBLIC_READ_TOKEN="read", STATUS_TOKEN="status"),
+            patch.dict(os.environ, CI_IDENTITY=json.dumps(candidate), PUBLIC_READ_TOKEN="read"),
             patch.object(ci, "engine_run", return_value=True),
             patch.object(ci, "summary") as report,
         ):
-            with patch.object(ci, "api", side_effect=[pr, {"object": {"sha": candidate["base"]}}, {}]) as api:
-                ci.publish()
-                self.assertEqual([request.args[:2] for request in api.call_args_list],
-                                 reads + [(f"{prefix}/statuses/{candidate['commit']}", "status")])
-                self.assertEqual(api.call_args.args[2]["state"], "success")
+            with patch.object(ci, "api", side_effect=[pr, {"object": {"sha": candidate["base"]}}]) as api:
+                ci.verify_current_candidate()
+                self.assertEqual([request.args for request in api.call_args_list], reads)
             with patch.object(ci, "api", side_effect=[pr, {"object": {"sha": "d" * 40}}]) as api:
                 with self.assertRaisesRegex(ValueError, "Main has moved"):
-                    ci.publish()
+                    ci.verify_current_candidate()
                 self.assertEqual([request.args for request in api.call_args_list], reads)
                 self.assertIn("Candidate is stale or unverifiable", report.call_args.args[0][0])
 

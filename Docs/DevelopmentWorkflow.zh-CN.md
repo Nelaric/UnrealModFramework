@@ -15,15 +15,15 @@
 
 ## Development CI
 
-[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发。Code Quality 固定后续 Job 使用的测试合并提交。Native Tools 依赖 Code Quality。同仓库 PR 的四个 Editor 和六个 Game Prepare 也依赖 Code Quality，并使用受保护的 `development-engine` 环境。Fork PR 运行无引擎任务。每个 Game 同时等待自己的 Game Prepare 和指定 Editor。Windows 和 Linux ARM64 使用同系统 X64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。Development Result 汇总 18 个上游 Job，并在状态回传前核对一次当前 PR 和 `main`。
+[Development CI](../.github/workflows/development.yml) 在面向 `main` 的 PR 上自动触发。Code Quality 固定后续 Job 使用的测试合并提交。Native Tools 依赖 Code Quality。同仓库 PR 的四个 Editor 和六个 Game Prepare 也依赖 Code Quality，并使用受保护的 `development-engine` 环境。Fork PR 运行无引擎任务。每个 Game 同时等待自己的 Game Prepare 和指定 Editor。Windows 和 Linux ARM64 使用同系统 X64 Editor 的 Metadata。两个 MacOS Game 分别使用各自架构的 Editor Metadata。原生检查 Development Result 汇总 18 个上游 Job，在判定成功前核对当前 PR 和 `main`。
 
 Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界面模式运行 `Nelaric.*` Automation Tests。Game Prepare 执行所有不依赖 Metadata 的 Action。Game 在另一台原生 Runner 上安装同一份锁定的私有 SDK，恢复项目 Checkpoint、导入 Metadata，并完成 Monolithic Development 目标。Development Result 记录测试数量、Artifact 字节数、阶段耗时、Action 复用次数和不可移植原因。
 
 ### 配置引擎任务
 
-1. 配置 `development-engine` GitHub 环境，由维护者审查候选提交。将可读取私有 UMFCI 安装器与发行版的 `UMFCI_READ_TOKEN` 放入该环境。为回传 `ci/development` 的 GitHub App 设置 `UMF_STATUS_APP_ID` 和 `UMF_STATUS_APP_PRIVATE_KEY`。
+1. 配置 `development-engine` GitHub 环境，由维护者审查候选提交。将仅有私有 UMFCI 仓库 `Contents: read` 权限的 `UMFCI_READ_TOKEN` 保存为该环境的 Secret。
 2. 把 [Development CI](../.github/workflows/development.yml) 中的 `UMFCI_RELEASE_TAG` 设为包含全部十个 SDK 目标的不可变 UMFCI 正式发行版标签。Runner 使用该标签上的安装器和 .NET SDK 配置，并按发行版索引为各目标选择对应的 SDK 归档和安装清单。
-3. 如需手动运行已审查的 PR，从受保护的默认分支使用 PR 编号、PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 发起运行。同一 PR 更新时会取消旧运行。
+3. 如需手动运行已审查的 PR，从受保护的默认分支使用 PR 编号、PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 发起运行。手动运行的原生检查关联发起运行时的引用，PR 合并使用自动触发的检查。同一 PR 更新时会取消旧运行。
 
 ### 接入构建阶段
 
@@ -50,7 +50,7 @@ Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界
 
 当前的合并条件由 Quality 工作流提供。配置文件中的 Development CI 规则集可在完整引擎检查可用后启用。
 
-[main 规则集](../.github/rulesets/protect-main.json)定义 Development CI 的合并门禁。启用规则集时，将 `ci/development` 绑定到授权的 GitHub App，将 `Code Quality` 绑定到 GitHub Actions。
+[main 规则集](../.github/rulesets/protect-main.json)使用 GitHub Actions 原生检查 `Code Quality` 和 `Development Result`。Development Result 要求全部引擎 Job 成功。Fork 改动通过维护者审查后，可由维护者在同仓库分支发起 PR 以运行完整引擎验证。
 
 ## Quality 工作流
 

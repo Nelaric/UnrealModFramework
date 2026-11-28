@@ -337,7 +337,7 @@ def aggregate():
         duration = f"{durations[name]:.2f}" if name in durations else "—"
         lines.append(f"| {name} | {state} | {duration} | {tests} | {metadata} | {checkpoint} | {size} | {reused} | {replayed} |")
     if not candidate.get("engine"):
-        issues.append("Authorized candidate identity is missing")
+        issues.append("Authorized engine validation is required for this candidate")
     lines.extend(["", "### Build Timing", "", "| Job | Phase | Seconds |", "| --- | --- | ---: |"])
     for name, phase, seconds in timings:
         lines.append(f"| {name} | {phase} | {seconds:.2f} |")
@@ -359,21 +359,15 @@ def aggregate():
     output("passed", "false" if issues else "true")
 
 
-def publish():
-    require(engine_run(), "Status publication requires an authorized Development build")
+def verify_current_candidate():
+    require(engine_run(), "A Development result requires an authorized engine build")
     candidate = json.loads(os.environ["CI_IDENTITY"])
-    require(candidate["engine"] and candidate["repository"] == REPOSITORY, "Wrong public status repository")
+    require(candidate["engine"] and candidate["repository"] == REPOSITORY, "Missing authorized PR candidate")
     try:
         validate_live_pr(candidate, check_base=True)
     except (OSError, ValueError, KeyError) as error:
         summary([f"- Candidate is stale or unverifiable ({str(error).replace(chr(10), ' ')})"])
         raise
-    success = os.environ["PASSED"] == "true"
-    api(f"/repos/{REPOSITORY}/statuses/{candidate['commit']}", os.environ["STATUS_TOKEN"], {
-        "state": "success" if success else "failure",
-        "context": "ci/development",
-        "description": "All Development CI jobs passed" if success else "Required Development CI validation failed",
-    })
 
 
 def cleanup():
@@ -393,7 +387,7 @@ def main():
         "verify": lambda: verify_checkout(Path("source"), json.loads(os.environ["CI_IDENTITY"])),
         "validate-config": validate_configuration,
         "aggregate": aggregate,
-        "publish": publish,
+        "verify-current-candidate": verify_current_candidate,
         "cleanup": cleanup,
     }
     actions[sys.argv[1]]()

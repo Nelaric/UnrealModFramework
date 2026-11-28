@@ -15,15 +15,15 @@ This page describes Development CI, local builds, Release Validation, and docume
 
 ## Development CI
 
-[Development CI](../.github/workflows/development.yml) starts automatically for PRs to `main`. Code Quality pins the test merge commit used by the later jobs. Native Tools depends on Code Quality. For same-repository PRs, Code Quality also gates the four Editor jobs and six Game Prepare jobs in the protected `development-engine` environment. Fork PRs run the engine-free jobs. Each Game waits for its own Game Prepare and assigned Editor. Windows and Linux ARM64 use their platform's X64 Editor metadata. Each MacOS Game uses metadata from the Editor of the same architecture. Development Result summarizes the 18 upstream jobs and checks the current PR and `main` once before publishing the status.
+[Development CI](../.github/workflows/development.yml) starts automatically for PRs to `main`. Code Quality pins the test merge commit used by the later jobs. Native Tools depends on Code Quality. For same-repository PRs, Code Quality also gates the four Editor jobs and six Game Prepare jobs in the protected `development-engine` environment. Fork PRs run the engine-free jobs. Each Game waits for its own Game Prepare and assigned Editor. Windows and Linux ARM64 use their platform's X64 Editor metadata. Each MacOS Game uses metadata from the Editor of the same architecture. The native Development Result check summarizes the 18 upstream jobs and confirms the current PR and `main` before reporting success.
 
 Editor exports, validates, and publishes metadata before building the normal target and running headless `Nelaric.*` Automation Tests. Game Prepare executes all metadata-independent actions. Game installs the same locked private SDK on a fresh native runner, restores the project's checkpoint, imports metadata, and finishes the monolithic Development target. Development Result reports automation counts, artifact sizes, phase durations, action reuse, and the reasons for nonportable actions.
 
 ### Configure Engine Jobs
 
-1. Configure the `development-engine` GitHub environment with maintainer review of the candidate. Store `UMFCI_READ_TOKEN` there with read access to the private UMFCI installer and releases. Set `UMF_STATUS_APP_ID` and `UMF_STATUS_APP_PRIVATE_KEY` for the GitHub App that publishes `ci/development` on the public test merge commit.
+1. Configure the `development-engine` GitHub environment with maintainer review of the candidate. Store `UMFCI_READ_TOKEN` as an environment secret with `Contents: read` access limited to the private UMFCI repository.
 2. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the published immutable UMFCI release for all ten SDK targets. The runner uses the installer and .NET SDK configuration at that tag. The release index maps each target to its named SDK archive and installation manifest.
-3. For a manual run of a reviewed PR, dispatch from the protected default branch with the PR number, PR head SHA, current `main` base SHA, and GitHub test merge SHA. PR updates cancel older runs for the same PR.
+3. For a manual run of a reviewed PR, dispatch from the protected default branch with the PR number, PR head SHA, current `main` base SHA, and GitHub test merge SHA. Manual run checks are attached to the dispatch ref. The automatic PR run supplies the merge check. PR updates cancel older runs for the same PR.
 
 ### Connect The Build Phases
 
@@ -50,7 +50,7 @@ The workflow uploads each metadata bundle or project checkpoint and its build re
 
 Quality supplies the current required checks. Enable the versioned Development CI ruleset when full engine validation is available.
 
-[The main ruleset](../.github/rulesets/protect-main.json) defines the Development CI merge gate. Bind `ci/development` to the authorized GitHub App and `Code Quality` to GitHub Actions when enabling the ruleset.
+[The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires all engine jobs to pass. Maintainers can open a same-repository PR for reviewed fork changes that need full engine validation.
 
 ## Quality Workflow
 
