@@ -6,6 +6,7 @@
 #include "ModAPIHostSubsystem.h"
 #include "ModExtensionSubsystem.h"
 #include "ModExtensionWorld.h"
+#include "ModNativeImports.h"
 #include "UObject/UnrealType.h"
 
 #if PLATFORM_WINDOWS
@@ -403,6 +404,11 @@ bool FNativeExtension::Open(const Mod::Loader::FMountedPackage& Package, UModNat
 		return false;
 	}
 #if PLATFORM_WINDOWS
+	if (!ValidateNativeImports(Package.NativeExtensionPath, Error))
+	{
+		Error = Package.ModId + TEXT(": ") + Error;
+		return false;
+	}
 	Library = ::LoadLibraryExW(*Package.NativeExtensionPath, nullptr,
 	                           LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
 #endif

@@ -57,4 +57,9 @@ TArray<FString> UModPackagingSettings::GetTargetPlatforms() const
 	return {TEXT("Win64"), TEXT("Linux"), TEXT("Mac")};
 }
 
+TArray<FString> UModPackagingSettings::GetCookConfigurations() const
+{
+	return {TEXT("Development"), TEXT("Shipping")};
+}
+
 #undef LOCTEXT_NAMESPACE

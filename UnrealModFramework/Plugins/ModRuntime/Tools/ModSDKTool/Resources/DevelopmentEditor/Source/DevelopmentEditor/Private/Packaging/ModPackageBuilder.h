@@ -19,8 +19,7 @@ struct FModPackageRequest
 	FString BaseReleaseDirectory;
 	FString TargetPlatform;
 	FString OutputFile;
-	FString HostTargetReceipt;
-	FString HostEngineDirectory;
+	FString CookConfiguration = TEXT("Shipping");
 	FString ExtensionsFile;
 	FString SdkContractFile;
 	FString NativeExtensionFile;

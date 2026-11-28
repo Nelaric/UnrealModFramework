@@ -859,7 +859,7 @@ WorldReady 同时要求必需模组处于 Bound、必需 Provider 就绪、签�
 
 ## 14 Native DLL 与稳定 C ABI
 
-当前 Win64 x64 Pak 宿主分别通过 `bAllowNativeExtensions` 与 `bAllowNativeModules` 开启独立 C ABI 回调及匹配宿主构建的 UE 模块。前者按 World 调用 `UMF_RegisterExtensionsV1`，待回调排空后执行可选 `Close` 并释放 DLL 引用；后者在加载 Cooked 蓝图前注册 UE 类型，并驻留至进程退出。生成的 `ContextHandlesV1` 服务表用于原生 API 调用，详见[独立回调与包输入](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)。
+Win64 x64 Pak 的 Modular 和 Monolithic 宿主均通过 `bAllowNativeExtensions` 启用独立 C ABI。加载器按 World 调用 `UMF_RegisterExtensionsV1`，待回调排空后执行可选 `Close` 并释放 DLL 引用。原生 API 使用生成的 `ContextHandlesV1` 服务表。[独立回调与包输入](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)
 
 ### 装载和协议协商
 
@@ -891,7 +891,7 @@ Native 模组必须登记其创建的回调、定时器与任务。BeginShutdown
 
 ### 同构 UE 模块能力
 
-NativeUEModule 与 NativeCABI 相互独立。前者要求精确工具链、运行库、引擎/游戏构建身份、公共契约布局、模块导出与 Target/Configuration 均通过验证。UE API 导出宏在 monolithic 构建中可能为空，不得仅因类带有 API 宏便推导出任意 Shipping 均可装入依赖该类的 DLL。[^R08]
+动态原生 Mod 使用 NativeCABI，宿主通过版本化函数表、调用签名和不透明句柄维护契约。UE 反射类型及游戏 C++ 模块由宿主随自身 Target 构建。[^R08]
 
 严禁修改 .modules 或强制匹配 BuildId 来绕过不兼容检查。BuildId 保护面向同批构建产物，官方不建议强制固定以绕过保护；本框架自身的 C ABI 兼容协商亦不赋予 UE 模块兼容性。[^R09]
 
@@ -1182,7 +1182,7 @@ Hook、Event、CheckedBinding 与 ABI 转换分别记录单次固定成本、每
 | 扩展 | PrePostHook、OnWrapHook、OnReplaceHook、OrderedEvent、ImmediateUnsubscribe | 精确定义与顺序/取消/重入用例 |
 | 内容 | LogicalContent、WorldPatch、StreamingAnchor | 冲突、幂等、部分失败与回收用例 |
 | 资源 | Pak、IoStore、Registry、CookedBlueprint、MaterialShaderLibrary | 独立 Cook 到 Shipping 的完整链路 |
-| 原生与渲染 | NativeCABI、NativeUEModule、EarlyShaderTypeModule | ABI、构建、符号与加载阶段验证 |
+| 原生与渲染 | NativeCABI、EarlyShaderTypeModule | ABI、构建、符号与加载阶段验证 |
 | 联机与存档 | ServerProfile、NetworkHandshake、SaveMigration | 不兼容拒绝与数据保留验证 |
 
 每项能力采用 Supported、Experimental、Unsupported、NotVerified 四种状态，并附带限制说明、证据编号、失败原因及测试日期。Supported 仅代表所列精确组合；即便 UE 小版本与平台相同，不同 Target 或 Cook 配置仍须匹配对应报告。Experimental 须由宿主显式启用，NotVerified 不得自动提升状态。
@@ -1301,7 +1301,7 @@ Hook、Event、CheckedBinding 与 ABI 转换分别记录单次固定成本、每
 
 ### 阶段 P4 原生与资源能力
 
-实现生成的稳定 C ABI 专用服务表、DTO/句柄边界转换、缓存验证与原生关闭协议，并在 P0 已通过的资源后端上完善索引、Shader 库与预算管理。IoStore、NativeUEModule 与早期 Shader 模块分别设立独立任务与验收，单点失败不影响已验证能力的准确发布。
+实现生成的稳定 C ABI 专用服务表、DTO/句柄边界转换、缓存验证与原生关闭协议，并在 P0 已通过的资源后端上完善索引、Shader 库与预算管理。IoStore 与早期 Shader 模块分别设立独立任务与验收，单点失败不影响已验证能力的准确发布。
 
 ### 阶段 P5 发布与游戏联调
 

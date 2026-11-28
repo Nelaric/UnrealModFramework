@@ -24,7 +24,7 @@
 
 - 对 `.Build.cs` 和 `.Target.cs` 文件运行 CSharpier。其强制要求程度与 C++ 的 clang-format 相同。
 - 保持模块依赖最小化，并依据头文件实际需求区分公开与私有依赖。不得在 Runtime 中引入厂商 SDK 依赖。
-- 面向 UE 5.6 及以上版本。Development CI 使用已锁定的 UE 5.6.1 SDK 构建 Game 与 Editor，并执行无界面自动化。完整引擎、模块化 Game、独立 SDK、打包与性能测试由 Release Validation 负责。提交审查时说明实际运行的环境和测试。 [CI 构建范围](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.zh-CN.md)
+- 面向 UE 5.6 及以上版本。Development CI 使用已锁定的 UE 5.6.1 SDK 构建 Game 与 Editor，并执行无界面自动化。完整引擎、已打包 Game、独立 SDK、打包与性能测试由 Release Validation 负责。提交审查时说明实际运行的环境和测试。 [CI 构建范围](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.zh-CN.md)
 
 ## 自动化测试
 

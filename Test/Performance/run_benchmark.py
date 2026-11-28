@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -116,15 +115,13 @@ def windows_remove_readonly_link():
 
 
 class Unreal:
-    def __init__(self, root, work, short_work, runtime_engine=None):
+    def __init__(self, root, work, short_work):
         self.engine = (root / "Engine" if (root / "Engine").is_dir() else root).resolve()
         self.work = work
         self.short_work = short_work
         self.host = work / "Host" / f"{GAME}.uproject"
         self.platform = {"Windows": "Win64", "Linux": "Linux", "Darwin": "Mac"}[platform.system()]
         self.with_mod = self.platform == "Win64" and platform.machine().lower() in {"amd64", "x86_64"}
-        self.game_engine = self.engine
-        self.modular_runtime = runtime_engine
         self.cook_platform = "Windows" if self.platform == "Win64" else self.platform
         editor = {
             "Win64": "Win64/UnrealEditor.exe",
@@ -148,29 +145,6 @@ class Unreal:
         self.env["UE-LocalDataCachePath"] = str(work / "DDC")
         self.env["UE-SharedDataCachePath"] = "None"
         self.env["UE-ZenSharedDataCacheHost"] = "None"
-
-    def prepare_game_engine(self):
-        if not self.with_mod:
-            return
-        runtime = self.modular_runtime or self.engine
-        if (runtime / "Engine").is_dir():
-            runtime = runtime / "Engine"
-        if not (runtime / "Binaries/Win64/UnrealGame.modules").is_file():
-            if self.modular_runtime is None and not (runtime / "Build/InstalledBuild.txt").is_file():
-                return
-            raise RuntimeError("Provide a complete, prebuilt Win64 modular Game engine through --modular-runtime.")
-        for name in ("UnrealBuildTool", "AutomationTool"):
-            if not (runtime / f"Binaries/DotNET/{name}/{name}.dll").is_file():
-                raise RuntimeError(f"The modular engine is missing {name}.")
-        binary_version = read_json(runtime / "Binaries/Win64/UnrealGame.version")
-        editor_version = read_json(self.engine / "Build/Build.version")
-        identity = ("MajorVersion", "MinorVersion", "PatchVersion", "Changelist", "CompatibleChangelist", "BranchName")
-        if any(binary_version[key] != editor_version[key] for key in identity):
-            raise RuntimeError("The modular Game runtime must match the installed UE build")
-        manifest = read_json(runtime / "Binaries/Win64/UnrealGame.modules")
-        if binary_version["BuildId"] != manifest["BuildId"]:
-            raise RuntimeError("The modular runtime version and module manifest disagree")
-        self.game_engine = runtime
 
     def run(self, stage, command, timeout=3600):
         print(f"[benchmark] {stage}", flush=True)
@@ -207,10 +181,8 @@ class Unreal:
         return log
 
     def build(self, stage, project, target, *flags):
-        engine = self.game_engine if target == GAME else self.engine
-        ubt = engine / self.ubt.relative_to(self.engine)
         self.run(
-            stage, [self.dotnet, ubt, target, self.platform, "Development",
+            stage, [self.dotnet, self.ubt, target, self.platform, "Development",
                     f"-Project={project}", "-NoHotReload", "-NoHotReloadFromIDE", "-WaitMutex", "-NoUBA", "-NoEngineChanges",
                     f"-Log={self.work / (stage + '-ubt.log')}", *flags],
         )
@@ -224,6 +196,7 @@ class Unreal:
 
     def prepare_project(self):
         shutil.copytree(PROJECT / "Source", self.host.parent / "Source")
+        shutil.copytree(PROJECT / "Native", self.host.parent / "Native")
         shutil.copytree(PROJECT / "Config", self.host.parent / "Config")
         shutil.copy2(PROJECT / self.host.name, self.host)
         self.isolate_build(self.host)
@@ -241,12 +214,11 @@ class Unreal:
 
     def prepare_mod(self):
         author = self.work / "Author" / f"{MOD}.uproject"
-        shutil.copytree(PROJECT / "Mod", author.parent)
+        shutil.copytree(PROJECT / "Mod", author.parent, ignore=shutil.ignore_patterns("BenchmarkMod"))
         self.isolate_build(author)
         shared = PROJECT / "Source/Shared"
         shutil.copytree(shared, author.parent / "Source/Shared")
-        for name in ("BenchmarkCalls.h", "BenchmarkNative.inl", "BenchmarkBlueprintSample.h"):
-            shutil.copy2(shared / name, author.parent / "Source/BenchmarkMod/Private")
+        shutil.copytree(PROJECT / "Source/BenchmarkMod", author.parent / "Source/BenchmarkMod")
 
         self.copy_mod_runtime(author)
         development = author.parent / "Plugins/ModDevelopmentSDKEditor"
@@ -270,8 +242,7 @@ class Unreal:
     def stage_game(self):
         release = self.work / "Releases"
         stage = self.work / "Stage"
-        uat = self.game_engine / self.uat.relative_to(self.engine)
-        self.run("stage-game", [self.dotnet, uat, "BuildCookRun", f"-project={self.host}",
+        self.run("stage-game", [self.dotnet, self.uat, "BuildCookRun", f"-project={self.host}",
                                 "-nocompile", "-nocompileeditor", "-nop4", "-unattended", "-utf8output",
                                 f"-unrealexe={self.commandlet}", "-WaitForUATMutex", "-cook", "-stage", "-pak",
                                 "-skipiostore", "-nodebuginfo",
@@ -293,14 +264,32 @@ class Unreal:
         cooked = stage / self.cook_platform
         return cooked, release, hashlib.sha256(registry.read_bytes()).hexdigest()
 
+    def build_extension(self):
+        source = PROJECT / "Native"
+        include = FRAMEWORK / "Source/Runtime/ModLoader/Public"
+        build = self.short_work / "Native"
+        self.run("extension-configure", ["cmake", "-S", source, "-B", build, "-A", "x64",
+                                         f"-DUMF_ABI_INCLUDE={include}"])
+        self.run("extension-build", ["cmake", "--build", build, "--config", "Release"])
+        return build / "Release/BenchmarkExtension.dll"
+
     def package_mod(self, author, release):
+        declaration = (PROJECT / "Native/BenchmarkContract.h").read_text(encoding="utf-8-sig")
+        hook = re.search(r'^#define BENCHMARK_HOOK_ID "([^"]+)"$', declaration, re.MULTILINE)[1]
+        signature = re.search(r'^#define BENCHMARK_HOOK_SIGNATURE "([0-9a-f]{64})"$', declaration, re.MULTILINE)[1]
+        contract = self.work / "SdkContract.json"
+        write_json(contract, {"format": "UMF.SdkContract", "gameId": GAME, "status": "Complete",
+                              "extensions": [{"id": hook, "signatureHash": signature}]})
+        extensions = self.work / "Extensions.json"
+        write_json(extensions, {"schemaVersion": 2, "contracts": [{"id": hook}]})
+        library = self.build_extension()
         mod_file = self.work / f"{MOD}.mod"
         settings = {
-            "format": "UMF.ModPackageBuildRequest", "schemaVersion": 2, "modVersion": "1.0.0",
+            "format": "UMF.ModPackageBuildRequest", "schemaVersion": 3, "modVersion": "1.0.0",
             "gameId": GAME, "baseReleaseVersion": "1.0.0", "baseReleaseDirectory": str(release),
-            "targetPlatform": "Win64", "useIoStore": False, "includeEngineContent": False,
-            "hostTargetReceipt": str(self.host.parent / f"Binaries/Win64/{GAME}.target"),
-            "hostEngineDirectory": str(self.game_engine), "outputFile": str(mod_file), "timeoutMinutes": 55,
+            "targetPlatform": "Win64", "cookConfiguration": "Development", "useIoStore": False,
+            "includeEngineContent": False, "extensionsFile": str(extensions), "sdkContractFile": str(contract),
+            "nativeExtensionFile": str(library), "outputFile": str(mod_file), "timeoutMinutes": 55,
         }
         package_dirs = (self.short_work / f"p{index:x}" for index in range(256))
         for attempt in range(BUILD_ATTEMPTS):
@@ -320,11 +309,8 @@ class Unreal:
 
     def measure(self):
         self.prepare_project()
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            game_engine = pool.submit(self.prepare_game_engine)
-            self.build("host-editor", self.host, EDITOR_TARGET)
-            self.command("host-assets", self.host, "-run=/Script/PerformanceBenchmarkEditor.BenchmarkAssetsCommandlet")
-            game_engine.result()
+        self.build("host-editor", self.host, EDITOR_TARGET)
+        self.command("host-assets", self.host, "-run=/Script/PerformanceBenchmarkEditor.BenchmarkAssetsCommandlet")
         self.build("host-game", self.host, GAME)
         stage, release, registry = self.stage_game()
         mod_arguments = []
@@ -336,23 +322,17 @@ class Unreal:
         return self.run_automation(stage, mod_arguments)
 
     def run_automation(self, stage, mod_arguments):
-        project_arguments = []
-        if self.platform == "Win64" and self.with_mod:
-            # The shared modular executable expects the project name before its map and flags.
-            executable = stage / "Engine/Binaries/Win64/UnrealGame.exe"
-            project_arguments = [GAME]
-        else:
-            suffix = {"Win64": ".exe", "Linux": "", "Mac": ".app/Contents/MacOS/" + GAME}[self.platform]
-            candidates = [stage / (GAME + suffix), stage / GAME / "Binaries" / self.platform / (GAME + suffix)]
-            if self.platform == "Linux":
-                candidates.insert(0, stage / (GAME + ".sh"))
-            executable = next((path for path in candidates if path.is_file()), candidates[0])
+        suffix = {"Win64": ".exe", "Linux": "", "Mac": ".app/Contents/MacOS/" + GAME}[self.platform]
+        candidates = [stage / GAME / "Binaries" / self.platform / (GAME + suffix), stage / (GAME + suffix)]
+        if self.platform == "Linux":
+            candidates.insert(0, stage / (GAME + ".sh"))
+        executable = next((path for path in candidates if path.is_file()), candidates[0])
         if not executable.is_file():
             raise RuntimeError(f"Missing standalone benchmark executable in {stage}")
         report = self.work / "report.md"
         report.unlink(missing_ok=True)
         log = self.run("measure", [
-            executable, *project_arguments, "/Game/BenchmarkMap", f"-BenchmarkReport={report}", *mod_arguments,
+            executable, "/Game/BenchmarkMap", f"-BenchmarkReport={report}", *mod_arguments,
             f"-ExecCmds=Automation RunTests {TEST};SoftQuit", "-unattended", "-NoCrashReports", "-NoSplash",
             "-RenderOffScreen", "-NoVSync", "-Windowed", "-ResX=1280", "-ResY=720",
             *TRACE_FLAGS, "-stdout", "-FullStdOutLogOutput",
@@ -387,7 +367,6 @@ def main():
     parser = argparse.ArgumentParser(description="Measure UE calls in the standalone PerformanceBenchmark project")
     parser.add_argument("--engine", required=True, type=Path, help="UE 5.6 installation or Engine directory")
     parser.add_argument("--report", type=Path, default=PROJECT / "ue-call-benchmark.md")
-    parser.add_argument("--modular-runtime", type=Path, help="Complete Win64 Development modular Game engine")
     args = parser.parse_args()
     base = Path(tempfile.gettempdir()).resolve()
     if base == Path(base.anchor):
@@ -399,8 +378,7 @@ def main():
             raise RuntimeError(f"Unexpected temporary build directory: {work}")
         try:
             with build_path(work) as short_work:
-                runtime = args.modular_runtime.resolve() if args.modular_runtime else None
-                result = Unreal(args.engine, work, short_work, runtime).measure()
+                result = Unreal(args.engine, work, short_work).measure()
         finally:
             print("[benchmark] remove temporary build", flush=True)
             remove_build(work)

@@ -115,8 +115,6 @@ struct FLoadPolicy
 	float PreparationTimeoutSeconds = 120.0f;
 	/// Overrides the default of enforcing only a populated allowlist.
 	TOptional<bool> bEnforcePackageAllowlist;
-	/// Enables compatible UE code packages for this host release.
-	bool bAllowNativeModules = false;
 	/// Enables hash-verified independent Win64 extension DLLs.
 	bool bAllowNativeExtensions = false;
 	/// Selection for this load and its directory watcher.

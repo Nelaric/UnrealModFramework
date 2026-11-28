@@ -2,6 +2,8 @@
 #include "BenchmarkSession.h"
 
 #include "Animation/AnimInstance.h"
+#include "BenchmarkContract.h"
+#include "BenchmarkModInstance.h"
 #include "Components/InputComponent.h"
 #include "Engine/EngineTypes.h"
 #include "Engine/Texture2D.h"
@@ -9,7 +11,7 @@
 #include "HAL/PlatformTime.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
-#include "ModInstance.h"
+#include "ModExtensionSubsystem.h"
 #include "UObject/UnrealType.h"
 
 namespace Benchmark
@@ -51,7 +53,7 @@ UObject& FSession::Receiver() const
 
 FBlueprintSample& FSession::BlueprintSample() const
 {
-	return ActivePath == EPath::ModBlueprint ? *ModSample : Driver->Sample;
+	return ActivePath == EPath::ModBlueprint ? Mod->GetSample() : Driver->Sample;
 }
 
 UObject* FSession::ObservedObject() const
@@ -61,19 +63,21 @@ UObject* FSession::ObservedObject() const
 
 bool FSession::DispatchModCpp(int32 Case, uint64& Elapsed)
 {
-	struct
-	{
-		int32 Case;
-		int64 ContextAddress;
-		int64 ReturnValue = -1;
-	} Parameters{Case, static_cast<int64>(reinterpret_cast<UPTRINT>(static_cast<FCallContext*>(this)))};
-	Mod->ProcessEvent(ModNativeCall, &Parameters);
-	if (Parameters.ReturnValue < 0)
-	{
-		return false;
-	}
-	Elapsed = static_cast<uint64>(Parameters.ReturnValue);
-	return true;
+	static const FName Hook(TEXT(BENCHMARK_HOOK_ID));
+	const uint64 DispatchStart = FPlatformTime::Cycles64();
+	const auto CallResult = UModExtensionSubsystem::InvokeScalar<int32>(
+	    *Mod, Hook, NativeEndpoint, Case,
+	    [this](int32 Current)
+	    {
+		    uint64 EngineCycles = 0;
+		    const bool bSuccess = DispatchCpp(Current, EngineCycles, Mod.Get());
+		    return Mod::Extension::TCoreResult<int32>{
+		        Current, bSuccess ? Mod::API::EError::None : Mod::API::EError::InvalidArgument, bSuccess};
+	    },
+	    [Case](int32 Value) { return Value == Case; },
+	    [Case](int32 Value) { return Value == Case || Value == Case + 1; });
+	Elapsed = FPlatformTime::Cycles64() - DispatchStart;
+	return CallResult.Error == Mod::API::EError::None && CallResult.bCommitted && CallResult.Value == Case + 1;
 }
 
 bool FSession::DispatchBlueprint(int32 Case, uint64& Elapsed)

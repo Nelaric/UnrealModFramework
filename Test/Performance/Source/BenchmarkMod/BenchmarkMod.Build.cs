@@ -1,4 +1,5 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
+using System.IO;
 using UnrealBuildTool;
 
 public class BenchmarkMod : ModuleRules
@@ -7,20 +8,7 @@ public class BenchmarkMod : ModuleRules
 		: base(target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-		PrivateDependencyModuleNames.AddRange(
-			new[]
-			{
-				"Core",
-				"CoreUObject",
-				"Engine",
-				"AIModule",
-				"InputCore",
-				"ModLoader",
-				"NavigationSystem",
-				"PhysicsCore",
-				"UMG",
-				"SlateCore",
-			}
-		);
+		PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "..", "Shared"));
+		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "ModLoader" });
 	}
 }

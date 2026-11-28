@@ -55,11 +55,14 @@ def prepare(work, sdk):
     if any((work / folder).exists() for folder in ("H", "A", "B")):
         raise ValueError("Choose a fresh work directory for the three project copies")
     sample = ROOT / "ExampleMods/TestMod"
-    for directory in ("Content", "Config", "Source"):
+    for directory in ("Config", "Source"):
         shutil.copytree(sample / directory, work / "A" / directory)
+    characters = Path("Content/Characters")
+    shutil.copytree(sample / characters, work / "A" / characters)
     shutil.copy2(sample / "TestMod.uproject", work / "A")
     host = work / "H"
     stage_host(host)
+    shutil.copytree(FIXTURES / characters, host / characters)
     shutil.copytree(sdk / "Host/Plugins/UMFDevSDK", host / "Plugins/UMFDevSDK")
     shutil.copytree(HERE / "Host/SharedRuntimeChecks", host / "Source/SharedRuntimeChecks")
     descriptor = host / (GAME + ".uproject")
@@ -67,14 +70,17 @@ def prepare(work, sdk):
     project["Plugins"].append({"Name": "UMFDevSDK", "Enabled": True})
     project["Modules"].append({"Name": "SharedRuntimeChecks", "Type": "Runtime", "LoadingPhase": "Default", "TargetAllowList": ["Game"]})
     save(descriptor, project)
-    target = host / "Source/UnrealModFrameworkDevModular.Target.cs"
-    target.write_text(target.read_text().replace("bExplicitTargetForType = true;",
-                      'ExtraModuleNames.Add("SharedRuntimeChecks");\n\t\tbExplicitTargetForType = true;'))
+    target = host / "Source/UnrealModFrameworkDev.Target.cs"
+    target.write_text(target.read_text(encoding="utf-8-sig").replace(
+        'ExtraModuleNames.Add("ExportTest");',
+        'ExtraModuleNames.Add("ExportTest");\n\t\tExtraModuleNames.Add("SharedRuntimeChecks");'),
+        encoding="utf-8-sig")
     second = work / "B"
     shutil.copytree(HERE / "SharedCaller", second)
     for suffix in (".Target.cs", "Editor.Target.cs"):
-        template = (sample / "Source" / ("TestMod" + suffix)).read_text()
-        (second / "Source" / ("SharedCaller" + suffix)).write_text(template.replace("TestMod", "SharedCaller"))
+        template = (sample / "Source" / ("TestMod" + suffix)).read_text(encoding="utf-8-sig")
+        (second / "Source" / ("SharedCaller" + suffix)).write_text(template.replace("TestMod", "SharedCaller"),
+                                                                encoding="utf-8-sig")
     save(second / "SharedCaller.uproject", {
         "FileVersion": 3, "EngineAssociation": "5.6", "DisableEnginePluginsByDefault": True,
         "Modules": [{"Name": "SharedCaller", "Type": "Runtime", "LoadingPhase": "Default"},

@@ -10,24 +10,22 @@ Run `ModSDKTool build-editor` to build the authoring plugin through a dedicated 
 
 ## Inputs
 
-- An enabled project content plugin with `CanContainContent: true`, no C++ modules, at least one `.uasset` or `.umap`, and its own `/<PluginName>/` package root. For a C++ project, use **打包当前工程** (Package Current Project).
+- An enabled project content plugin with `CanContainContent: true`, no C++ modules, at least one `.uasset` or `.umap`, and its own `/<PluginName>/` package root. To cook assets under `/Game`, use **打包当前工程内容** (Package Current Project Content).
 - A three-part numeric Mod version, such as `1.0.0`.
 - A game ID and base release version supplied by the target game's SDK. The base release directory must contain `<ReleaseVersion>/<CookPlatform>/AssetRegistry.bin`; if left empty, it defaults to the project's `Releases` directory. The Cook platform name for `Win64` is `Windows`.
-- A target platform and Pak or IoStore backend matching the target release. For archives intended for ModLoader, keep engine content disabled and use an independent package root. The authoring project also requires the corresponding UE Cooker, target SDK, and any public types or assets actually referenced by the Mod.
+- A target platform, Cook configuration (Development or Shipping), and Pak or IoStore backend matching the target release. For archives intended for ModLoader, keep engine content disabled and use an independent package root. The authoring project also requires the corresponding UE Cooker, target SDK, and any public types or assets actually referenced by the Mod.
 - An output directory, defaulting to `Saved/PackagedMods`. The output file is named `<PluginName>-<ModVersion>-<TargetPlatform>.mod`, and existing packages are never overwritten.
 
 The same options are also available in **Project Settings → Plugins → Mod 打包** and are saved to the local project's EditorPerProjectUserSettings.
 
-## Package the current C++ project
+## Package the current project's content
 
-1. Build the modular Win64 x64 host and create a Pak base release. In this repository, use a UE source build capable of producing Game DLLs and import libraries, select the `UnrealModFrameworkDevModular` Game target, and obtain the actual UBT `.target` receipt from the host build.
-2. Open the authoring project and enable **打包当前工程**. Select Win64, clear **使用 IoStore**, provide the host receipt, and specify the host Engine directory if it differs from the authoring Editor's Engine. Cook with the same UE version and changelist as the host. The receipt must resolve to the host project and its module manifests on disk.
-3. The packager reads the current `.uproject` for Runtime modules and enabled plugin dependencies, builds a temporary plugin against the host target, and migrates project content into its own package root before DLC Cook. Blueprints continue to resolve parent classes under `/Script/` using their original module names.
-4. Set `bAllowNativeModules=True` in the host's `[ModLoader]` configuration, use the same base-release identity and Pak backend, and place the resulting `.mod` under `Mods` next to the actual game executable. The loader registers the DLLs before creating lifecycle Blueprint instances.
+1. Get the target game's base release and SDK. Select **打包当前工程内容** and choose the matching platform, Cook configuration, and container backend.
+2. Build native callbacks as an independent C or C++ DLL against the SDK's C headers. For a Win64 x64 Pak release, select the DLL, the schema 2 extension declaration, and the game's SDK contract.
+3. The packager migrates assets from `/Game` to `/<ProjectName>/` for DLC Cook. Use asset references so the migrator can remap them. Blueprint native parents, functions, and reflected types must be available in the game and its authoring SDK.
+4. Install the `.mod` in `Mods` next to the game's actual executable. Modular and Monolithic use the same package and registration protocol when their release and SDK identities match.
 
-An Editor receipt produces an Editor package for Windows PIE, whereas a Game receipt produces a package for a packaged Game host. In TestMod, `/TestMod/BP_CallbackProbe.BP_CallbackProbe_C` inherits from the project's native Mod instance, and its C++ load callback writes to `LogTestModCallback`. Code with hard-coded asset paths should resolve authored assets at their cooked package paths or use asset references that the migration step can remap.
-
-To test in PIE, launch the host Editor with `-UsePaks` and place the Editor `.mod` in the host project's `Binaries/Win64/Mods`. If the package contains a shared shader library, rendered PIE requires the base cook's `ShaderArchive-*.ushaderbytecode` files in the host project's `Content` directory along with the matching shader platform. Use `-NullRHI` to verify lifecycle callbacks without rendering.
+For Windows PIE, launch the host Editor with `-UsePaks` and use the host project's `Binaries/Win64/Mods` directory. Rendered PIE with shared shaders requires the base cook's matching `ShaderArchive-*.ushaderbytecode` files in the host project's `Content` directory. Use `-NullRHI` for headless lifecycle verification.
 
 ## Build behavior
 
@@ -45,7 +43,7 @@ UnrealEditor-Cmd <AuthorProject.uproject> -run=ModPackage -Request=<Request.json
 
 `UMF.ModPackageBuildRequest` v1 contains `pluginName`, `modVersion`, `gameId`, `baseReleaseVersion`, `baseReleaseDirectory`, `targetPlatform`, `outputFile`, `useIoStore`, `includeEngineContent`, and `timeoutMinutes`. The editor generates this request automatically, and you can inspect its structure in a completed task directory. Paths are resolved relative to the authoring project. The request's directory serves as the task directory and must not already contain a `Stage` subdirectory.
 
-For a current-project build, set `schemaVersion` to `2` and supply `hostTargetReceipt`—plus `hostEngineDirectory` when needed—in place of `pluginName`. Start each run in a fresh task directory.
+For project content, use request `schemaVersion: 3`, omit `pluginName`, and supply `cookConfiguration`. Version 1 content-plugin requests can supply `cookConfiguration` and default to Shipping. Use a fresh task directory for each run.
 
 ## Archive
 
@@ -54,7 +52,7 @@ All integers are explicitly unsigned little-endian; C++ struct memory is never s
 | Header offset | Bytes | Field |
 | --- | --- | --- |
 | 0 | 8 | `UMFMOD` followed by two zero bytes |
-| 8 | 2 | Major version (`1` for content, `2` for native code with content, or `3` for packages with an extension manifest) |
+| 8 | 2 | Major version (`1` for content or `3` for packages with an extension manifest) |
 | 10 | 2 | Minor version (`0`) |
 | 12 | 4 | Header size (`64`) |
 | 16 | 8 | Manifest offset (`64`) |
@@ -80,7 +78,7 @@ Reflected value payloads copy public scalar fields and supported nested structs.
 
 ### Independent native callbacks
 
-Include the SDK's `ModExtensionABI.h` and `<GameId>.modextensionsabi.h`, and export `UMF_RegisterExtensionsV1` using `UMF_EXTENSION_EXPORT` and `UMF_EXTENSION_CALL`. Verify the host API version and struct size before registering the exact ID and signature from the generated header, and declare those same contracts in the package's schema 2 extension manifest. Select the compiled x64 DLL in packaging settings or set `nativeExtensionFile` in the build request; the packager embeds the DLL as an indexed payload. On the target host, enable `bAllowNativeExtensions=True` under `[ModLoader]` for Win64 Pak releases.
+Include the SDK's `ModExtensionABI.h` and `<GameId>.modextensionsabi.h`, and export `UMF_RegisterExtensionsV1` using `UMF_EXTENSION_EXPORT` and `UMF_EXTENSION_CALL`. Verify the host API version and struct size before registering the exact ID and signature from the generated header, and declare those same contracts in the package's schema 2 extension manifest. Select the compiled x64 DLL in packaging settings or set `nativeExtensionFile` in the build request; the packager embeds the DLL as an indexed payload. On the target host, enable `bAllowNativeExtensions=True` under `[ModLoader]` for Win64 x64 Pak releases. Call game APIs through the generated host function tables. Keep UObjects and UE C++ classes in the host. Statically link private native dependencies. The loader accepts direct and delay-loaded imports of Windows system libraries.
 
 - The entry point runs on the game thread once per World, and the host assigns a session and an owned registration token. An optional `Close` callback runs after in-flight calls drain and before the DLL reference is released; the DLL must quiesce any work it started before `Close` returns.
 - Input, output, object, and continuation tokens are valid only for the duration of the current callback. `Wrap` invokes `Next` once with the exact generated size. Both `Replace` and `Wrap` return `UMF_ExtensionWrite` along with the complete result. When permitted, `Pre` may return `UMF_ExtensionStop` with a cancellation result.
@@ -90,10 +88,10 @@ Include the SDK's `ModExtensionABI.h` and `<GameId>.modextensionsabi.h`, and exp
 
 `UMF.ModPackage` matches the header's major version and records the Mod identity, version, plugin/package root, build options, and base release fingerprints. Index `entries` are sorted in ascending order by case-sensitive path and record `path`, `offset`, `size`, `storage: "None"`, and the exact payload `sha256`. Absolute paths, directory traversal, and case-insensitive duplicates are rejected.
 
-When the authoring SDK supplies `ModInstance` and `ModInstanceSubSystem`, the packager records concrete Blueprint subclasses from the selected content plugin in the optional `lifecycleClasses` field. The game uses these class paths to create session entries after mounting.
+When the authoring SDK supplies `ModInstance` and `ModInstanceSubSystem`, the packager records concrete Blueprint subclasses from the selected content source in the optional `lifecycleClasses` field. The game uses these class paths to create session entries after mounting.
 
 `Content/<StageRelativePath>` preserves the UE cook output, and `Metadata/CookReceipt.json` records package roots, staged paths, build configuration, and release provenance. In `UMF.ModPackageBuildResult` v1, status `Packaged` indicates that packaging and byte-level verification succeeded and includes the final archive's SHA-256.
 
-Archive v2 and any v3 archive containing UE modules include a `nativeCode` manifest listing the host target, configuration, architecture, BuildId, and module names. The packager builds individual modules with UBT and writes a matching `.modules` file from the host receipt. The module manifest and DLLs are stored under `Native/` and covered by the archive's hashed index. Loaded native modules remain resident until process exit, so updating one requires restarting the host.
+Old packages containing UE modules (archive v2 or the `nativeCode` field) require migration. Move dynamic code behind `UMF_RegisterExtensionsV1` and repackage the assets and independent DLL. The index covers the single declared DLL under `Native/` with SHA-256.
 
 Both the manifest and build result record `shippingValidated: false`. The manifest's `exportRequirements` is set to `SdkVerified` when packaging validates an extension manifest against the supplied SDK contract, and `NotVerified` otherwise. The loader still verifies the actual host contracts and grants at admission time.

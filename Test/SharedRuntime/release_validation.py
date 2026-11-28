@@ -40,9 +40,9 @@ def engine_dir(location):
 
 
 class Validation:
-    def __init__(self, engine, modular_engine, work, commit):
+    def __init__(self, engine, work, commit, game_target):
         self.engine = engine_dir(engine)
-        self.modular = engine_dir(modular_engine)
+        self.game_target = game_target
         self.work = work
         self.commit = commit
         ubt_base = "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll"
@@ -50,15 +50,13 @@ class Validation:
         self.uat = "Binaries/DotNET/AutomationTool/AutomationTool.dll"
         self.ubt = self.engine / ubt_base
         candidates = sorted(self.engine.glob("Binaries/ThirdParty/DotNet/*/win-x64/dotnet.exe"))
-        if not candidates or not self.editor.is_file() or not (self.modular / "Binaries/Win64/UnrealGame.modules").is_file():
-            raise ValueError("Release validation requires a complete Win64 Editor and a prebuilt matching modular Game")
+        if not candidates or not self.editor.is_file() or not (self.engine / self.uat).is_file():
+            raise ValueError("Release validation requires a complete Win64 UE installation with Editor and UAT")
+        if game_target == MODULAR and not (self.engine / "Binaries/Win64/UnrealGame.modules").is_file():
+            raise ValueError("The selected Modular target needs a full engine with matching Modular Game build products")
         self.dotnet = candidates[-1]
         version = document(self.engine / "Build/Build.version")
-        game_version = document(self.modular / "Binaries/Win64/UnrealGame.version")
-        identity = ("MajorVersion", "MinorVersion", "PatchVersion", "Changelist", "CompatibleChangelist", "BranchName")
-        if any(version[key] != game_version[key] for key in identity):
-            raise ValueError("The Editor and modular Game engine versions differ")
-        if tuple(version[k] for k in identity[:3]) != tuple(map(int, LOCK["ueVersion"].split("."))):
+        if tuple(version[k] for k in ("MajorVersion", "MinorVersion", "PatchVersion")) != tuple(map(int, LOCK["ueVersion"].split("."))):
             raise ValueError("The release engine version differs from the engine lock")
         self.env = dict(os.environ)
         self.env["UE-LocalDataCachePath"] = str(work / "DDC")
@@ -97,8 +95,8 @@ class Validation:
         bundle = self.work / (label + "-metadata")
         identity = ["--commit", self.commit, "--engine-commit", LOCK["upstreamCommit"]]
         self.mbt(label + "-prepare", "prepare-metadata", self.engine, project, EDITOR, *identity, "--output", bundle)
-        for target, engine in ((EDITOR, self.engine), (MODULAR, self.modular)):
-            self.mbt(label + "-" + target, "build-ue-target", engine, project, target, *identity,
+        for target in (EDITOR, self.game_target):
+            self.mbt(label + "-" + target, "build-ue-target", self.engine, project, target, *identity,
                      "--configuration", CONFIG, "--mode", "normal", "--metadata", bundle)
 
     @staticmethod
@@ -122,7 +120,7 @@ class Validation:
             "editor": {"platform": PLATFORM, "architecture": ARCH, "configuration": CONFIG,
                        "modules": str(modules), "buildId": document(modules)["BuildId"]},
             "targets": [{"target": target, "platform": PLATFORM, "configuration": CONFIG, "architecture": ARCH,
-                         "generatedManifest": str(self.generated(producer, target))} for target in (EDITOR, MODULAR)],
+                         "generatedManifest": str(self.generated(producer, target))} for target in (EDITOR, self.game_target)],
         })
         mdt = self.tool("ModSDKTool")
         self.run("sdk-plan", mdt, "plan", "--request", request, "--output", self.work / "SdkPlan.json")
@@ -133,19 +131,27 @@ class Validation:
     def cook(self, host, release):
         version = "rc-" + self.commit
         stage = self.work / "Stage"
-        self.run("cook-stage", self.dotnet, self.modular / self.uat, "BuildCookRun", f"-project={host}",
-                 f"-target={MODULAR}", f"-unrealexe={self.editor}", "-platform=Win64", "-clientconfig=Development",
+        self.run("cook-stage", self.dotnet, self.engine / self.uat, "BuildCookRun", f"-project={host}",
+                 f"-target={self.game_target}", f"-unrealexe={self.editor}", "-platform=Win64", "-clientconfig=Development",
                  "-nocompile", "-nocompileeditor", "-nop4", "-unattended", "-cook", "-stage", "-pak", "-package",
                  "-skipiostore", "-nodebuginfo", "-map=/Game/Levels/Basic/L_Basic+/Engine/Maps/Entry",
                  f"-createreleaseversion={version}", f"-createreleaseversionroot={release}",
-                 f"-stagingdirectory={stage}", "-AdditionalCookerOptions=-ddc=InstalledNoZenLocalFallback")
+                 f"-stagingdirectory={stage}", "-AdditionalCookerOptions=-ddc=InstalledNoZenLocalFallback "
+                 "-package=/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple")
         registry = release / version / "Windows/AssetRegistry.bin"
         with registry.open("rb") as data:
             digest = hashlib.file_digest(data, "sha256").hexdigest()
         save(self.work / "BaseRelease.json", {"commit": self.commit, "version": version, "assetRegistrySha256": digest})
         return version, registry, stage / "Windows"
 
-    def package(self, author, name, receipt, release, version):
+    def build_extensions(self, sdk):
+        build = self.work / "Native"
+        self.run("native-extensions-configure", "cmake", "-S", ROOT / "Test/SharedRuntime/Native", "-B", build,
+                 "-A", "x64", f"-DUMF_SDK_INCLUDE={sdk / 'Native/Include/SDK/Public'}")
+        self.run("native-extensions-build", "cmake", "--build", build, "--config", "Release")
+        return build / "Release"
+
+    def package(self, author, name, sdk, extensions, release, version):
         self.run(name + "-editor", self.dotnet, self.ubt, name + "Editor", PLATFORM, CONFIG,
                  f"-Project={author}", "-Architecture=x64", "-NoEngineChanges", "-NoHotReloadFromIDE", "-WaitMutex", "-NoUBA")
         common = ["-unattended", "-nullrhi", "-nosound", "-nosplash", "-nop4", "-stdout",
@@ -158,10 +164,18 @@ class Validation:
         folder.mkdir()
         request = folder / "Request.json"
         package = self.work / (name + ".mod")
-        save(request, {"format": "UMF.ModPackageBuildRequest", "schemaVersion": 2, "modVersion": "1.0.0",
+        description = folder / "Extensions.json"
+        extension = {"schemaVersion": 2, "contracts": [{"id": "hook/game.character/change-health"}]}
+        if name == "TestMod":
+            extension["content"] = [{"slot": "character.mesh", "id": "character.mannequin", "action": "replace",
+                                     "asset": "/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple"}]
+        save(description, extension)
+        save(request, {"format": "UMF.ModPackageBuildRequest", "schemaVersion": 3, "modVersion": "1.0.0",
                        "gameId": GAME, "baseReleaseVersion": version, "baseReleaseDirectory": str(release),
-                       "targetPlatform": PLATFORM, "useIoStore": False, "includeEngineContent": False,
-                       "hostTargetReceipt": str(receipt), "hostEngineDirectory": str(self.modular),
+                       "targetPlatform": PLATFORM, "cookConfiguration": CONFIG, "useIoStore": False,
+                       "includeEngineContent": False, "extensionsFile": str(description),
+                       "sdkContractFile": str(sdk / "Contract/SdkContract.json"),
+                       "nativeExtensionFile": str(extensions / f"{name}Extension.dll"),
                        "outputFile": str(package), "timeoutMinutes": 55})
         self.run(name + "-package", self.editor, author, "-run=ModPackage", f"-Request={request}", *common)
         if not package.is_file():
@@ -179,31 +193,36 @@ class Validation:
         self.build_host(host, "shared-runtime")
         release = self.work / "Releases"
         version, registry, stage = self.cook(host, release)
-        receipt = host.parent / f"Binaries/Win64/{MODULAR}.target"
-        link = host.parent / "Intermediate/ModTools/ModHeaderTool/HostTargets" / MODULAR / PLATFORM / CONFIG / ARCH / "host-link.json"
-        test_mod = self.package(projects / "A/TestMod.uproject", "TestMod", receipt, release, version)
-        other_mod = self.package(projects / "B/SharedCaller.uproject", "SharedCaller", receipt, release, version)
+        receipt = host.parent / f"Binaries/Win64/{self.game_target}.target"
+        link = (host.parent / "Intermediate/ModTools/ModHeaderTool/HostTargets" / self.game_target /
+                PLATFORM / CONFIG / ARCH / "host-link.json")
+        extensions = self.build_extensions(sdk)
+        test_mod = self.package(projects / "A/TestMod.uproject", "TestMod", sdk, extensions, release, version)
+        other_mod = self.package(projects / "B/SharedCaller.uproject", "SharedCaller", sdk, extensions, release, version)
         verify(SimpleNamespace(sdk=sdk, stage=stage, receipt=receipt, link=link, host_project=host,
-                               host_manifest=self.generated(host, MODULAR), registry=registry,
+                               host_manifest=self.generated(host, self.game_target), registry=registry,
                                test_mod=test_mod, other_mod=other_mod, report=self.work / "SharedRuntime"))
         self.run("benchmark", sys.executable, ROOT / "Test/Performance/run_benchmark.py", "--engine", self.engine,
-                 "--modular-runtime", self.modular, "--report", self.work / "Performance.md", timeout=14400)
+                 "--report", self.work / "Performance.md", timeout=14400)
         save(self.work / "ReleaseValidation.json", {"commit": self.commit, "baseRelease": version,
+                                                   "gameTarget": self.game_target,
                                                    "sharedRuntime": "Succeeded", "performance": "Succeeded"})
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", required=True, type=Path)
-    parser.add_argument("--modular-engine", required=True, type=Path)
+    parser.add_argument("--game-target", choices=(GAME, MODULAR), default=GAME)
     parser.add_argument("--work", required=True, type=Path)
     parser.add_argument("--commit", required=True)
     args = parser.parse_args()
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     if not re.fullmatch(r"[a-f0-9]{40}", args.commit) or head != args.commit:
         raise SystemExit("Release Candidate commit does not match the checkout")
+    if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT).strip():
+        raise SystemExit("Release validation requires a clean checkout of the Release Candidate")
     try:
-        validation = Validation(args.engine.resolve(), args.modular_engine.resolve(), args.work.resolve(), args.commit)
+        validation = Validation(args.engine.resolve(), args.work.resolve(), args.commit, args.game_target)
         validation.work.mkdir(parents=True, exist_ok=False)
         validation.execute()
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:

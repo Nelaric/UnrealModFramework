@@ -75,13 +75,17 @@ jobs:
 
 ## 发布验证
 
-从受授权的私有仓库以明确的 Release Candidate SHA 调用 [Release Validation](../.github/workflows/release-validation.yml)。Win64 x64 的 `umf-release` runner 通过 `UMF_FULL_UE` 和 `UMF_MODULAR_UE` 提供完整 Editor 和匹配的已构建模块化 Game 引擎。可以使用既有的授权工作站，同一入口也可在该工作站直接运行。
+从受授权的私有仓库以明确的 Release Candidate SHA 调用 [Release Validation](../.github/workflows/release-validation.yml)。Win64 x64 的 `umf-release` runner 通过 `UMF_FULL_UE` 提供可执行 Cook 和 Package 的完整 UE。可以使用既有的授权工作站，同一入口也可在该工作站直接运行。
 
 ```text
-python -m Test.SharedRuntime.release_validation --engine <完整 Editor> --modular-engine <完整模块化 Game> --work <新目录> --commit <完整 SHA>
+python -m Test.SharedRuntime.release_validation --engine <完整 UE> --work <新目录> --commit <完整 SHA>
 ```
 
-发布流程按原有包名暂存集成资源，构建 Modular Game，执行 MDT plan/build/inspect，构建独立作者工程，并完成宿主和 Mod 的 Cook、Stage 与 Package。各工程只启用 UMF 自有插件。MDT 使用禁用引擎默认插件的独立 UBT Editor 目标。基础发行版本来自候选提交，摘要来自实际 Cook 输出的 `AssetRegistry.bin`。暂存游戏运行 SharedRuntime、资源替换与 Mod 卸载验证，随后运行性能基准。报告保留在授权工作区。 [SharedRuntime 流程](../Test/SharedRuntime/README.md)
+发布流程按原有包名暂存集成资源，构建 Monolithic Game，执行 MDT plan/build/inspect，构建独立作者工程，并完成宿主和 Mod 的 Cook、Stage 与 Package。各工程只启用 UMF 自有插件。MDT 使用禁用引擎默认插件的独立 UBT Editor 目标。基础发行版本来自候选提交，摘要来自实际 Cook 输出的 `AssetRegistry.bin`。暂存游戏加载两个独立 C ABI 扩展，验证 Hook 回调、API 权限、资源替换与卸载，随后运行 200 项性能基准。已有 Modular Game 产物的完整引擎可加 `--game-target UnrealModFrameworkDevModular`，使用同一套示例游戏验证。报告保留在授权工作区。 [SharedRuntime 流程](../Test/SharedRuntime/README.md)
+
+## 运行调用性能基准
+
+使用 `python Test/Performance/run_benchmark.py --engine <完整 UE> --report <结果.md>` 构建、Cook 并测量独立性能基准。Win64 x64 运行覆盖宿主和打包 Mod 的 200 项 API 用例。Mod C++ 栏包含 C ABI Hook 往返和宿主 UE 调用的耗时。Mod 蓝图栏使用从同一个归档中加载的蓝图。
 
 ## Phase 1 验证情况
 

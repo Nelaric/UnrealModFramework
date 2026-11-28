@@ -24,7 +24,7 @@ Apply this rule to every new project-authored file and to existing project-autho
 
 - Apply CSharpier to `.Build.cs` and `.Target.cs` files. It is as mandatory as clang-format is for C++.
 - Keep module dependencies minimal and classify them as public or private according to the headers that require them. Do not add vendor SDK dependencies to Runtime.
-- Target UE 5.6 and later. Development CI uses locked UE 5.6.1 SDKs to build Game and Editor and run headless automation. Release Validation covers the full engine, modular Game, standalone SDK, packaging, and performance tests. Report the actual build environment and test results when requesting review. [CI build coverage](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.md)
+- Target UE 5.6 and later. Development CI uses locked UE 5.6.1 SDKs to build Game and Editor and run headless automation. Release Validation covers the full engine, packaged Game, standalone SDK, packaging, and performance tests. Report the actual build environment and test results when requesting review. [CI build coverage](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.md)
 
 ## Automation tests
 

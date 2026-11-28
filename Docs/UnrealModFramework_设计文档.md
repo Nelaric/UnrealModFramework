@@ -192,7 +192,7 @@ Hook 契约还须指定失败策略、重入规则、调用线程与网络权威
 
 ### 5.1 Manifest 的必需信息
 
-`UMF.ModPackage` 记录 `modId`、三段版本、插件身份及 `/<PluginName>/` 包根、`cookProfileId` 与配置详情，以及包内 Cook 回执的条目路径。宿主依次核对 GameId、基础发布及其 Asset Registry SHA-256、引擎构建、目标平台、Cook 平台与后端。Manifest 还可附带 `lifecycleClasses`、`nativeCode` 与 `extensions`，分别描述实例类、UE 模块及世界扩展。归档 v3 的扩展清单则进一步记录 Hook/Event 签名、依赖、互斥、所需授权、内容、Patch 和版本化服务。详见[归档字节布局和字段](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#mod-布局)。
+`UMF.ModPackage` 记录 `modId`、三段版本、插件身份及 `/<PluginName>/` 包根、`cookProfileId` 与配置详情，以及包内 Cook 回执的条目路径。宿主依次核对 GameId、基础发布及其 Asset Registry SHA-256、引擎构建、目标平台、Cook 平台与后端。Manifest 还可附带 `lifecycleClasses` 和 `extensions`，分别描述实例类和世界扩展。原生回调使用独立 C ABI DLL，Modular 与 Monolithic 游戏通过同一协议注册。归档 v3 的扩展清单则进一步记录 Hook/Event 签名、依赖、互斥、所需授权、内容、Patch 和版本化服务。详见[归档字节布局和字段](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#mod-布局)。
 
 ### 5.2 解析、校验与缓存
 

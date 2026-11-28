@@ -11,7 +11,7 @@
 int32 USharedCallerAssetsCommandlet::Main(const FString&)
 {
 	const TCHAR* PackageName = TEXT("/Game/BP_SharedCaller");
-	UClass* Parent = LoadClass<UObject>(nullptr, TEXT("/Script/SharedCaller.SharedCallerInstance"));
+	UClass* Parent = LoadClass<UObject>(nullptr, TEXT("/Script/ModLoader.ModInstance"));
 	if (!Parent)
 	{
 		UE_LOG(LogTemp, Error, TEXT("Could not resolve the SharedCaller lifecycle class."));

@@ -75,13 +75,17 @@ Use the [versioned ruleset](../.github/rulesets/protect-main.json) after an auth
 
 ## Release Validation
 
-Use [Release Validation](../.github/workflows/release-validation.yml) from a private manual caller with the exact reviewed Release Candidate SHA. Its Win64 x64 `umf-release` runner provides a full Editor and an already built matching modular Game engine via `UMF_FULL_UE` and `UMF_MODULAR_UE`. This can be an authorized workstation with no paid runner. The same entry point can run directly on that workstation.
+Use [Release Validation](../.github/workflows/release-validation.yml) from a private manual caller with the exact reviewed Release Candidate SHA. Its Win64 x64 `umf-release` runner uses a complete UE installation set by `UMF_FULL_UE`. This can be an authorized workstation with no paid runner. The same entry point can run directly on that workstation.
 
 ```text
-python -m Test.SharedRuntime.release_validation --engine <full-editor> --modular-engine <full-modular-game> --work <new-directory> --commit <full-sha>
+python -m Test.SharedRuntime.release_validation --engine <full-ue> --work <new-directory> --commit <full-sha>
 ```
 
-The release flow stages the integration assets under their existing package names, builds the modular Game, runs MDT plan/build/inspect, builds the author projects, and cooks, stages and packages the host and Mods. Its projects enable only UMF-owned plugins. MDT builds them in a dedicated UBT Editor target with default engine plugins disabled. The release version comes from the candidate commit and the digest comes from the actual cooked `AssetRegistry.bin`. The staged game runs the SharedRuntime/resource replacement and Mod unload verification, followed by the performance benchmark. Preserve the reports in the authorized workspace. [SharedRuntime procedure](../Test/SharedRuntime/README.md)
+The release flow stages the integration assets under their existing package names, builds the Monolithic Game, runs MDT plan/build/inspect, builds the author projects, and cooks, stages and packages the host and Mods. Its projects enable only UMF-owned plugins. MDT builds them in a dedicated UBT Editor target with default engine plugins disabled. The release version comes from the candidate commit and the digest comes from the actual cooked `AssetRegistry.bin`. The staged game loads two independent C ABI extensions and verifies Hook callbacks, API permissions, resource replacement, and unload. It then runs the 200-case performance benchmark. An existing full engine with Modular Game build products can run the same sample-game verification with `--game-target UnrealModFrameworkDevModular`. Preserve the reports in the authorized workspace. [SharedRuntime procedure](../Test/SharedRuntime/README.md)
+
+## Run the call benchmark
+
+Run `python Test/Performance/run_benchmark.py --engine <full-ue> --report <result.md>` to build, cook and measure the standalone benchmark. The Win64 x64 run includes the 200 host and packaged-Mod API cases. The Mod C++ samples time the C ABI Hook round trip and the host's engine call. The Mod Blueprint samples use graphs loaded from the same archive.
 
 ## Phase 1 verification
 

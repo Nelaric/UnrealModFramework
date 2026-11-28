@@ -85,7 +85,7 @@ MHT 会按所选构建目标校验活动声明。`HostCommitPayload` 为当前�
 ## 构建并加载模组
 
 1. 在 MDT v3 请求中列出各目标的 v4 生成清单，运行 `ModSDKTool build --request SdkBuildRequest.json`。将发布包的 Host 插件装入提供共享 Runtime 的游戏，将制作端插件装入各 Mod 工程。[SDK 请求与产物](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
-2. 在作者工程的关卡编辑器工具栏中选择 **Mod → 打包 Mod…**，填写目标游戏的基础发布信息及匹配的 Cook 设置，再选择打包已启用的内容插件或当前 C++ 工程。打包 C++ 工程需要 Pak 后端及匹配的 Win64 x64 模块化宿主回执；测试打包后的示例游戏时，请使用支持模块化 Game Target 的 UE 源码版引擎构建 `UnrealModFrameworkDevModular`。[打包与 PIE 设置](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md)
+2. 在作者工程的关卡编辑器工具栏中选择 **Mod → 打包 Mod…**，填写目标游戏的基础发布信息及匹配的 Cook 设置，再选择打包已启用的内容插件或当前工程内容。原生 C++ 回调在 Modular 和 Monolithic 游戏中使用同一套独立 C ABI 扩展。[打包与 PIE 设置](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md)
 3. 在宿主的 `Config/DefaultGame.ini` 中配置 `[ModLoader]` 的发布身份、容器后端及所需的原生代码权限，然后将 `.mod` 包放入游戏可执行文件同级的 `Mods/` 目录；若在 Windows PIE 中测试，请将与 Editor 匹配的包放入宿主工程的 `Binaries/Win64/Mods/`。[加载器配置](Docs/CodingStandards/Modules.zh-CN.md#模组加载器)
 
 宿主会在开局前完成 World 扩展准备。`ModExtensions` 游戏模式演示了包含内容槽与 World Patch 锚点的准备流程、多人玩法计划核对以及单机存档迁移。Shipping 构建和更多工具链组合仍需按目标分别验收。[游戏端实现与里程碑](Docs/UnrealModFramework_游戏端详细设计.md#当前实现与限制)

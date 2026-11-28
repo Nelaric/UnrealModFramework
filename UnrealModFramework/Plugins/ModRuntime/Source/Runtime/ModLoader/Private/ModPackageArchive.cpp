@@ -8,7 +8,6 @@
 #include "Dom/JsonObject.h"
 #include "GenericPlatform/GenericPlatformFile.h"
 #include "HAL/PlatformProperties.h"
-#include "Misc/App.h"
 #include "Misc/EngineVersion.h"
 #include "Misc/Guid.h"
 #include "Misc/PackageName.h"
@@ -261,56 +260,6 @@ bool ReadLifecycleClasses(const FJsonObject& Manifest, FLoadResult& Result)
 	return true;
 }
 
-bool ReadNativeCode([[maybe_unused]] const FJsonObject& Manifest, [[maybe_unused]] const FLoadPolicy& Policy,
-                    FLoadResult& Result, [[maybe_unused]] FNativeModuleSet& OutCode)
-{
-#if !PLATFORM_WINDOWS || !PLATFORM_CPU_X86_FAMILY || !PLATFORM_64BITS || IS_MONOLITHIC
-	return Fail(Result, ELoadError::Incompatible, TEXT("Native mods require a modular Win64 x64 host."));
-#else
-	constexpr int32 MaxNativeModules = 64;
-	if (!Policy.bAllowNativeModules || Policy.Backend != EBackend::Pak)
-	{
-		return Fail(Result, ELoadError::Incompatible, TEXT("This host has not enabled native Pak mods."));
-	}
-	const TSharedPtr<FJsonObject>* Code = nullptr;
-	const TArray<TSharedPtr<FJsonValue>>* Modules = nullptr;
-	if (!Manifest.TryGetObjectField(TEXT("nativeCode"), Code) || !Code->IsValid() ||
-	    !(*Code)->TryGetStringField(TEXT("buildId"), OutCode.BuildId) || !IsIdentifier(OutCode.BuildId) ||
-	    !(*Code)->TryGetStringField(TEXT("manifest"), OutCode.ManifestName) || !IsIdentifier(OutCode.ManifestName) ||
-	    !OutCode.ManifestName.EndsWith(TEXT(".modules")) || !(*Code)->TryGetArrayField(TEXT("modules"), Modules) ||
-	    Modules->IsEmpty() || Modules->Num() > MaxNativeModules)
-	{
-		return Fail(Result, ELoadError::InvalidArchive, TEXT("The native module manifest is invalid."));
-	}
-	if (!HasText(**Code, TEXT("architecture"), TEXT("x64")) ||
-	    !HasText(**Code, TEXT("configuration"), LexToString(FApp::GetBuildConfiguration())) ||
-	    !HasText(**Code, TEXT("targetType"), LexToString(FApp::GetBuildTargetType())) ||
-	    !HasText(**Code, TEXT("target"), FPlatformMisc::GetUBTTargetName()))
-	{
-		return Fail(Result, ELoadError::Incompatible, TEXT("The native module target does not match the host."));
-	}
-	TSet<FName> Names;
-	TSet<FName> Files;
-	for (const TSharedPtr<FJsonValue>& Value : *Modules)
-	{
-		const TSharedPtr<FJsonObject>* Module = nullptr;
-		FNativeModule Entry;
-		if (!Value->TryGetObject(Module) || !Module->IsValid() ||
-		    !(*Module)->TryGetStringField(TEXT("name"), Entry.Name) || !IsModuleName(Entry.Name) ||
-		    !(*Module)->TryGetStringField(TEXT("file"), Entry.FileName) || !IsIdentifier(Entry.FileName) ||
-		    !Entry.FileName.EndsWith(TEXT(".dll")) || Names.Contains(FName(*Entry.Name)) ||
-		    Files.Contains(FName(*Entry.FileName)))
-		{
-			return Fail(Result, ELoadError::InvalidArchive, TEXT("A native module name or DLL filename is invalid."));
-		}
-		Names.Add(FName(*Entry.Name));
-		Files.Add(FName(*Entry.FileName));
-		OutCode.Modules.Add(MoveTemp(Entry));
-	}
-	return true;
-#endif
-}
-
 bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, const FLoadPolicy& Policy,
                   FLoadResult& Result, FArchiveContents& Contents, FPreparedPackage& OutPackage)
 {
@@ -362,10 +311,10 @@ bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, con
 	{
 		return Fail(Result, ELoadError::InvalidArchive, TEXT("Extension declarations require archive version 3."));
 	}
-	if (Layout.Version == 1 && Manifest.HasField(TEXT("nativeCode")))
+	if (Layout.Version == 2 || Manifest.HasField(TEXT("nativeCode")))
 	{
-		return Fail(Result, ELoadError::InvalidArchive,
-		            TEXT("Native module declarations require archive version 2 or 3."));
+		return Fail(Result, ELoadError::Incompatible,
+		            TEXT("UE module mods are unsupported. Repackage the mod with an independent C ABI extension."));
 	}
 	if (!ReadLifecycleClasses(Manifest, Result) || (Layout.Version == 3 && !ReadExtensions(Manifest, Result)))
 	{
@@ -382,8 +331,7 @@ bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, con
 		return Fail(Result, ELoadError::Incompatible, TEXT("Independent extensions require a Win64 x64 host."));
 #endif
 	}
-	const bool bHasNativeCode = Layout.Version == 2 || Manifest.HasField(TEXT("nativeCode"));
-	return !bHasNativeCode || (Layout.Version > 1 && ReadNativeCode(Manifest, Policy, Result, OutPackage.NativeCode));
+	return true;
 }
 
 bool ReadIndex(const FJsonObject& Index, const FArchiveLayout& Layout, FLoadResult& Result, FArchiveContents& Contents,
@@ -403,19 +351,6 @@ bool ReadIndex(const FJsonObject& Index, const FArchiveLayout& Layout, FLoadResu
 	if (!NativeExtension.IsEmpty())
 	{
 		ExpectedNativeFiles.Add(NativeExtension);
-	}
-	if (!OutPackage.NativeCode.ManifestName.IsEmpty())
-	{
-		ExpectedNativeFiles.Add(FString(NativePrefix) + OutPackage.NativeCode.ManifestName);
-		for (const FNativeModule& Module : OutPackage.NativeCode.Modules)
-		{
-			const FString File = FString(NativePrefix) + Module.FileName;
-			if (!NativeExtension.IsEmpty() && File.Equals(NativeExtension, ESearchCase::IgnoreCase))
-			{
-				return Fail(Result, ELoadError::InvalidArchive, TEXT("An independent DLL duplicates a UE module."));
-			}
-			ExpectedNativeFiles.Add(File);
-		}
 	}
 	TSet<FString> Paths;
 	TSet<FString> FoldedPaths;
@@ -449,8 +384,7 @@ bool ReadIndex(const FJsonObject& Index, const FArchiveLayout& Layout, FLoadResu
 		}
 		else if (Entry.Path.StartsWith(NativePrefix, ESearchCase::CaseSensitive))
 		{
-			if (Entry.Size == 0 || (Entry.Path.EndsWith(TEXT(".modules")) && Entry.Size > MaxManifestSize) ||
-			    ExpectedNativeFiles.Remove(Entry.Path) != 1)
+			if (Entry.Size == 0 || ExpectedNativeFiles.Remove(Entry.Path) != 1)
 			{
 				return Fail(Result, ELoadError::InvalidArchive,
 				            TEXT("An indexed native payload is undeclared or empty."));
@@ -545,8 +479,7 @@ bool VerifyReceipt(IFileHandle& Input, const FArchiveContents& Contents, const F
 	}
 	const TSharedPtr<FJsonObject>* Profile = nullptr;
 	const TArray<TSharedPtr<FJsonValue>>* Staged = nullptr;
-	const int32 NativeCount = (Package.NativeCode.Modules.IsEmpty() ? 0 : Package.NativeCode.Modules.Num() + 1) +
-	                          (Result.Package.Extensions.NativeExtensionFile.IsEmpty() ? 0 : 1);
+	const int32 NativeCount = Result.Package.Extensions.NativeExtensionFile.IsEmpty() ? 0 : 1;
 	if (!ReadObject(Bytes, Receipt) || !IsSchema(*Receipt, TEXT("UMF.ModCookReceipt")) ||
 	    !HasText(*Receipt, TEXT("pluginName"), Package.PluginName) ||
 	    !HasText(*Receipt, TEXT("packageRoot"), Result.Package.PackageRoot) ||
@@ -848,10 +781,6 @@ bool PrepareArchive(const FLoadPolicy& Policy, FPreparationBudget Budget, FLoadR
 	{
 		Result.Package.NativeExtensionPath =
 		    FPaths::Combine(CacheDirectory, TEXT("Native"), Result.Package.Extensions.NativeExtensionFile);
-	}
-	if (!OutPackage.NativeCode.Modules.IsEmpty())
-	{
-		OutPackage.NativeCode.Directory = FPaths::Combine(CacheDirectory, TEXT("Native"));
 	}
 	for (FNativeContainer& Container : OutPackage.Containers)
 	{

@@ -1,19 +1,17 @@
-﻿# 共享 Runtime 的打包游戏回归测试
+﻿<!-- Copyright (c) 2026 Nelaric Contributors -->
 
-这个测试使用模块化 Win64 x64 Development 游戏、Pak 基础发行版、独立作者工程 TestMod 和 SharedCaller。它需要能构建该模块化 Game 的 UE 工具链。两个 Mod 都调用实际游戏中的 `UMFDevSDKRuntime`。
+# Shared Runtime in a packaged game
 
-发布验证只启用 UMF 自有插件。宿主使用原生测试 GameMode，TestMod 使用自己的网格和 UE 原生输入绑定，SharedCaller 用原生 Commandlet 生成生命周期蓝图。
+Run [Release Validation](../../Docs/DevelopmentWorkflow.md#release-validation) on the reviewed candidate with a complete Win64 x64 UE installation. The default builds the Monolithic Development Game and a Pak base release. An existing full engine with Modular Game build products can select `--game-target UnrealModFrameworkDevModular` and run the same checks.
 
-1. 以游戏及 Editor 的 v4 生成清单运行 MDT `plan`、`build`、`inspect`。发布包包含游戏用的 `Host/Plugins/UMFDevSDK` 和作者工程用的两个插件。
-2. 运行 `python Test/SharedRuntime/prepare_projects.py --work <空工作区> --sdk <发布目录>`。它将宿主与 `Test/ReleaseFixtures` 的发布资产按原包名暂存到 `H`，把两个作者工程分别放入 `A` 和 `B`。宿主启用测试模块。将 `UMF_MHT_EXECUTABLE`、`UMF_MBT_EXECUTABLE`、`UMF_MOD_SOURCE_TOOL_EXECUTABLE` 和 `UMF_MHT_LIBCLANG` 指向当前构建的工具。
-3. 先对 `H` 调用 MBT 的 `prepare-metadata`，再用同一 Bundle 调用 `build-ue-target` 构建 `UnrealModFrameworkDevEditor` 和 `UnrealModFrameworkDevModular`。使用 UAT `BuildCookRun` 为后者 Cook、Stage 并创建基础发布版本，其中包含 `/Game/Levels/Basic/L_Basic` 和 `/Engine/Maps/Entry`。保留本次 Game 的 `.target` 与 `Intermediate/ModTools/ModHeaderTool/HostTargets/<Target>/Win64/Development/x64/host-link.json`。从实际 Cook 的 `AssetRegistry.bin` 计算摘要。完整运行入口见[发布验证](../../Docs/DevelopmentWorkflow.zh-CN.md#发布验证)。
-4. 分别构建两个作者 Editor。用 `UnrealEditor-Cmd <SharedCaller.uproject> -run=SharedCallerAssets -unattended -nullrhi` 在 B 中创建生命周期蓝图。A 自带样例蓝图。用两个工程自己的 `ModPackage` Commandlet、同一个基础版本和 Game 回执分别打出 `TestMod.mod`、`SharedCaller.mod`。每次打包使用新的任务目录。
-5. 用下列命令启动真实暂存游戏。验证器校验 DLL 和链接记录，检查两个包的原生文件索引，并在两个 Mod 调用成功后移走暂存安装的 TestMod。成功时在指定目录生成 `verification.json` 和 `game.log`。
+MDT builds and inspects the released SDK. The verifier checks the installed Host plugin, generated contract, launch image, and link receipt. TestMod and SharedCaller build in separate authoring projects. Their C++ callbacks compile against the published C headers, and each archive contains its cooked assets and one independent DLL. The release folder and Asset Registry digest come from the actual base cook.
 
-```text
-python Test/SharedRuntime/verify_game.py --sdk <SDK> --stage <Stage/Windows> --receipt <Game.target> --link <host-link.json> --host-project <H/UnrealModFrameworkDev.uproject> --host-manifest <游戏本次构建的生成清单> --registry <Releases/版本/Windows/AssetRegistry.bin> --test-mod <TestMod.mod> --other-mod <SharedCaller.mod> --report <报告目录>
-```
+The gameplay test verifies that both DLLs query the live host ABI and their separate Hook callbacks transform the character's health to 73. TestMod supplies its cooked Manny mesh, and the SDK allows its writer to apply the replacement while denying the reader. The runner then removes TestMod from the staged installation. Closing the World releases package leases and permits unmounting. In the new World the host mesh resolves again, SharedCaller's callback produces 41, and the revoked writer's old context fails. Automation completion and the gameplay markers are required for `verification.json`.
 
-测试 GameMode 使用样例游戏导出的玩家角色和普通 Mod 生命周期。游戏进程只绑定一次宿主 ABI，分别给两个 Mod 授权。A 必须用自己包内的 Manny 网格改变玩家，B 必须读到 73。加载器通知卸载 A 时，宿主收回 A 的授权。A 的挂载点消失后，B 必须以原实例、原上下文和同一个 Runtime 读到更新后的值 41。测试还检查 A 的旧上下文已经失效。
+# 打包游戏中的 Shared Runtime
 
-样例的 World 扩展模式会在选定会话内持有包租约，直到会话释放。它有独立的卸载时机。Windows 原生 UE 模块按现有加载器设计驻留到进程退出，此处验证包卸载、生命周期回调和调用权回收。
+在具备完整 Win64 x64 UE 的环境中，按[发布验证](../../Docs/DevelopmentWorkflow.zh-CN.md#发布验证)运行已审查的候选提交。默认构建 Monolithic Development Game 并创建 Pak 基础发行。已有 Modular Game 产物的完整引擎可指定 `--game-target UnrealModFrameworkDevModular` 运行同样的检查。
+
+MDT 构建并检查发布 SDK。验证器核对已安装的 Host 插件、生成的契约、启动映像和链接回执。TestMod 与 SharedCaller 在独立作者工程中构建，C++ 回调使用正式 SDK 的 C 头文件编译，各自的归档包含 Cooked 资产和单个独立 DLL。基础版本和 Asset Registry 摘要来自此次实际 Cook。
+
+游戏测试验证两个 DLL 都查询同一宿主 ABI，且两个 Hook 回调将角色生命值变为 73。TestMod 提供自己包中的 Manny 网格。SDK 允许写入方应用替换，并拒绝只读调用方。测试随后从暂存游戏移除 TestMod。World 关闭后释放租约，加载器解除挂载。新 World 恢复选中宿主网格，SharedCaller 的回调将生命值变为 41，被撤销的旧上下文失效。只有自动化测试完成且游戏日志记录这些结果，才生成 `verification.json`。
