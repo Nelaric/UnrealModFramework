@@ -60,7 +60,7 @@ python Scripts/CI/approve_development.py <PR 编号> <已审查的测试合并 S
 
 当前的合并条件由 Quality 工作流提供。配置文件中的 Development CI 规则集可在完整引擎检查可用后启用。
 
-[main 规则集](../.github/rulesets/protect-main.json)使用 GitHub Actions 原生检查 `Code Quality` 和 `Development Result`。Development Result 要求当前测试合并提交具备完整的引擎验证。Fork 候选提交由维护者审查后发起这次运行。
+[main 规则集](../.github/rulesets/protect-main.json)使用 GitHub Actions 原生检查 `Code Quality` 和 `Development Result`。Development Result 要求当前测试合并提交具备完整的引擎验证。合并前，规则集要求 PR 分支包含 main 的当前提交。Fork 候选提交由维护者审查后发起这次运行。
 
 ## Quality 工作流
 

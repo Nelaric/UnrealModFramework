@@ -60,7 +60,7 @@ The workflow uploads each metadata bundle or project checkpoint and its build re
 
 Quality supplies the current required checks. Enable the versioned Development CI ruleset when full engine validation is available.
 
-[The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires a full run for the current test merge commit. The fork validation request starts that run after a maintainer reviews the candidate.
+[The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires a full run for the current test merge commit. The ruleset requires the PR branch to include the current main commit before merging. The fork validation request starts that run after a maintainer reviews the candidate.
 
 ## Quality Workflow
 
