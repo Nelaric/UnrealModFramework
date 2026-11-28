@@ -26,6 +26,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 defaults:
   run:
@@ -62,7 +63,7 @@ jobs:
       - name: Resolve Candidate
         id: candidate
         env:
-          PUBLIC_READ_TOKEN: ${{ github.event_name == 'pull_request' && github.token || '' }}
+          PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
         run: python Scripts/CI/development.py resolve
       - name: Checkout Source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -80,7 +81,7 @@ jobs:
         if: github.event_name == 'pull_request' || inputs.pr_number != ''
         env:
           CI_IDENTITY: ${{ steps.candidate.outputs.identity }}
-          PUBLIC_READ_TOKEN: ${{ github.event_name == 'pull_request' && github.token || '' }}
+          PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
         run: python Scripts/CI/check_repository.py naming
       - name: Set Up .NET
         uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
@@ -130,6 +131,8 @@ jobs:
     needs: code-quality
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -716,6 +719,7 @@ jobs:
     permissions:
       contents: read
       actions: write
+      pull-requests: read
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -729,6 +733,7 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
           ACTIONS_READ_TOKEN: ${{ github.token }}
+          PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
         run: python3 Scripts/CI/development.py aggregate
       - name: Create Status Publisher Token
         id: publisher
@@ -747,6 +752,7 @@ jobs:
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
           PASSED: ${{ steps.aggregate.outputs.passed }}
           STATUS_TOKEN: ${{ steps.publisher.outputs.token }}
+          PUBLIC_READ_TOKEN: ${{ github.repository == 'Nelaric/UnrealModFramework' && github.token || '' }}
         run: python3 Scripts/CI/development.py publish
       - name: Remove Consumed Artifacts
         if: success() && steps.aggregate.outputs.passed == 'true'
