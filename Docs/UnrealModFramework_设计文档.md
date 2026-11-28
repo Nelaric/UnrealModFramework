@@ -251,7 +251,7 @@ Local PIE 仅模拟已由游戏 SDK 或 Preview Host 提供的行为；需要验
 
 ## 10. 里程碑与验收门槛
 
-Win64 x64 MSVC 已接入独立宿主归档与链接核对。Linux x64 CI 覆盖 UE 5.6.1 Development Game/Editor 构建、Editor Hook 分发自动化测试与制作插件构建。开发链路还包含 SDK、归档打包加载及 World 扩展样例。Shipping Pak/IoStore、更多引擎与工具链组合、长期会话、资源清理、Dedicated Server 及远程预览仍需分别验收。[CI 构建范围](DevelopmentWorkflow.zh-CN.md#linux-编译的范围)
+Win64 x64 MSVC 已接入独立宿主归档与链接核对。Development CI 定义 UE 5.6.1 的原生 Development Game 和 Editor Job，包括 Editor 自动化测试与 Game Checkpoint 恢复。开发链路还包含 SDK、归档打包加载及 World 扩展样例。Shipping Pak/IoStore、更多引擎与工具链组合、长期会话、资源清理、Dedicated Server 及远程预览仍需分别验收。[Development CI](DevelopmentWorkflow.zh-CN.md#development-ci)
 
 | 阶段 | 交付范围 | 可验收结果 |
 | --- | --- | --- |

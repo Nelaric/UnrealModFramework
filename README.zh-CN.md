@@ -44,7 +44,7 @@ $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuil
 
 如需构建 Development Game，请将 `--target` 改为 `UnrealModFrameworkDev`。当生成导出快照需要 Editor 二进制时，构建流程会自动引导已配置的 Editor Target。在 Editor 中验证时，请在构建完成后打开开发宿主工程。[开发宿主工程](UnrealModFramework/UnrealModFrameworkDev.uproject) · [Linux 示例与目标架构](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)
 
-所有工具链均由 UBT 在所属模块内编译生成的宿主代码。游戏 SDK 的共享 Runtime 模块编译 Client 实现。CircleCI 使用 UE 5.6.1 构建 Linux x64 Development Game 和 Editor，并在 Editor Job 中运行 `ChangeHealthDispatch` 自动化测试。[构建与测试范围](Docs/DevelopmentWorkflow.zh-CN.md#linux-编译的范围)
+所有工具链均由 UBT 在所属模块内编译生成的宿主代码。游戏 SDK 的共享 Runtime 模块编译 Client 实现。Development CI 定义 UE 5.6.1 的原生 Development Game 和 Editor Job，并在 Editor Job 中运行 `Nelaric.*` 自动化测试。[Development CI](Docs/DevelopmentWorkflow.zh-CN.md#development-ci)
 
 ## 从开发分支获取 ModRuntime
 
@@ -145,4 +145,4 @@ MHT 会按所选构建目标校验活动声明。`HostCommitPayload` 为当前�
 
 ## 致谢
 
-感谢所有为 UnrealModFramework 做出贡献的开发者，感谢 Epic Games 提供 Unreal Engine，以及 CircleCI 提供 Linux 项目构建服务。
+感谢所有为 UnrealModFramework 做出贡献的开发者，感谢 Epic Games 提供 Unreal Engine。

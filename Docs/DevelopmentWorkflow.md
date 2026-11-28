@@ -49,28 +49,13 @@ The workflow uses each producer's immutable artifact ID, target, commit, and att
 
 ### Switch The Merge Gate
 
-[The main ruleset](../.github/rulesets/protect-main.json) defines the Development CI merge gate. Bind `ci/development` to the authorized GitHub App and `Code Quality` to GitHub Actions. During rollout, keep the current required checks active alongside the new ruleset. Remove the CircleCI checks, configurations, webhook, and Fork PR build bot at cutover.
+[The main ruleset](../.github/rulesets/protect-main.json) defines the Development CI merge gate. Bind `ci/development` to the authorized GitHub App and `Code Quality` to GitHub Actions when enabling the ruleset.
 
-## Existing Checks During The Transition
+## Quality Workflow
 
-The Quality workflow checks PR and commit naming, formatting, text conventions, and API documentation. It also runs unit tests for the CircleCI handoff and uses standalone Linux fixtures to verify automatic Hook compilation and linking across COFF, ELF, and Mach-O targets, as well as MST cross-file exception analysis with GCC and Clang compilation databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`. [Quality workflow](../.github/workflows/quality.yml)
+The Quality workflow checks PR and commit naming, formatting, text conventions, and API documentation. It uses standalone Linux fixtures to check automatic Hook compilation and linking across COFF, ELF, and Mach-O targets, as well as MST cross-file exception analysis with GCC and Clang compilation databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`. [Quality workflow](../.github/workflows/quality.yml)
 
-The [trusted PR build workflow](../.github/workflows/fork-pr-linux.yml) is enabled by setting the repository Actions variable `CIRCLECI_PR_BUILDS_ENABLED=true` after completing the [CircleCI setup](CircleCI.md). Until that variable is enabled, its jobs are skipped. The existing CircleCI push pipeline remains separate.
-
-The PR workflow validates the submitted commit, triggers CircleCI, and displays parallel Game and Editor jobs followed by a result summary. Each job reports its own status (`ci/linux-game-build` or `ci/linux-editor-build`), while `ci/fork-pr-linux-build` summarizes both. The summary links to the CircleCI logs, and the Actions jobs mirror checkout and compile output without exposing authentication output. Contributors do not need a CircleCI account.
-
-For fork PRs, changes to CI workflows, automation scripts, Unreal descriptors and build scripts, CMake files, or executable helper scripts must be handled by a maintainer in a source-repository branch. The policy checks both old and new paths for renamed files. Source-repository PRs can modify these files and still run the trusted workflow. Native mod ABI changes also require maintainer review.
-
-## Linux build scope
-
-The push and trusted PR configurations build `UnrealModFramework/UnrealModFrameworkDev.uproject` for Linux x64 Development with Unreal Engine 5.6.1.
-
-| CircleCI job | Tasks |
-| --- | --- |
-| `build_game_linux` | Compiles `UnrealModFrameworkDev` and its enabled runtime modules. |
-| `build_editor_linux` | Compiles `UnrealModFrameworkDevEditor`, runs the C++ and Blueprint Hook dispatch automation test `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`, then builds and verifies the independent authoring plugin with `ModSDKTool build-editor`. |
-
-Each job builds in an isolated writable staging directory and runs the UE container without network access after pulling the private engine image. `ModBuildTool build-ue-target` drives UBT with the generated Hook source copies, and UBT compiles the generated host bindings directly inside their owning module. The Editor job checks both the editor process exit code and the test success marker, retaining the verified authoring plugin in the job's staging directory. Server, Shipping, and other platform or engine combinations require additional validation. [ModRuntime UHT integration](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
+## Read Unreal automation results
 
 Each independent framework capability requires behavior-focused automated tests as specified in the [review standard](CodingStandards/BuildAndReview.md#automation-tests), without a numeric coverage threshold. For an existing Unreal automation run, `Scripts/check_automation_report.py` validates the exported report, log, and editor exit code:
 
@@ -90,6 +75,6 @@ The standalone benchmark runs 200 cases with 1,000 samples per available path. W
 
 ## If a check fails
 
-Open the failed Actions job to read its summary and follow the link to its CircleCI logs. Regular push builds are also listed in the [CircleCI project](https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework). If a PR build is skipped, maintainers should verify the enable variable, webhook setup, and secret as described in [CircleCI setup](CircleCI.md). When asking for review assistance, include the failed run link and the diagnosis you have already tried.
+Open the failed Actions job to read its log and summary. When asking for review assistance, include the failed run link and the diagnosis you have already tried.
 
-Workflow definitions live in [Quality](../.github/workflows/quality.yml), [trusted PR builds](../.github/workflows/fork-pr-linux.yml), [API Pages](../.github/workflows/pages.yml), [CircleCI push builds](../.circleci/config.yml), and [CircleCI PR builds](../.circleci/pr-build.yml).
+Workflow definitions live in [Development CI](../.github/workflows/development.yml), [Quality](../.github/workflows/quality.yml), and [API Pages](../.github/workflows/pages.yml).

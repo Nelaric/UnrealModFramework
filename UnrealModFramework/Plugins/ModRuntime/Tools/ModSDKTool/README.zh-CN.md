@@ -33,7 +33,7 @@ ModSDKTool build-editor --package <尚不存在的目录>
                        --architecture <x64|arm64> --mbt <ModBuildTool>
 ```
 
-CMake 会将 `Resources/DevelopmentEditor/Files.cmake` 中列出的文件嵌入 MDT。`build-editor` 与 `build` 均会在临时工作目录中写出这些文件、插件描述符和打包配置，随后由 MDT 调用 UAT 编译，并在校验 Editor 的 BuildId 与二进制文件后，将插件连同原生工具一并发布。参见 [CircleCI 调用方式](../../../../../.circleci/build-editor-plugin.sh)。
+CMake 会将 `Resources/DevelopmentEditor/Files.cmake` 中列出的文件嵌入 MDT。`build-editor` 与 `build` 均会在临时工作目录中写出这些文件、插件描述符和打包配置，随后由 MDT 调用 UAT 编译，并在校验 Editor 的 BuildId 与二进制文件后，将插件连同原生工具一并发布。
 
 打开 `ExampleMods/TestMod` 之前，请先将生成的 `ModDevelopmentSDKEditor` 与目标游戏的 `UMFDevSDK` 安装到 `ExampleMods/TestMod/Plugins`。示例游戏的完整 SDK 发布包同时包含这两个插件。
 

@@ -36,9 +36,9 @@
 
 请按[构建脚本、工具与审查规范](Docs/CodingStandards/BuildAndReview.zh-CN.md)运行与改动相关的检查，并在 PR 中注明已执行的检查以及因工具或环境限制未能运行的检查。
 
-GitHub Actions 会检查命名、格式与文本规范、API 文档，以及 Linux 环境下的自动 Hook 目标生成与 MST 源码分析用例。可信 PR 编译工作流在验证准确的提交版本后，会触发 CircleCI 使用 Unreal Engine 5.6.1 编译 Linux Game 和 Editor 目标；其中 Editor Job 还会运行 Hook 分发自动化测试并构建独立制作插件。该流程同时支持 Fork PR 与源仓库 PR，贡献者无需 CircleCI 账号或额外 CI 配置。若 Fork PR 涉及修改受保护的 CI 工作流、自动化脚本、Unreal 或 CMake 构建脚本、可执行辅助脚本或插件描述文件，须由维护者在源仓库分支中处理。检查顺序与构建范围详见[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)。每项独立框架功能都必须配备自动化测试，但 CI 不强制设定数值化的代码覆盖率门槛。
+GitHub Actions 会检查命名、格式与文本规范、API 文档，以及 Linux 环境下的自动 Hook 目标生成与 MST 源码分析用例。维护者可以在授权私有仓库针对已审查的 PR 测试合并提交启动 Development CI。检查顺序与构建范围详见[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)。每项独立框架功能都必须配备自动化测试，但 CI 不强制设定数值化的代码覆盖率门槛。
 
-所有 PR 均以 `main` 为目标分支。仓库分支保护要求在合并前通过六项检查——命名、格式与文本、API 文档、Linux Game、Linux Editor 及 Linux 构建汇总——并获得最后一次推送者以外的维护者批准。维护者将从正确性、模块边界、API 契约、性能、安全性，以及与 Unreal Engine 5.6 及更高版本的兼容性等维度进行审查。
+所有 PR 均以 `main` 为目标分支。合并前须满足该分支配置的必需检查，并获得最后一次推送者以外的维护者批准。维护者将从正确性、模块边界、API 契约、性能、安全性，以及与 Unreal Engine 5.6 及更高版本的兼容性等维度进行审查。
 
 ## 大文件与 Git LFS
 

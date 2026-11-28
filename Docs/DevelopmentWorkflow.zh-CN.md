@@ -49,28 +49,13 @@ Editor 导出、校验并上传 Metadata，然后构建正常 Editor，以无界
 
 ### 切换合并门禁
 
-[main 规则集](../.github/rulesets/protect-main.json)定义 Development CI 的合并门禁。将 `ci/development` 绑定到授权的 GitHub App，将 `Code Quality` 绑定到 GitHub Actions。过渡期间并行保留现有必需检查与新规则集。正式切换时清理 CircleCI 状态、配置、Webhook 和 Fork PR Build Bot。
+[main 规则集](../.github/rulesets/protect-main.json)定义 Development CI 的合并门禁。启用规则集时，将 `ci/development` 绑定到授权的 GitHub App，将 `Code Quality` 绑定到 GitHub Actions。
 
-## 过渡期的现有检查
+## Quality 工作流
 
-Quality 工作流检查 PR 与提交命名、格式、文本规范及 API 文档，并运行 CircleCI 构建交接的单元测试；独立的 Linux 用例进一步验证面向 COFF、ELF 与 Mach-O 目标的自动 Hook 编译链接，以及基于 GCC 和 Clang 编译数据库的 MST 跨文件异常分析。工具版本锁定在工作流文件及 `.config/dotnet-tools.json` 中。[Quality 工作流](../.github/workflows/quality.yml)
+Quality 工作流检查 PR 与提交命名、格式、文本规范及 API 文档。独立的 Linux 用例检查面向 COFF、ELF 与 Mach-O 目标的自动 Hook 编译链接，以及基于 GCC 和 Clang 编译数据库的 MST 跨文件异常分析。工具版本锁定在工作流文件及 `.config/dotnet-tools.json` 中。[Quality 工作流](../.github/workflows/quality.yml)
 
-完成 [CircleCI 接入](CircleCI.zh-CN.md)后，可通过设置仓库 Actions 变量 `CIRCLECI_PR_BUILDS_ENABLED=true` 启用[可信 PR 编译工作流](../.github/workflows/fork-pr-linux.yml)。在该变量启用前，其各 Job 会被跳过；现有的 CircleCI Push 流水线保持独立运行。
-
-PR 工作流会先验证提交并触发 CircleCI，随后并行展示 Game 与 Editor 两个 Job 并汇总结果。两个目标分别上报 `ci/linux-game-build` 和 `ci/linux-editor-build` 状态，`ci/fork-pr-linux-build` 负责汇总两者。汇总摘要包含 CircleCI 日志链接，Actions Job 会镜像输出检出与编译日志，同时过滤认证相关输出。贡献者无需 CircleCI 账号。
-
-对于 Fork PR，如涉及修改 CI 工作流、自动化脚本、Unreal 描述文件与构建脚本、CMake 文件或可执行辅助脚本，须由维护者在源仓库分支中处理。策略会同时检查重命名文件的新旧路径。源仓库分支的 PR 可以修改这些文件并继续使用可信编译流程。原生模组 ABI 变更同样需要维护者审查。
-
-## Linux 编译的范围
-
-Push 配置与可信 PR 配置均使用 Unreal Engine 5.6.1，为 `UnrealModFramework/UnrealModFrameworkDev.uproject` 构建 Linux x64 Development 目标。
-
-| CircleCI Job | 工作内容 |
-| --- | --- |
-| `build_game_linux` | 编译 `UnrealModFrameworkDev` 及其已启用的运行时模块。 |
-| `build_editor_linux` | 编译 `UnrealModFrameworkDevEditor`，运行覆盖 C++ 与蓝图 Hook 分发的 `Nelaric.UnrealModFramework.Host.ChangeHealthDispatch`，再通过 `ModSDKTool build-editor` 构建并校验独立制作插件。 |
-
-各 Job 在独立的可写暂存目录中执行构建，并在拉取私有引擎镜像后以无网络模式运行 UE 容器。`ModBuildTool build-ue-target` 驱动 UBT 编译生成的 Hook 源码副本，UBT 则在所属模块内直接编译生成的宿主连接代码。Editor Job 同时核对编辑器退出码与测试成功标记，并将校验通过的制作插件保留在 Job 暂存目录中。Server、Shipping 及更多平台与引擎版本的组合仍需单独验证。[ModRuntime UHT 接入](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
+## 查看 Unreal 自动化测试结果
 
 每项独立框架功能均须按[审查规范](CodingStandards/BuildAndReview.zh-CN.md#自动化测试)配备面向行为的自动化测试，但不设数值化覆盖率门槛。对于已完成的 Unreal 自动化运行，可使用 `Scripts/check_automation_report.py` 校验导出报告、日志及编辑器退出码：
 
@@ -90,6 +75,6 @@ python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/u
 
 ## 检查失败时
 
-请打开失败的 Actions Job 查看摘要，并点击其中的链接进入对应 CircleCI 日志；常规 push 构建也会显示在 [CircleCI 项目](https://app.circleci.com/pipelines/github/Nelaric/UnrealModFramework)中。如果 PR 编译被跳过，维护者应参照 [CircleCI 接入说明](CircleCI.zh-CN.md)核对启用变量、Webhook 配置及密钥。请求协助排查时，请附上失败运行的链接及已尝试的排查步骤。
+打开失败的 Actions Job 查看日志与摘要。请求协助排查时，请附上失败运行的链接及已尝试的排查步骤。
 
-各工作流配置分别位于 [Quality](../.github/workflows/quality.yml)、[可信 PR 编译](../.github/workflows/fork-pr-linux.yml)、[API Pages](../.github/workflows/pages.yml)、[CircleCI push 编译](../.circleci/config.yml)和 [CircleCI PR 编译](../.circleci/pr-build.yml)。
+各工作流配置分别位于 [Development CI](../.github/workflows/development.yml)、[Quality](../.github/workflows/quality.yml)和 [API Pages](../.github/workflows/pages.yml)。
