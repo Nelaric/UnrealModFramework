@@ -17,7 +17,6 @@ public class BenchmarkMod : ModuleRules
 				"InputCore",
 				"ModLoader",
 				"NavigationSystem",
-				"Niagara",
 				"PhysicsCore",
 				"UMG",
 				"SlateCore",

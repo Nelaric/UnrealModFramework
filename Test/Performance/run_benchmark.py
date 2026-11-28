@@ -217,7 +217,7 @@ class Unreal:
 
     def command(self, stage, project, *flags):
         return self.run(stage, [self.commandlet, project, *flags, "-unattended", "-nop4", "-NullRHI",
-                                "-NoSound", "-NoSplash", "-DisablePython", "-stdout", "-FullStdOutLogOutput",
+                                "-NoSound", "-NoSplash", "-stdout", "-FullStdOutLogOutput",
                                 *TRACE_FLAGS,
                                 "-ddc=InstalledNoZenLocalFallback",
                                 f"-abslog={self.work / (stage + '-ue.log')}"])
@@ -227,8 +227,6 @@ class Unreal:
         shutil.copytree(PROJECT / "Config", self.host.parent / "Config")
         shutil.copy2(PROJECT / self.host.name, self.host)
         self.isolate_build(self.host)
-        characters = REPO / "Test/ReleaseFixtures/Content/Characters/Mannequins"
-        shutil.copytree(characters, self.host.parent / "Content/Characters/Mannequins")
         self.copy_mod_runtime(self.host)
 
     @staticmethod
@@ -279,14 +277,14 @@ class Unreal:
                                 "-skipiostore", "-nodebuginfo",
                                 f"-platform={self.platform}", "-clientconfig=Development",
                                 "-map=/Game/BenchmarkMap+/Game/BenchmarkSublevel+/Engine/Maps/Entry",
-                                f"-AdditionalCookerOptions={' '.join(TRACE_FLAGS)} -ddc=InstalledNoZenLocalFallback -DisablePython "
+                                f"-AdditionalCookerOptions={' '.join(TRACE_FLAGS)} -ddc=InstalledNoZenLocalFallback "
                                 "-package=/Game/BP_NativeBenchmark+"
-                                "/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple+"
-                                "/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle+"
+                                "/Game/Fixtures/BenchmarkAnimation+"
+                                "/Game/Fixtures/BenchmarkEmitter+"
+                                "/Engine/EngineMeshes/SkeletalCube+"
                                 "/Engine/EngineResources/DefaultTexture+"
                                 "/Engine/Animation/DefaultAnimBoneCompressionSettings+"
-                                "/Engine/Animation/DefaultAnimCurveCompressionSettings+"
-                                "/Niagara/DefaultAssets/Templates/Systems/RadialBurst",
+                                "/Engine/Animation/DefaultAnimCurveCompressionSettings",
                                 "-createreleaseversion=1.0.0", f"-createreleaseversionroot={release}",
                                 f"-stagingdirectory={stage}"])
         registry = release / "1.0.0" / self.cook_platform / "AssetRegistry.bin"

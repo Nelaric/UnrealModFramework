@@ -13,7 +13,6 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "NavigationPath.h"
-#include "NiagaraFunctionLibrary.h"
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 
@@ -505,7 +504,7 @@ bool FSession::TearDown(int32 Case)
 		Audio->Stop();
 		break;
 	case 200:
-		if (auto* Effect = Cast<UNiagaraComponent>(ObservedObject()))
+		if (auto* Effect = Cast<UParticleSystemComponent>(ObservedObject()))
 		{
 			Effect->DestroyComponent();
 		}

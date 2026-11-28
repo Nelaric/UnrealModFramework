@@ -44,9 +44,6 @@ fs::path PluginSources::PrepareDevelopmentSource(const fs::path& Work)
 		File::WriteFileAtomically(Destination, Contents);
 	}
 
-	File::WriteFileAtomically(Source / "Config" / "FilterPlugin.ini",
-	                          "; Copyright (c) 2026 Nelaric Contributors\n[FilterPlugin]\n"
-	                          "/Binaries/ThirdParty/ModSDKTool/...\n/README.md\n/README.zh-CN.md\n");
 	const Json Descriptor = {
 	    {"FileVersion", 3},
 	    {"Version", 3},

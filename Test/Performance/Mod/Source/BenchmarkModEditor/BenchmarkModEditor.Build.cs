@@ -17,7 +17,6 @@ public class BenchmarkModEditor : ModuleRules
 				"AIModule",
 				"ModLoader",
 				"NavigationSystem",
-				"Niagara",
 				"UMG",
 			}
 		);

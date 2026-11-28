@@ -9,7 +9,7 @@ public class TP_FirstPerson : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine", "UMG" });
-		PrivateDependencyModuleNames.AddRange(new[] { "EnhancedInput", "InputCore" });
+		PrivateDependencyModuleNames.Add("InputCore");
 		PublicIncludePaths.AddRange(
 			new[]
 			{

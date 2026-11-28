@@ -16,7 +16,6 @@ public class PerformanceBenchmark : ModuleRules
 				"AIModule",
 				"InputCore",
 				"NavigationSystem",
-				"Niagara",
 				"PhysicsCore",
 				"Slate",
 				"SlateCore",

@@ -30,7 +30,7 @@ void EditorPlugin::BuildEditorPlugin(const EditorBuild& Editor, const fs::path& 
 	}
 
 	const Workspace Work(fs::temp_directory_path());
-	const fs::path StagedPackage = Work.Root / "Package";
+	const fs::path StagedPackage = Work.Root / "p";
 	EditorPackage::BuildDevelopmentPlugin(Editor, Work.Root, StagedPackage);
 
 	// Copy onto the destination filesystem before committing the package.

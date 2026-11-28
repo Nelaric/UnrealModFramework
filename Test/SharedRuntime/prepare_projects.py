@@ -23,11 +23,7 @@ def stage_host(destination):
         shutil.copytree(game / directory, destination / directory, ignore=shutil.ignore_patterns(
             "User*.ini", "DefaultEditorPerProjectUserSettings.ini"))
     descriptor = destination / (GAME + ".uproject")
-    project = json.loads((game / (GAME + ".uproject")).read_text(encoding="utf-8"))
-    project["Plugins"].extend({"Name": name, "Enabled": True} for name in (
-        "EnhancedInput", "ACLPlugin", "Niagara",
-    ))
-    save(descriptor, project)
+    shutil.copy2(game / descriptor.name, descriptor)
     for file in game.glob("*.modexport"):
         shutil.copy2(file, destination)
     framework = game / "Plugins/ModRuntime"
@@ -37,8 +33,11 @@ def stage_host(destination):
             shutil.copytree(framework / item, installed / item, ignore=shutil.ignore_patterns(
                 "bin", "obj", "*.csproj.props", "*.props.user"))
     shutil.copy2(framework / "ModRuntime.uplugin", installed)
-    shutil.copytree(FIXTURES / "Content", destination / "Content", dirs_exist_ok=True)
-    for fixture in (FIXTURES / "Config").glob("*.ini"):
+    level = Path("Content/Levels/Basic/L_Basic.umap")
+    (destination / level).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(FIXTURES / level, destination / level)
+    for name in ("DefaultEngine.ini", "DefaultGame.ini"):
+        fixture = FIXTURES / "Config" / name
         ini = destination / "Config" / fixture.name
         contents = ini.read_text(encoding="utf-8") + "\n" if ini.is_file() else ""
         fixture_text = fixture.read_text(encoding="utf-8")
@@ -78,10 +77,10 @@ def prepare(work, sdk):
         (second / "Source" / ("SharedCaller" + suffix)).write_text(template.replace("TestMod", "SharedCaller"))
     save(second / "SharedCaller.uproject", {
         "FileVersion": 3, "EngineAssociation": "5.6", "DisableEnginePluginsByDefault": True,
-        "Modules": [{"Name": "SharedCaller", "Type": "Runtime", "LoadingPhase": "Default"}],
+        "Modules": [{"Name": "SharedCaller", "Type": "Runtime", "LoadingPhase": "Default"},
+                    {"Name": "SharedCallerEditor", "Type": "Editor", "LoadingPhase": "Default"}],
         "Plugins": [{"Name": "UMFDevSDK", "Enabled": True},
-                    {"Name": "ModDevelopmentSDKEditor", "Enabled": True, "TargetAllowList": ["Editor"]},
-                    {"Name": "PythonScriptPlugin", "Enabled": True, "TargetAllowList": ["Editor"]}]})
+                    {"Name": "ModDevelopmentSDKEditor", "Enabled": True, "TargetAllowList": ["Editor"]}]})
     for project_dir in (work / "A", second):
         shutil.copytree(sdk / "Plugins", project_dir / "Plugins")
 

@@ -147,12 +147,13 @@ class Validation:
 
     def package(self, author, name, receipt, release, version):
         self.run(name + "-editor", self.dotnet, self.ubt, name + "Editor", PLATFORM, CONFIG,
-                 f"-Project={author}", "-Architecture=x64", "-NoEngineChanges", "-NoHotReloadFromIDE", "-WaitMutex")
+                 f"-Project={author}", "-Architecture=x64", "-NoEngineChanges", "-NoHotReloadFromIDE", "-WaitMutex", "-NoUBA")
         common = ["-unattended", "-nullrhi", "-nosound", "-nosplash", "-nop4", "-stdout",
                   "-ddc=InstalledNoZenLocalFallback"]
         if name == "SharedCaller":
-            self.run(name + "-blueprint", self.editor, author, "-run=pythonscript",
-                     "-script=" + str(ROOT / "Test/SharedRuntime/SharedCaller/create_entry_point.py"), *common)
+            self.run(name + "-blueprint", self.editor, author, "-run=SharedCallerAssets", *common)
+            if not (author.parent / "Content/BP_SharedCaller.uasset").is_file():
+                raise RuntimeError("The SharedCaller commandlet did not write its lifecycle Blueprint")
         folder = self.work / (name + "Package")
         folder.mkdir()
         request = folder / "Request.json"

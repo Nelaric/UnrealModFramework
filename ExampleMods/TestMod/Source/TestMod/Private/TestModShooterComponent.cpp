@@ -4,18 +4,15 @@
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/InputComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/DataTable.h"
-#include "Engine/LocalPlayer.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
-#include "EnhancedInputComponent.h"
-#include "EnhancedInputSubsystems.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
-#include "InputAction.h"
-#include "InputMappingContext.h"
+#include "InputCoreTypes.h"
 #include "Misc/PackageName.h"
 #include "ShooterBulletCounterUI.h"
 #include "ShooterPickup.h"
@@ -36,18 +33,11 @@ const FName WeaponSocket(TEXT("HandGrip_R"));
 void UTestModShooterComponent::GrantTo(APlayerController& PlayerController)
 {
 	Controller = &PlayerController;
-	auto* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController.GetLocalPlayer());
 	const FString Root = FPackageName::MountPointExists(TEXT("/TestMod/")) ? TEXT("/TestMod/") : TEXT("/Game/");
 	const FString Shooter = Root + TEXT("Variant_Shooter/");
 	const FString PickupsPath = Shooter + TEXT("Blueprints/Pickups/");
 	auto* Manny = LoadObject<USkeletalMesh>(
 	    nullptr, *(Root + TEXT("Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple")));
-	auto* CopyPose = LoadClass<UAnimInstance>(nullptr, *(Root + TEXT("FirstPerson/Anims/ABP_FP_Copy.ABP_FP_Copy_C")));
-	auto* MappingContext =
-	    LoadObject<UInputMappingContext>(nullptr, *(Shooter + TEXT("Input/IMC_Weapons.IMC_Weapons")));
-	auto* FireAction = LoadObject<UInputAction>(nullptr, *(Shooter + TEXT("Input/Actions/IA_Shoot.IA_Shoot")));
-	auto* SwapAction =
-	    LoadObject<UInputAction>(nullptr, *(Shooter + TEXT("Input/Actions/IA_SwapWeapon.IA_SwapWeapon")));
 	auto* PickupClass =
 	    LoadClass<AShooterPickup>(nullptr, *(PickupsPath + TEXT("BP_ShooterPickup.BP_ShooterPickup_C")));
 	auto* WeaponData = LoadObject<UDataTable>(nullptr, *(PickupsPath + TEXT("DT_WeaponData.DT_WeaponData")));
@@ -56,11 +46,11 @@ void UTestModShooterComponent::GrantTo(APlayerController& PlayerController)
 	auto* HUDClass = LoadClass<UShooterUI>(nullptr, *(Shooter + TEXT("UI/UI_Shooter.UI_Shooter_C")));
 	auto* ExplosionClass = LoadClass<AActor>(
 	    nullptr, *(PickupsPath + TEXT("Projectiles/BP_ShooterGrenadeExplosion.BP_ShooterGrenadeExplosion_C")));
-	if (!Subsystem || !Manny || !CopyPose || !MappingContext || !FireAction || !SwapAction || !PickupClass ||
-	    !WeaponData || !BulletCounterClass || !HUDClass || !ExplosionClass)
+	if (!PlayerController.IsLocalController() || !Manny || !PickupClass || !WeaponData || !BulletCounterClass ||
+	    !HUDClass || !ExplosionClass)
 	{
-		UE_LOG(LogTestModShooter, Error,
-		       TEXT("Could not load first-person template assets from %s or initialize Enhanced Input."), *Root);
+		UE_LOG(LogTestModShooter, Error, TEXT("Could not initialize the first-person sample with assets from %s."),
+		       *Root);
 		return;
 	}
 
@@ -95,14 +85,17 @@ void UTestModShooterComponent::GrantTo(APlayerController& PlayerController)
 	FirstPersonMesh = NewObject<USkeletalMeshComponent>(&Character, NAME_None, RF_Transient);
 	FirstPersonMesh->SetupAttachment(&CharacterMesh);
 	FirstPersonMesh->SetSkeletalMeshAsset(Manny);
-	FirstPersonMesh->SetAnimInstanceClass(CopyPose);
+	if (CharacterMesh.GetSkeletalMeshAsset())
+	{
+		FirstPersonMesh->SetLeaderPoseComponent(&CharacterMesh);
+	}
 	Camera = NewObject<UCameraComponent>(&Character, NAME_None, RF_Transient);
 	ATP_FirstPersonCharacter::ConfigureFirstPersonView(*FirstPersonMesh, *Camera);
 	FirstPersonMesh->RegisterComponent();
 	Camera->RegisterComponent();
 	Camera->Activate(true);
 
-	BindWeaponInput(PlayerController, *Subsystem, *MappingContext, *FireAction, *SwapAction);
+	BindWeaponInput(PlayerController);
 
 	BulletCounter = CreateWidget<UShooterBulletCounterUI>(&PlayerController, BulletCounterClass);
 	if (BulletCounter)
@@ -129,47 +122,19 @@ APlayerController* UTestModShooterComponent::GetPlayerController() const
 	return Controller.Get();
 }
 
-void UTestModShooterComponent::BindWeaponInput(APlayerController& PlayerController,
-                                               UEnhancedInputLocalPlayerSubsystem& Subsystem,
-                                               const UInputMappingContext& MappingContext,
-                                               const UInputAction& FireAction, const UInputAction& SwapAction)
+void UTestModShooterComponent::BindWeaponInput(APlayerController& PlayerController)
 {
-	// Enhanced Input keeps removed actions until its next evaluation. Use transient copies of the template bindings.
-	Mapping = DuplicateObject(&MappingContext, GetTransientPackage());
-	Mapping->ClearFlags(RF_Public | RF_Standalone);
-	Mapping->SetFlags(RF_Transient);
-	TMap<const UInputAction*, UInputAction*> Actions;
-	for (int32 Index = 0; Index < Mapping->GetMappings().Num(); ++Index)
-	{
-		FEnhancedActionKeyMapping& KeyMapping = Mapping->GetMapping(Index);
-		const UInputAction* Asset = KeyMapping.Action;
-		if (Asset)
-		{
-			UInputAction*& Action = Actions.FindOrAdd(Asset);
-			if (!Action)
-			{
-				Action = DuplicateObject(Asset, Mapping);
-				Action->ClearFlags(RF_Public | RF_Standalone);
-				Action->SetFlags(RF_Transient);
-			}
-			KeyMapping.Action = Action;
-		}
-	}
-	InputSubsystem = &Subsystem;
-	Input = NewObject<UEnhancedInputComponent>(&PlayerController, NAME_None, RF_Transient);
+	Input = NewObject<UInputComponent>(&PlayerController, NAME_None, RF_Transient);
 	Input->RegisterComponent();
-	if (const UInputAction* Shoot = Actions.FindRef(&FireAction))
+	for (const FKey& Key : {EKeys::LeftMouseButton, EKeys::Gamepad_RightTrigger})
 	{
-		Input->BindAction(Shoot, ETriggerEvent::Started, this, &UTestModShooterComponent::Fire);
+		Input->BindKey(Key, IE_Pressed, this, &UTestModShooterComponent::Fire);
 	}
-	if (const UInputAction* Swap = Actions.FindRef(&SwapAction))
+	for (const FKey& Key : {EKeys::E, EKeys::Gamepad_RightShoulder, EKeys::Gamepad_FaceButton_Top})
 	{
-		Input->BindAction(Swap, ETriggerEvent::Triggered, this, &UTestModShooterComponent::SwitchWeapon);
+		Input->BindKey(Key, IE_Pressed, this, &UTestModShooterComponent::SwitchWeapon);
 	}
 	PlayerController.PushInputComponent(Input);
-	FModifyContextOptions Options;
-	Options.bIgnoreAllPressedKeysUntilRelease = true;
-	Subsystem.AddMappingContext(Mapping, 1, Options);
 }
 
 void UTestModShooterComponent::SpawnPracticeActors(TSubclassOf<AShooterPickup> PickupClass, UDataTable& WeaponData,
@@ -368,13 +333,6 @@ void UTestModShooterComponent::EndPlay(EEndPlayReason::Type Reason)
 		Input->DestroyComponent();
 		Input = nullptr;
 	}
-	if (InputSubsystem.IsValid() && Mapping)
-	{
-		FModifyContextOptions Options;
-		Options.bForceImmediately = true;
-		InputSubsystem->RemoveMappingContext(Mapping, Options);
-	}
-	Mapping = nullptr;
 	if (BulletCounter)
 	{
 		BulletCounter->RemoveFromParent();

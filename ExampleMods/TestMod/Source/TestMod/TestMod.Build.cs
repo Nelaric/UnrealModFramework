@@ -13,7 +13,7 @@ public class TestMod : ModuleRules
 				"Core",
 				"CoreUObject",
 				"Engine",
-				"EnhancedInput",
+				"InputCore",
 				"ModLoader",
 				"TP_FirstPerson",
 				"UMG",

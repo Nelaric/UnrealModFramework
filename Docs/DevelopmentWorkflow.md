@@ -81,7 +81,7 @@ Use [Release Validation](../.github/workflows/release-validation.yml) from a pri
 python -m Test.SharedRuntime.release_validation --engine <full-editor> --modular-engine <full-modular-game> --work <new-directory> --commit <full-sha>
 ```
 
-The release flow stages the integration assets under their existing package names, builds the modular Game, runs MDT plan/build/inspect, builds the author projects, and cooks, stages and packages the host and Mods. It derives the release version from the candidate commit and hashes the actual cooked `AssetRegistry.bin`. The staged game runs the SharedRuntime/resource replacement and Mod unload verification, followed by the performance benchmark. Preserve the reports in the authorized workspace. [SharedRuntime procedure](../Test/SharedRuntime/README.md)
+The release flow stages the integration assets under their existing package names, builds the modular Game, runs MDT plan/build/inspect, builds the author projects, and cooks, stages and packages the host and Mods. Its projects enable only UMF-owned plugins. MDT builds them in a dedicated UBT Editor target with default engine plugins disabled. The release version comes from the candidate commit and the digest comes from the actual cooked `AssetRegistry.bin`. The staged game runs the SharedRuntime/resource replacement and Mod unload verification, followed by the performance benchmark. Preserve the reports in the authorized workspace. [SharedRuntime procedure](../Test/SharedRuntime/README.md)
 
 ## Phase 1 verification
 

@@ -4,11 +4,9 @@
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/InputComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "EnhancedInputComponent.h"
-#include "InputActionValue.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "TP_FirstPerson.h"
 
 namespace
 {
@@ -70,50 +68,33 @@ UCameraComponent* ATP_FirstPersonCharacter::FindFirstPersonCamera(const APawn* P
 
 void ATP_FirstPersonCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-	// Set up action bindings
-	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
-	{
-		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this,
-		                                   &ATP_FirstPersonCharacter::DoJumpStart);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this,
-		                                   &ATP_FirstPersonCharacter::DoJumpEnd);
-
-		// Moving
-		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this,
-		                                   &ATP_FirstPersonCharacter::MoveInput);
-
-		// Looking/Aiming
-		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this,
-		                                   &ATP_FirstPersonCharacter::LookInput);
-		EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this,
-		                                   &ATP_FirstPersonCharacter::LookInput);
-	}
-	else
-	{
-		UE_LOG(LogTP_FirstPerson, Error,
-		       TEXT("'%s' Failed to find an Enhanced Input Component! This template is built to use the Enhanced Input "
-		            "system. If you intend to use the legacy system, then you will need to update this C++ file."),
-		       *GetNameSafe(this));
-	}
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Pressed, this, &ATP_FirstPersonCharacter::DoJumpStart);
+	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Released, this, &ATP_FirstPersonCharacter::DoJumpEnd);
+	PlayerInputComponent->BindAxis(TEXT("MoveForward"), this, &ATP_FirstPersonCharacter::MoveForward);
+	PlayerInputComponent->BindAxis(TEXT("MoveRight"), this, &ATP_FirstPersonCharacter::MoveRight);
+	PlayerInputComponent->BindAxis(TEXT("Turn"), this, &ATP_FirstPersonCharacter::Turn);
+	PlayerInputComponent->BindAxis(TEXT("LookUp"), this, &ATP_FirstPersonCharacter::LookUp);
 }
 
-void ATP_FirstPersonCharacter::MoveInput(const FInputActionValue& Value)
+void ATP_FirstPersonCharacter::MoveForward(float Value)
 {
-	// get the Vector2D move axis
-	FVector2D MovementVector = Value.Get<FVector2D>();
-
-	// pass the axis values to the move input
-	DoMove(MovementVector.X, MovementVector.Y);
+	DoMove(0.f, Value);
 }
 
-void ATP_FirstPersonCharacter::LookInput(const FInputActionValue& Value)
+void ATP_FirstPersonCharacter::MoveRight(float Value)
 {
-	// get the Vector2D look axis
-	FVector2D LookAxisVector = Value.Get<FVector2D>();
+	DoMove(Value, 0.f);
+}
 
-	// pass the axis values to the aim input
-	DoAim(LookAxisVector.X, LookAxisVector.Y);
+void ATP_FirstPersonCharacter::Turn(float Value)
+{
+	DoAim(Value, 0.f);
+}
+
+void ATP_FirstPersonCharacter::LookUp(float Value)
+{
+	DoAim(0.f, Value);
 }
 
 void ATP_FirstPersonCharacter::DoAim(float Yaw, float Pitch)

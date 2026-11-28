@@ -6,6 +6,8 @@
 
 仓库包含开发宿主工程和游戏侧的 `ModRuntime` 插件；MDT 从内嵌源码资源生成并构建独立制作插件。每个模块只承担单一职责，仅声明实际使用的依赖，并将实现细节放入 `Private`。公开头文件即契约：它们必须能够独立包含并通过编译，且只有当公开头文件确实需要某依赖时，才将该依赖声明为 `.Build.cs` 的公开依赖。禁止循环模块依赖。
 
+开发宿主、SDK 构建宿主、样例和测试工程均关闭默认引擎插件，只启用 UMF 自有插件。引擎能力通过 UE 核心模块使用，检查依赖时同时核对 C++ 模块和资产引用。
+
 UE 工程位于 `UnrealModFramework/`。本文中的所有模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `HAL`、`ExportMetadata`、`ModAPI`、`ModLoader`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块；`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块。
 
 | 职责 | 位置 | UE 模块类型 |
@@ -51,7 +53,7 @@ UE 工程位于 `UnrealModFramework/`。本文中的所有模块与配置路径�
 
 `ModAPI` 是适用于 Game 与 Editor Target 的 Runtime 模块，公开依赖 `Core`、`CoreUObject`、`Engine` 和 `ModLoader`，私有依赖 `Json`。`UModAPIHostSubsystem` 按 GameInstance 管理提供者、权限和生成的 API 绑定；`UModExtensionSubsystem` 按 World 准备和停止扩展，统筹 Hook/Event 快照、内容槽、Patch 锚点、服务租约和玩法指纹。`ExportTest` 承载宿主侧的具体接入，包括玩法准入和存档处理。
 
-MDT 将内嵌的 `DevelopmentEditor` 源码写入临时工作区，并调用 UAT `BuildPlugin` 独立构建制作插件。制作插件独立于游戏侧模块构建，通过版本化 JSON 契约和生成的公开头文件跨边界传递 SDK 与包接口。跨进程预览目前仍为设计项。
+MDT 将内嵌的 `DevelopmentEditor` 源码写入临时工作区，并通过项目 Editor 目标构建制作插件。临时工程关闭默认引擎插件，只启用正在构建的插件。制作插件独立于游戏侧模块构建，通过版本化 JSON 契约和生成的公开头文件传递 SDK 与包接口。跨进程预览目前仍为设计项。
 
 `ExportCodeGenerator` 是 Editor 模块，公开依赖 `ExportMetadata`，私有依赖 `Core`、`CoreUObject`、`Engine`、`Json`、`Projects`、`AssetRegistry`、`BlueprintIntegration`、`ModAPI` 和 `UnrealEd`。`ModExportOptions` 负责导出解析后的 GameMod 选项与 UE 重定向，`ModExportBlueprints` 负责导出配置中指定的蓝图声明。MHT 从目标的 libclang AST 解析活动 C++ 声明并读取蓝图快照，据此生成宿主桥接、公开契约、ABI 声明与校验代码。当前支持的配置档案包括同步 UObject API，以及携带受支持标量、反射值或投影对象载荷的 World Hook/Event 扩展。
 

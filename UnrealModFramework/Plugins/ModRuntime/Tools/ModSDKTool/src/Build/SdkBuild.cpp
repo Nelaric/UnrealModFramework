@@ -168,7 +168,8 @@ SdkRequest SdkBuild::ReadRequest(const fs::path& File)
 		throw std::runtime_error("timeoutSeconds must be between 1 and 86400.");
 	}
 	for (const fs::path& Input : {Request.File, Request.Project, Request.ContractFile, Request.Mbt, Request.Dotnet,
-	                              Request.AutomationTool, Modules, Mod::BuildTool::Executable::ExecutablePath()})
+	                              Request.AutomationTool, EditorPackage::FindUnrealBuildTool(Request.AutomationTool),
+	                              Modules, Mod::BuildTool::Executable::ExecutablePath()})
 	{
 		SdkInputs::AddInput(Request, Input);
 	}

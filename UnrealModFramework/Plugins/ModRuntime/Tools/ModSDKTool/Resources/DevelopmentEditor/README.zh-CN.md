@@ -6,7 +6,7 @@
 
 启用 `ModDevelopmentSDKEditor` 后，关卡编辑器主工具栏会在“平台”区域旁显示 **Mod** 下拉菜单。选择 **打包 Mod…**，在详情面板中选定内容插件或当前工程，填写版本号、目标游戏和发布参数，然后点击 **开始打包** 即可开始构建。
 
-运行 `ModSDKTool build-editor` 可生成制作插件源码，再通过 UE 5.6 UAT `BuildPlugin` 独立编译。将构建产物安装到作者工程的 `Plugins` 目录或对应引擎的 `Engine/Plugins` 目录，并在作者工程中启用该插件。制作模块独立于游戏侧的 `ModRuntime` 模块。
+运行 `ModSDKTool build-editor` 通过独立的 UE 5.6 项目 Editor 目标构建制作插件。将产物安装到作者工程的 `Plugins` 目录，并在该工程中启用。制作模块独立于游戏侧的 `ModRuntime` 模块。
 
 ## 打包输入
 

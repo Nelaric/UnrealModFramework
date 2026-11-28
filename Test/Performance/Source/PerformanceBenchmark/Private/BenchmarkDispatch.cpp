@@ -10,7 +10,6 @@
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
 #include "ModInstance.h"
-#include "NiagaraFunctionLibrary.h"
 #include "UObject/UnrealType.h"
 
 namespace Benchmark
@@ -224,8 +223,8 @@ bool FSession::SetArguments(UFunction& Function, uint8* Buffer, int32 Case)
 				Object = Material;
 			else if (Name == TEXT("Sound"))
 				Object = Sound;
-			else if (Name == TEXT("SystemTemplate"))
-				Object = Niagara.Get();
+			else if (Name == TEXT("EmitterTemplate"))
+				Object = Emitter.Get();
 			if (Object && !Object->IsA(ObjectField->PropertyClass))
 			{
 				Fail(FString::Printf(TEXT("Unexpected object class for pin %s"), *Name));
@@ -243,7 +242,7 @@ bool FSession::SetArguments(UFunction& Function, uint8* Buffer, int32 Case)
 			    Name == TEXT("bForce") || Name == TEXT("bStopAllMontages") || Name == TEXT("bRemoveZeroWeight") ||
 			    Name == TEXT("bMakeVisibleAfterLoad") || Name == TEXT("bSimulate") || Name == TEXT("bGravityEnabled") ||
 			    Name == TEXT("bAccelChange") || Name == TEXT("bVelChange") || Name == TEXT("bUsePathfinding") ||
-			    Name == TEXT("bCanStrafe") || Name == TEXT("bMatchSize") || Name == TEXT("bAutoActivate") ||
+			    Name == TEXT("bCanStrafe") || Name == TEXT("bMatchSize") || Name == TEXT("bAutoActivateSystem") ||
 			    (Name == TEXT("bLooping") && Case == 111);
 			BoolField->SetPropertyValue(Value, Setting);
 		}
@@ -340,7 +339,7 @@ bool FSession::SetArguments(UFunction& Function, uint8* Buffer, int32 Case)
 			else if (Name == TEXT("MorphTargetName"))
 				TextValue = TEXT("BenchmarkMorph");
 			else if (Name == TEXT("InBoneName"))
-				TextValue = TEXT("pelvis");
+				TextValue = Mesh->GetBoneName(0);
 			else if (Name == TEXT("SectionName") || Name == TEXT("NextSection"))
 				TextValue = Section;
 			else if (Name == TEXT("SectionNameToChange"))

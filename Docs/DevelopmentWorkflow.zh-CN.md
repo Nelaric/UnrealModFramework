@@ -81,7 +81,7 @@ jobs:
 python -m Test.SharedRuntime.release_validation --engine <完整 Editor> --modular-engine <完整模块化 Game> --work <新目录> --commit <完整 SHA>
 ```
 
-发布流程按原有包名暂存集成资源，构建 Modular Game，执行 MDT plan/build/inspect，构建独立作者工程，并完成宿主和 Mod 的 Cook、Stage 与 Package。基础发行版本来自候选提交，摘要来自实际 Cook 输出的 `AssetRegistry.bin`。暂存游戏运行 SharedRuntime、资源替换与 Mod 卸载验证，随后运行性能基准。报告保留在授权工作区。 [SharedRuntime 流程](../Test/SharedRuntime/README.md)
+发布流程按原有包名暂存集成资源，构建 Modular Game，执行 MDT plan/build/inspect，构建独立作者工程，并完成宿主和 Mod 的 Cook、Stage 与 Package。各工程只启用 UMF 自有插件。MDT 使用禁用引擎默认插件的独立 UBT Editor 目标。基础发行版本来自候选提交，摘要来自实际 Cook 输出的 `AssetRegistry.bin`。暂存游戏运行 SharedRuntime、资源替换与 Mod 卸载验证，随后运行性能基准。报告保留在授权工作区。 [SharedRuntime 流程](../Test/SharedRuntime/README.md)
 
 ## Phase 1 验证情况
 

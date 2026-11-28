@@ -74,7 +74,7 @@ UBT/UHT 提供 Target 上下文，MHT 生成契约与连接代码，UBT 在所�
 
 Setup 负责准备构建主机上的 `libclang`、配套 Clang 资源头文件和四个独立工具。正式构建使用真实的 UBT 编译数据库，在标准 UHT CodeGen 后由 MHT 解析活动 C++ 声明与蓝图快照；当缺少导出快照所需的工程二进制时，适配层会自动引导已配置的 Development Editor。在 Win64 x64 MSVC 上，MBT 按清单编译宿主与客户端单元，UBT 通过所属模块的 UHT 链接单元及 MST 生成的链接头链接宿主库；其他工具链则由 UHT 登记生成的编译单元，交给 UBT 编译。[Setup 与宿主构建](../README.zh-CN.md#快速开始)
 
-MDT 调用 UAT `BuildPlugin` 编译内嵌的制作插件和游戏专属 SDK 插件，并核对 Editor BuildId、原生库及文件清单。模组作者可将制作插件和游戏 SDK 安装到独立工程的 `Plugins/` 目录。若游戏的 Cook 或 Runtime 需要 SDK 反射类型，游戏端需先安装同批次的宿主 SDK 插件。跨目标的 SDK 发布与原生包交付须单独验收。[SDK 输入与交付](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
+MDT 通过默认引擎插件已禁用的专用项目 Editor 目标编译内嵌的制作插件和游戏专属 SDK 插件，并核对 Editor BuildId、原生库及文件清单。模组作者可将制作插件和游戏 SDK 安装到独立工程的 `Plugins/` 目录。若游戏的 Cook 或 Runtime 需要 SDK 反射类型，游戏端需先安装同批次的宿主 SDK 插件。跨目标的 SDK 发布与原生包交付须单独验收。[SDK 输入与交付](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
 
 ## 4. 游戏接入契约与统一 API
 
@@ -255,7 +255,7 @@ Win64 x64 MSVC 已接入独立宿主归档与链接核对。Linux x64 CI 覆盖 
 
 | 阶段 | 交付范围 | 可验收结果 |
 | --- | --- | --- |
-| P0 | 两插件结构、独立 `BuildPlugin`、共享协议、Runtime SDK 发布 | Game/Editor Target 可编译 Runtime；制作编辑器可独立构建并安装；发布副本不依赖源仓库路径 |
+| P0 | 两插件结构、独立 Editor 目标、共享协议、Runtime SDK 发布 | Game/Editor Target 可编译 Runtime；制作编辑器可独立构建并安装；发布副本不依赖源仓库路径 |
 | G1 技术闸门 | 在最小游戏中先验证 Shipping 资源链路，可使用一次性实验包 | Win64 Development 与 Shipping 分别挂载 Pak/IoStore、读取 Asset Registry、软引用加载静态网格/材质/蓝图资产，并逐后端记录通过或失败 |
 | P1 | 游戏接入样例、API/Hook/Event 契约、类型化 Hook 和 Runtime Registry | 显式调用点与服务实例生效；无监听者时走原版逻辑；冲突、重入、权限与生命周期行为均可重复验证 |
 | P2 | MHT 统一 IR 与代码生成、UHT Exporter/UBT 原生接入、MBT 清单校验、SDK Bundle 与 C ABI 样例 | 宏与 UHT 共存、生成头时序及首次/增量构建均通过；全部转换函数体实际编译；生成清单与分目标产物一致，独立作者环境可消费匹配的 Editor Bundle |

@@ -2,8 +2,12 @@
 
 # Release fixtures
 
-The SharedRuntime preparation copies this content into the staged host at the same `/Game` package names. The standalone benchmark copies the mannequin subset. The sample mod continues to mount its own packaged meshes. Keep the Blueprint API export asset in the development host so the normal Editor and Game builds exercise its contract.
+SharedRuntime stages `L_Basic` at `/Game/Levels/Basic/L_Basic`. The sample Mod mounts its own packaged meshes. The performance benchmark generates its animation and particle fixtures using built-in Engine modules. The archived template assets are outside the mounted content of the test projects.
+
+`Archive/TestMod` preserves the original first-person template maps, rigging, animation, and input assets. The active sample uses built-in key bindings and follows the host mesh pose when one is available.
 
 # 发布资源
 
-SharedRuntime 准备脚本将本目录资源暂存到宿主的原 `/Game` 包路径。性能项目复制人偶子集，示例 Mod 继续使用自身打包的网格。Blueprint API 导出资产位于开发宿主，供正常 Editor 和 Game 构建验证其契约。
+SharedRuntime 将 `L_Basic` 暂存到 `/Game/Levels/Basic/L_Basic`。示例 Mod 从自己的包挂载网格。性能基准使用 UE 核心模块生成动画和粒子夹具。归档的模板资源位于测试工程的内容挂载目录之外。
+
+`Archive/TestMod` 保留原第一人称模板地图、骨骼绑定、动画和输入资产。运行中的样例使用 UE 内置按键绑定，并在宿主有骨骼网格时跟随其姿态。

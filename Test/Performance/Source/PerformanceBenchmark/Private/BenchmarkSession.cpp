@@ -28,7 +28,6 @@
 #include "NavMesh/NavMeshBoundsVolume.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
-#include "NiagaraFunctionLibrary.h"
 #include "TimerManager.h"
 #include "UnrealEngine.h"
 #include "UObject/UObjectIterator.h"
@@ -130,13 +129,12 @@ bool FSession::Initialize()
 	NavigationPawn->SpawnDefaultController();
 	AI = Cast<AAIController>(NavigationPawn->GetController());
 	Mesh = Player->GetMesh();
-	Mesh->SetSkeletalMeshAsset(LoadObject<USkeletalMesh>(
-	    nullptr, TEXT("/Game/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple")));
+	Mesh->SetSkeletalMeshAsset(
+	    LoadObject<USkeletalMesh>(nullptr, TEXT("/Engine/EngineMeshes/SkeletalCube.SkeletalCube")));
 	Mesh->SetAnimInstanceClass(UAnimInstance::StaticClass());
 	Anim = Mesh->GetAnimInstance();
-	Sequence.Reset(
-	    LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle.MM_Idle")));
-	if (!AI || !Anim || !Sequence.IsValid())
+	Sequence.Reset(LoadObject<UAnimSequence>(nullptr, TEXT("/Game/Fixtures/BenchmarkAnimation.BenchmarkAnimation")));
+	if (!AI || !Mesh->GetSkeletalMeshAsset() || !Anim || !Sequence.IsValid())
 	{
 		Fail(TEXT("Could not initialize the AI controller or animation fixtures"));
 		return false;
@@ -172,8 +170,7 @@ bool FSession::Initialize()
 	Audio->SetSound(Sound);
 	Audio->SetVolumeMultiplier(0.005f);
 	Audio->RegisterComponent();
-	Niagara.Reset(
-	    LoadObject<UNiagaraSystem>(nullptr, TEXT("/Niagara/DefaultAssets/Templates/Systems/RadialBurst.RadialBurst")));
+	Emitter.Reset(LoadObject<UParticleSystem>(nullptr, TEXT("/Game/Fixtures/BenchmarkEmitter.BenchmarkEmitter")));
 	Streaming = UGameplayStatics::GetStreamingLevel(&World, TEXT("BenchmarkSublevel"));
 	auto* SaveFixture = NewObject<UBenchmarkSave>(Driver);
 	SaveFixture->Payload.Init(7, 4096);
@@ -189,11 +186,11 @@ bool FSession::Initialize()
 	UVParams.bReturnFaceIndex = true;
 	World.LineTraceSingleByChannel(CollisionUV, Start, End, ECC_Visibility, UVParams);
 	const bool bSaveReady = UGameplayStatics::SaveGameToSlot(Save.Get(), SlotName, 0);
-	if (!Widget.IsValid() || !Texture.IsValid() || !Sound || !Niagara.IsValid() || !Streaming || !bSaveReady)
+	if (!Widget.IsValid() || !Texture.IsValid() || !Sound || !Emitter.IsValid() || !Streaming || !bSaveReady)
 	{
 		Fail(FString::Printf(
-		    TEXT("Fixture initialization: widget=%d texture=%d sound=%d Niagara=%d streaming=%d save=%d"),
-		    Widget.IsValid(), Texture.IsValid(), Sound != nullptr, Niagara.IsValid(), Streaming != nullptr,
+		    TEXT("Fixture initialization: widget=%d texture=%d sound=%d emitter=%d streaming=%d save=%d"),
+		    Widget.IsValid(), Texture.IsValid(), Sound != nullptr, Emitter.IsValid(), Streaming != nullptr,
 		    bSaveReady));
 		return false;
 	}
