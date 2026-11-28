@@ -274,9 +274,19 @@ bool FSession::PrepareMod()
 		Fail(FString::Printf(TEXT("Benchmark .mod could not be mounted: %s"), *Load.Detail));
 		return false;
 	}
+	auto* Extensions = World.GetSubsystem<UModExtensionSubsystem>();
+	Mod::Extension::FWorldPolicy WorldPolicy;
+	WorldPolicy.EnabledMods.Add(TEXT("benchmarkmod"));
+	WorldPolicy.Grants.Add(TEXT("benchmarkmod"), {BenchmarkHook, FName(BenchmarkHook.ToString() + TEXT(".Wrap"))});
+	FString Error;
+	if (!Extensions || !Extensions->Prepare(MoveTemp(WorldPolicy), Error))
+	{
+		Fail(FString::Printf(TEXT("Could not open the benchmark extension: %s"), *Error));
+		return false;
+	}
 	for (TObjectIterator<UBenchmarkModInstance> It; It; ++It)
 	{
-		if (It->GetOuter() == World.GetGameInstance() && It->GetModId() == TEXT("benchmarkmod"))
+		if (It->GetWorld() == &World && It->GetModId() == TEXT("benchmarkmod"))
 		{
 			Mod = *It;
 			break;
@@ -285,16 +295,6 @@ bool FSession::PrepareMod()
 	if (!Mod.IsValid())
 	{
 		Fail(TEXT("Mounted Mod has no benchmark instance"));
-		return false;
-	}
-	auto* Extensions = World.GetSubsystem<UModExtensionSubsystem>();
-	Mod::Extension::FWorldPolicy WorldPolicy;
-	WorldPolicy.EnabledMods.Add(TEXT("benchmarkmod"));
-	WorldPolicy.Grants.Add(TEXT("benchmarkmod"), {BenchmarkHook});
-	FString Error;
-	if (!Extensions || !Extensions->Prepare(MoveTemp(WorldPolicy), Error))
-	{
-		Fail(FString::Printf(TEXT("Could not open the benchmark extension: %s"), *Error));
 		return false;
 	}
 	return true;
