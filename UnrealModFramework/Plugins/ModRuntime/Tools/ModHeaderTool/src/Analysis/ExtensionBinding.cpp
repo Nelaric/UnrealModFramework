@@ -321,12 +321,12 @@ void BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& So
 	const auto Location = CursorSource::ReadLocation(Clang, Clang.clang_getCursorLocation(Parent), true);
 	const auto* Module = TypeResolution::OwnerModule(Model.Input, Location.File);
 	const auto Owner = CursorSource::QualifiedName(Clang, Parent);
-	const auto Identity = Model.Input.Types.find(Owner);
-	if (!Module || Identity == Model.Input.Types.end() || Identity->second.Scope != "World" ||
-	    Location.File != Macro.File || (Macro.File.extension() != ".h" && Macro.File.extension() != ".hpp"))
+	if (!Module || Location.File != Macro.File || (Macro.File.extension() != ".h" && Macro.File.extension() != ".hpp"))
 	{
-		CursorSource::Fail(Macro, "an extension requires a World type identity and a declaration in its host header.");
+		CursorSource::Fail(Macro, "an extension requires a declaration in its host header.");
 	}
+	const auto Identity =
+	    TypeResolution::DiscoverIdentity(Model, Clang, Parent, Macro, Location.File, Module->Name, "World", false);
 	Extension Entry;
 	Entry.Location =
 	    Path::PathToUtf8(Macro.File) + ":" + std::to_string(Macro.Line) + ":" + std::to_string(Macro.Column);
@@ -353,7 +353,7 @@ void BindExtension(GenerationModel& Model, ClangLibrary& Clang, const Source& So
 		{
 			return;
 		}
-		const auto Prefix = "hook/" + Identity->second.Id + "/";
+		const auto Prefix = "hook/" + Identity.Id + "/";
 		Entry.Id = Prefix + HookSlug(Entry.Name);
 		Entry.Permission = Entry.Id;
 		const auto Names = std::ranges::find(Entry.Macro.Fields, "CompatibleNames", &MetadataField::Name);

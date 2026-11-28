@@ -52,7 +52,7 @@ UBT 在所属模块内编译生成的宿主代码，游戏 SDK 的共享 Runtime
 ## 接入游戏侧导出
 
 1. 在每个参与导出的 Game 或 Editor Target 中调用一次 `ExportMetadata.ConfigureTarget(this)`。导出模块按 UE 常规方式依赖 `ModAPI`，即可使用导出宏和宿主接口。[宿主模块与链接配置](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#宿主编译与链接)
-2. 在 `Config/ModHeaderTool.json` 中将 `mode` 设为 `generate`，填写游戏 ID、类型身份与 `metadataEditorTarget`。如需导出蓝图，请在 `blueprintExports` 中为每个已保存资产指定对象路径、稳定的 `typeId` 及所属模块。[开发宿主配置示例](UnrealModFramework/Config/ModHeaderTool.json)
+2. 在 C++ 或蓝图 Mod 导出面板中声明导出。UMF 自动获取工程标识、反射及签名类型，并使用目标的实际编译参数进行分析。[UHT 与自动发现](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
 3. MHT 自动发现工程 `Source` 下的模块。在 `.uproject` 同目录的可选 `<项目名>.modexport` 中，用 `Plugins` 纳入插件。`ExcludeModules` 可以写在顶层，也可以写在某个插件条目中，单独排除该插件的模块。[模块选择示例](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#模块选择)
 4. 在 C++ 中或通过蓝图编辑器的 **蓝图Mod导出** 面板声明导出；使用自动 C++ Hook 时，请通过 MBT 构建目标。[宿主声明与签名范围](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
 

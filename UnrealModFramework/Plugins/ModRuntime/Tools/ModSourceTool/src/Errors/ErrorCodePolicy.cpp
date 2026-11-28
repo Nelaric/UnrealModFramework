@@ -1,196 +1,117 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
 #include "ErrorCodePolicy.h"
 
-#include "Common/Errors/ErrorCodes.h"
-#include "ModSourceTool/src/Errors/CatalogText.h"
+#include "Common/Errors/PublicStatuses.h"
 
 #include <algorithm>
-#include <charconv>
 #include <cstdint>
-#include <iterator>
+#include <limits>
+#include <map>
 #include <nlohmann/json.hpp>
-#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 
 namespace Mod::SourceTool
 {
+namespace
+{
 using Json = nlohmann::json;
+using Tools::PublicStatuses;
 
-void ErrorCodePolicy::ValidateLegacyCodes(const Json& Members, const Json& Counter)
+const PublicStatuses::PublicStatus* FindStatus(std::string_view Key)
 {
-	if (!Counter.is_number_integer())
+	const auto Find = [Key](const auto& Statuses) -> const PublicStatuses::PublicStatus*
 	{
-		throw std::runtime_error("Catalog nextBusinessCode must be an integer.");
-	}
-	const auto NextCode = Counter.get<std::int64_t>();
-	if (NextCode < FirstBusinessCode || NextCode > LastBusinessCode + 1)
+		const auto It = std::ranges::find_if(Statuses, [Key](const auto& Status) { return Status.Key == Key; });
+		return It == std::end(Statuses) ? nullptr : &*It;
+	};
+	if (const auto* Framework = Find(PublicStatuses::FrameworkStatuses))
 	{
-		throw std::runtime_error("Catalog nextBusinessCode is outside the business code range.");
+		return Framework;
 	}
-	std::set<std::int64_t> BusinessCodes;
-	if (!Members.is_object())
+	if (const auto* Adapter = Find(PublicStatuses::AdapterStatuses))
 	{
-		throw std::runtime_error("Catalog members must be an object keyed by member ID.");
+		return Adapter;
 	}
-	for (const auto& [MemberId, Member] : Members.items())
-	{
-		const auto& Reasons = Member.at("reasons");
-		if (!Reasons.is_object())
-		{
-			throw std::runtime_error("Catalog reasons must be an object for " + MemberId);
-		}
-		for (const auto& [Key, Reason] : Reasons.items())
-		{
-			if (Key.empty() || !Reason.is_object())
-			{
-				throw std::runtime_error("Invalid catalog reason in " + MemberId);
-			}
-			if (!Reason.contains("code"))
-			{
-				continue;
-			}
-			const auto& Code = Reason.at("code");
-			if (!Code.is_number_integer())
-			{
-				throw std::runtime_error("Expected an integer error code for " + MemberId + '/' + Key);
-			}
-			const auto Value = Code.get<std::int64_t>();
-			if (Key == "WrongThread" && Value == WrongThreadCode)
-			{
-				continue;
-			}
-			if (Key == "WrongThread" || Value < FirstBusinessCode || Value >= NextCode ||
-			    !BusinessCodes.insert(Value).second)
-			{
-				throw std::runtime_error("Invalid or duplicate error code for " + MemberId + '/' + Key);
-			}
-		}
-	}
+	return Find(PublicStatuses::SourceStatuses);
 }
 
-std::uint32_t ErrorCodePolicy::ErrorType(std::string_view Type)
+[[noreturn]] void FailAt(const Json& Failure, const std::string& Message)
 {
-	if (Type.size() != 3 || Type == "000" || Type.find_first_not_of("0123456789ABCDEF") != Type.npos)
-	{
-		throw std::runtime_error("Expected a three-digit hexadecimal error type: " + std::string(Type));
-	}
-	std::uint32_t Value = 0;
-	std::from_chars(Type.data(), Type.data() + Type.size(), Value, 16);
-	return Value;
+	const auto& Loc = Failure.at("conditionLocation");
+	throw std::runtime_error(Loc.at("file").get<std::string>() + "(" + Loc.at("line").dump() + "," +
+	                         Loc.at("column").dump() + "): " + Message);
 }
+} // namespace
 
-const Tools::PublicStatuses::PublicStatus* ErrorCodePolicy::FindFrameworkStatus(std::string_view Key)
+ErrorCodePolicy::ErrorCodePolicy()
 {
-	const auto End = std::end(Tools::PublicStatuses::FrameworkStatuses);
-	const auto Found = std::find_if(std::begin(Tools::PublicStatuses::FrameworkStatuses), End,
-	                                [&](const auto& Status) { return Key == Status.Key; });
-	return Found == End ? nullptr : Found;
-}
-
-void ErrorCodePolicy::ValidateStructuredCodes(const Json& Members, const Json& ClassifiedReasons, const Json& Counters)
-{
-	if (!Members.is_object() || !Counters.is_object())
+	const auto Reserve = [&](const auto& Statuses)
 	{
-		throw std::runtime_error("The catalog requires members and nextDetailByType objects.");
-	}
-	for (const auto& [Type, Next] : Counters.items())
-	{
-		ErrorType(Type);
-		if (!Next.is_number_integer() || Next.get<std::uint64_t>() == 0 ||
-		    Next.get<std::uint64_t>() > Tools::ErrorCodes::ErrorDetailMask + 1)
+		for (const auto& Status : Statuses)
 		{
-			throw std::runtime_error("Invalid next detail for error type " + Type);
-		}
-	}
-	std::set<std::uint32_t> BusinessCodes;
-	std::set<std::string> Macros;
-	for (const auto& Status : Tools::PublicStatuses::FrameworkStatuses)
-	{
-		Macros.insert(Status.Macro);
-	}
-	for (const auto& Status : Tools::PublicStatuses::AdapterStatuses)
-	{
-		Macros.insert(Status.Macro);
-	}
-	const auto ValidateReasons = [&](const Json& Reasons, const std::string& Scope)
-	{
-		if (!Reasons.is_object())
-		{
-			throw std::runtime_error("Catalog reasons must be an object for " + Scope);
-		}
-		for (const auto& [Key, Reason] : Reasons.items())
-		{
-			const auto Identity = Scope + '/' + Key;
-			const auto Macro = CatalogText::Text(Reason, "macro");
-			const auto Code = Reason.find("code");
-			if (Code != Reason.end() && !Code->is_number_integer())
-			{
-				throw std::runtime_error("Expected an integer error code for " + Identity);
-			}
-			if (const auto* Status = FindFrameworkStatus(Key))
-			{
-				if (Status->Code == 0 || Macro != Status->Macro || (Code != Reason.end() && *Code != Status->Code))
-				{
-					throw std::runtime_error("Invalid framework error for " + Identity);
-				}
-				continue;
-			}
-			if (Key.empty() || !Tools::ErrorCodes::IsErrorMacro(Macro) || !Macros.insert(Macro).second)
-			{
-				throw std::runtime_error("Invalid or duplicate error macro for " + Identity);
-			}
-			const auto Type = CatalogText::Text(Reason, "type");
-			const auto Base =
-			    Tools::ErrorCodes::EncodeErrorCode(Tools::ErrorCodes::EErrorDomain::Business, ErrorType(Type));
-			if (Code != Reason.end())
-			{
-				const auto Value = Code->get<std::uint64_t>();
-				if (Value <= Base || Value > Base + Tools::ErrorCodes::ErrorDetailMask ||
-				    Value - Base >= Counters.value(Type, 1u) ||
-				    !BusinessCodes.insert(static_cast<std::uint32_t>(Value)).second)
-				{
-					throw std::runtime_error("Invalid or duplicate business error code for " + Identity);
-				}
-			}
+			Codes.emplace(Status.Macro, Status.Code);
+			Names.emplace(Status.Code, Status.Macro);
 		}
 	};
-	ValidateReasons(ClassifiedReasons, "classifiedReasons");
-	for (const auto& [MemberId, Member] : Members.items())
-	{
-		ValidateReasons(Member.at("reasons"), MemberId);
-	}
+	Reserve(PublicStatuses::FrameworkStatuses);
+	Reserve(PublicStatuses::AdapterStatuses);
+	Reserve(PublicStatuses::SourceStatuses);
 }
 
-std::uint32_t ErrorCodePolicy::AllocateCode(Json& Counters, const Json& Reason, const std::string& Key,
-                                            bool bStructured)
+void ErrorCodePolicy::Bind(Json& Failures)
 {
-	if (bStructured)
+	Json Bound = Json::array();
+	for (auto& Failure : Failures)
 	{
-		if (const auto* Status = FindFrameworkStatus(Key))
+		auto Classifications = Failure.value("classifications", Json::array());
+		Failure.erase("classifications");
+		if (Classifications.empty())
 		{
-			return Status->Code;
+			FailAt(Failure, "Declare a stable business code at this return using MOD_SOURCE_FAILURE.");
 		}
-		const auto Type = CatalogText::Text(Reason, "type");
-		const auto Detail = Counters.value(Type, 1u);
-		if (Detail > Tools::ErrorCodes::ErrorDetailMask)
+		for (auto& Classification : Classifications)
 		{
-			throw std::runtime_error("The error detail range is exhausted for type " + Type);
+			const auto Key = Classification.at("key").get<std::string>();
+			const auto Macro = Classification.at("macro").get<std::string>();
+			std::uint32_t Code = 0;
+			if (Classification.contains("code"))
+			{
+				const auto& Value = Classification.at("code");
+				const auto Number = Value.is_number_integer() ? Value.get<std::uint64_t>() : 0;
+				if (!Tools::ErrorCodes::IsErrorMacro(Macro) || Key != Macro ||
+				    Number > std::numeric_limits<std::uint32_t>::max() ||
+				    (Number >> 28) != static_cast<std::uint64_t>(Tools::ErrorCodes::EErrorDomain::Business) ||
+				    (Number & Tools::ErrorCodes::ErrorDetailMask) == 0)
+				{
+					FailAt(Failure, "A declared business error needs a MOD_ERROR_* name and a fixed Business code.");
+				}
+				Code = static_cast<std::uint32_t>(Number);
+			}
+			else
+			{
+				const auto* Status = FindStatus(Key);
+				if (!Status || Macro != Status->Macro || Status->Code == 0)
+				{
+					FailAt(Failure, "Unknown fixed source error: " + Key);
+				}
+				Code = Status->Code;
+			}
+			const auto [KnownCode, bNewName] = Codes.emplace(Macro, Code);
+			const auto [KnownName, bNewCode] = Names.emplace(Code, Macro);
+			if ((!bNewName && KnownCode->second != Code) || (!bNewCode && KnownName->second != Macro))
+			{
+				FailAt(Failure, "Conflicting source error code or name: " + Macro);
+			}
+			Json Entry = Failure;
+			Entry["key"] = Key;
+			Entry["macro"] = Macro;
+			Entry["code"] = Code;
+			Entry["classification"] = std::move(Classification);
+			Bound.push_back(std::move(Entry));
 		}
-		Counters[Type] = Detail + 1;
-		return Tools::ErrorCodes::EncodeErrorCode(Tools::ErrorCodes::EErrorDomain::Business, ErrorType(Type), Detail);
 	}
-	if (Key == "WrongThread")
-	{
-		return WrongThreadCode;
-	}
-	const auto NextCode = Counters.get<std::int64_t>();
-	if (NextCode > LastBusinessCode)
-	{
-		throw std::runtime_error("The business error code range is exhausted.");
-	}
-	Counters = NextCode + 1;
-	return static_cast<std::uint32_t>(NextCode);
+	Failures = std::move(Bound);
 }
 } // namespace Mod::SourceTool

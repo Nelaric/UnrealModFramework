@@ -12,9 +12,14 @@ namespace fs = std::filesystem;
 
 struct SourceReport
 {
-	const fs::path File =
-	    fs::temp_directory_path() / ("umf-mht-source-" + Mod::BuildTool::TemporaryName::UniqueSuffix() + ".json");
-	const fs::path Request = fs::path(File).replace_extension(".request.json");
+	explicit SourceReport(const fs::path& Directory)
+	    : File(Directory / ("umf-mht-source-" + Mod::BuildTool::TemporaryName::UniqueSuffix() + ".json")),
+	      Request(fs::path(File).replace_extension(".request.json"))
+	{
+	}
+
+	const fs::path File;
+	const fs::path Request;
 
 	~SourceReport();
 };

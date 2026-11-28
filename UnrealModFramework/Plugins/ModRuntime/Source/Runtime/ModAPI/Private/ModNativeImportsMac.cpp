@@ -87,7 +87,8 @@ bool ValidateNativeImports(const FString& Path, FString& Error)
 		case LC_LOAD_WEAK_DYLIB:
 		case LC_REEXPORT_DYLIB:
 		case LC_LOAD_UPWARD_DYLIB:
-		case LC_LAZY_LOAD_DYLIB: {
+		case LC_LAZY_LOAD_DYLIB:
+		{
 			dylib_command Dylib{};
 			FString Library;
 			if (Command.cmdsize < sizeof(Dylib) || !Image.Read(Offset, Dylib) ||

@@ -66,78 +66,40 @@ internal static class ModRuntimeExporter
 		string pluginRoot = FindPluginRoot(factory.PluginModule!.BaseDirectory);
 		string tools = Path.Combine(projectRoot, "Intermediate", "ModTools");
 		string mht = Path.Combine(tools, "ModHeaderTool");
-		string configPath = Path.Combine(projectRoot, "Config", "ModHeaderTool.json");
-		using JsonDocument settings = File.Exists(configPath)
-			? ReadJson(configPath)
-			: JsonDocument.Parse("{\"schemaVersion\":1,\"mode\":\"scan\"}");
-		JsonElement config = settings.RootElement;
-		if (config.GetProperty("schemaVersion").GetInt32() != 1)
-		{
-			throw new UhtException("ModRuntime MHT: unsupported ModHeaderTool.json schemaVersion.");
-		}
-		string? inputOverride = Environment.GetEnvironmentVariable("UMF_MHT_BUILD_INPUT");
-		string mode = inputOverride != null ? "generate" : OptionalText(config, "mode") ?? "scan";
-		if (mode != "scan" && mode != "generate")
-		{
-			throw new UhtException("ModRuntime MHT: mode must be scan or generate.");
-		}
-		AddDependency(factory, configPath);
 		AddDependency(factory, Path.ChangeExtension(project, ".modexport"));
 		UHTManifest manifest = factory.Session.Manifest!;
 		string targetName = manifest.TargetName;
-		// UE 5.6 places the UHT deps at Build/<platform>/<target>/<configuration>/<target>.deps.
-		DirectoryInfo configurationDirectory = new(Path.GetDirectoryName(manifest.ExternalDependenciesFile)!);
-		string platform = configurationDirectory.Parent!.Parent!.Name;
-		string configuration = configurationDirectory.Name;
-		string architecture = "";
+		string[] identities = manifest
+			.Modules.SelectMany(module => module.PublicDefines)
+			.Where(value => value.StartsWith("UMF_MHT_BUILD_VARIANT=", StringComparison.Ordinal))
+			.Select(value => value["UMF_MHT_BUILD_VARIANT=".Length..])
+			.Distinct(StringComparer.Ordinal)
+			.ToArray();
+		if (identities.Length == 0)
+		{
+			return;
+		}
 		if (
-			mode == "generate"
-			|| manifest.Modules.Any(module =>
-				module.PublicDefines.Any(value => value.StartsWith("UMF_MHT_BUILD_VARIANT=", StringComparison.Ordinal))
-			)
+			identities.Length != 1
+			|| identities[0].Split('_') is not [var platform, var configuration, var architecture]
 		)
 		{
-			string[] VariantValues(string prefix) =>
-				manifest
-					.Modules.SelectMany(module => module.PublicDefines)
-					.Where(value => value.StartsWith(prefix, StringComparison.Ordinal))
-					.Select(value => value[prefix.Length..])
-					.Distinct(StringComparer.Ordinal)
-					.ToArray();
-			var identities = VariantValues("UMF_MHT_BUILD_VARIANT=");
-			if (identities.Length != 1 || identities[0].Split('_') is not [var os, var configName, var arch])
-			{
-				throw new UhtException("ModRuntime MHT: the export modules must declare a single UBT target variant.");
-			}
-			(platform, configuration, architecture) = (os, configName, arch);
+			throw new UhtException("ModRuntime MHT: UBT must report one host build variant.");
 		}
-		if (mode == "generate" && factory.Session.FailIfGeneratedCodeChanges)
+		if (factory.Session.FailIfGeneratedCodeChanges)
 		{
-			throw new UhtException(
-				"ModRuntime MHT: native generation is not supported with -FailIfGeneratedCodeChanges."
+			throw new UhtException("ModRuntime MHT: a normal host build requires writable project-generated outputs.");
+		}
+		const int timeout = 600;
+		string executable = FindExecutable(pluginRoot, projectRoot);
+		string metadata =
+			Environment.GetEnvironmentVariable("UMF_METADATA_INPUTS")
+			?? throw new UhtException(
+				"ModRuntime MHT: run ModBuildTool build-ue-target with a validated metadata bundle."
 			);
-		}
-		int timeout = config.TryGetProperty("timeoutSeconds", out JsonElement seconds) ? seconds.GetInt32() : 600;
-		if (timeout < 1 || timeout > 86400)
-		{
-			throw new UhtException("ModRuntime MHT: timeoutSeconds must be between 1 and 86400.");
-		}
-		string executable = FindExecutable(pluginRoot, projectRoot, config);
-		string? metadata = Environment.GetEnvironmentVariable("UMF_METADATA_INPUTS");
-		if (mode == "generate" && metadata == null)
-		{
-			throw new UhtException(
-				"ModRuntime MHT: generation requires a validated metadata bundle. Run ModBuildTool build-ue-target."
-			);
-		}
-		string options =
-			metadata != null
-				? Path.Combine(metadata, "MetadataOptions.json")
-				: Resolve(projectRoot, OptionalText(config, "options") ?? Path.Combine(mht, "MetadataOptions.json"));
-		if (metadata != null)
-		{
-			factory.AddExternalDependency(Path.Combine(metadata, "bundle.sha256"));
-		}
+		string options = Path.Combine(metadata, "MetadataOptions.json");
+		string blueprintSnapshot = Path.Combine(metadata, "BlueprintExports.json");
+		factory.AddExternalDependency(Path.Combine(metadata, "bundle.sha256"));
 		AddDependency(factory, project);
 		AddDependency(factory, executable);
 		AddDependency(factory, options);
@@ -153,220 +115,119 @@ internal static class ModRuntimeExporter
 				AddDependency(factory, header);
 			}
 		}
-		if (mode == "generate")
+		string targetVariant = Path.Combine(targetName, platform, configuration, architecture);
+		string output = Path.Combine(mht, "Generated", targetVariant);
+		string variantDirectory = Path.Combine(mht, "HostTargets", targetVariant);
+		Directory.CreateDirectory(variantDirectory);
+		using FileStream pipeline = new(
+			Path.Combine(variantDirectory, ".pipeline.lock"),
+			FileMode.OpenOrCreate,
+			FileAccess.ReadWrite,
+			FileShare.None,
+			1,
+			FileOptions.DeleteOnClose
+		);
+		string? configuredClang =
+			Environment.GetEnvironmentVariable("UMF_MHT_LIBCLANG")
+			?? UbtPreparation.FindHostLibClang(pluginRoot, factory);
+		string? clang = configuredClang == null ? null : Resolve(projectRoot, configuredClang);
+		using JsonDocument blueprints = ReadJson(blueprintSnapshot);
+		string buildInput = UbtPreparation.PrepareInput(
+			factory.Session.Logger,
+			factory.Session.EngineDirectory!,
+			project,
+			variantDirectory,
+			(targetName, platform, configuration, architecture),
+			executable,
+			blueprints.RootElement.GetProperty("types"),
+			ReflectionInventory.Read(factory),
+			clang,
+			timeout
+		);
+		using JsonDocument input = ReadJson(buildInput);
+		JsonElement context = input.RootElement;
+		string inputProject = Resolve(Path.GetDirectoryName(buildInput)!, RequiredText(context, "project"));
+		if (
+			!SamePath(inputProject, project)
+			|| RequiredText(context, "target") != targetName
+			|| RequiredText(context, "platform") != platform
+			|| RequiredText(context, "configuration") != configuration
+			|| RequiredText(context, "architecture") != architecture
+		)
 		{
-			string variantKey = $"{platform}/{configuration}/{architecture}";
-			JsonElement target =
-				config.TryGetProperty("targets", out JsonElement targets)
-				&& targets.TryGetProperty(targetName, out JsonElement selected)
-					? selected
-					: default;
-			JsonElement variant = target;
-			if (target.ValueKind == JsonValueKind.Object && target.TryGetProperty("variants", out JsonElement variants))
-			{
-				variant = variants.TryGetProperty(variantKey, out JsonElement choice) ? choice : default;
-			}
-			string targetVariant = Path.Combine(targetName, platform, configuration, architecture);
-			string output = Path.Combine(mht, "Generated", targetVariant);
-			string variantDirectory = Path.Combine(mht, "HostTargets", targetVariant);
-			Directory.CreateDirectory(variantDirectory);
-			using FileStream pipeline = new(
-				Path.Combine(variantDirectory, ".pipeline.lock"),
-				FileMode.OpenOrCreate,
-				FileAccess.ReadWrite,
-				FileShare.None,
-				1,
-				FileOptions.DeleteOnClose
+			throw new UhtException(
+				$"ModRuntime MHT: build input does not match {targetName}/{platform}/{configuration}/{architecture}: \"{buildInput}\""
 			);
-			string? configuredClang =
-				Environment.GetEnvironmentVariable("UMF_MHT_LIBCLANG")
-				?? OptionalText(variant, "libclang")
-				?? OptionalText(target, "libclang")
-				?? (
-					config.TryGetProperty("hostLibclang", out JsonElement hostLibraries)
-						? OptionalText(hostLibraries, UbtPreparation.HostPlatform)
-						: null
-				)
-				?? OptionalText(config, "libclang")
-				?? UbtPreparation.FindHostLibClang(pluginRoot, factory);
-			string? clang = configuredClang == null ? null : Resolve(projectRoot, configuredClang);
-			string? configuredInput = inputOverride ?? OptionalText(variant, "buildInput");
-			config.TryGetProperty("blueprintExports", out JsonElement blueprintExports);
-			string buildInput =
-				configuredInput != null ? Resolve(projectRoot, configuredInput)
-				: config.TryGetProperty("generation", out JsonElement generation)
-					? UbtPreparation.PrepareInput(
-						factory.Session.Logger,
-						factory.Session.EngineDirectory!,
-						project,
-						variantDirectory,
-						(targetName, platform, configuration, architecture),
-						generation,
-						executable,
-						blueprintExports,
-						clang,
-						timeout
-					)
-				: throw new UhtException($"ModRuntime MHT: no build input for {targetName}/{variantKey}.");
-			using JsonDocument input = ReadJson(buildInput);
-			JsonElement context = input.RootElement;
-			string inputProject = Resolve(Path.GetDirectoryName(buildInput)!, RequiredText(context, "project"));
-			if (
-				!SamePath(inputProject, project)
-				|| RequiredText(context, "target") != targetName
-				|| RequiredText(context, "platform") != platform
-				|| RequiredText(context, "configuration") != configuration
-				|| RequiredText(context, "architecture") != architecture
+		}
+		string lifecycleSource = Path.Combine(pluginRoot, "Source", "Runtime", "ModLoader", "Public");
+		string lifecycleHeader = Path.Combine(lifecycleSource, "ModInstance.h");
+		bool exportLifecycle = manifest.Modules.Any(module =>
+			module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))
+		);
+		factory.AddExternalDependency(blueprintSnapshot);
+		string request = Path.Combine(variantDirectory, "GenerationRequest.json");
+		Dictionary<string, object> fields = new()
+		{
+			["format"] = "UMF.ModHeaderGenerationRequest",
+			["schemaVersion"] = 1,
+			["buildInput"] = buildInput,
+			["outputDirectory"] = output,
+			["metadataOptions"] = options,
+			["libclang"] = clang ?? "",
+			["lifecycleSource"] = exportLifecycle ? lifecycleSource : "",
+			["blueprintSnapshot"] = blueprintSnapshot,
+		};
+		fields["hostCompiler"] = "UBT";
+		string sourceTool =
+			Environment.GetEnvironmentVariable("UMF_MOD_SOURCE_TOOL_EXECUTABLE")
+			?? LocalExecutable(pluginRoot, "ModSourceTool");
+		fields["sourceTool"] = Resolve(projectRoot, sourceTool);
+		WriteFileIfChanged(request, JsonSerializer.SerializeToUtf8Bytes(fields));
+		AddDependency(factory, request);
+		AddDependency(factory, buildInput);
+		foreach (string key in new[] { "compilationDatabase" })
+		{
+			if (OptionalText(context, key) is string path)
+			{
+				AddDependency(factory, Resolve(projectRoot, path));
+			}
+		}
+		if (clang != null)
+		{
+			AddDependency(factory, clang);
+		}
+		factory.Session.Logger.LogInformation(
+			"ModRuntime MHT: generate for {Target}; output {Output}",
+			targetName,
+			output
+		);
+		MhtProcess.Run(factory.Session.Logger, executable, new[] { "generate", request }, projectRoot, timeout);
+		RegisterGeneratedDependencies(factory, output, context);
+		string watch = Path.Combine(variantDirectory, "watch.json");
+		WriteFileIfChanged(
+			watch,
+			JsonSerializer.SerializeToUtf8Bytes(
+				new
+				{
+					format = "UMF.ModHostContextSet",
+					schemaVersion = 1,
+					project,
+					engineDirectory = factory.Session.EngineDirectory,
+					contexts = new Dictionary<string, string>(),
+					generatedManifest = Path.Combine(
+						output,
+						RequiredText(context, "gameId") + ".generated-artifacts.json"
+					),
+				}
 			)
-			{
-				throw new UhtException(
-					$"ModRuntime MHT: build input does not match {targetName}/{variantKey}: \"{buildInput}\""
-				);
-			}
-			string lifecycleSource = Path.Combine(pluginRoot, "Source", "Runtime", "ModLoader", "Public");
-			string lifecycleHeader = Path.Combine(lifecycleSource, "ModInstance.h");
-			bool exportLifecycle = manifest.Modules.Any(module =>
-				module.PublicHeaders.Any(header => SamePath(header, lifecycleHeader))
-			);
-			string blueprintSnapshot = Path.Combine(metadata!, "BlueprintExports.json");
-			factory.AddExternalDependency(blueprintSnapshot);
-			string request = Path.Combine(variantDirectory, "GenerationRequest.json");
-			Dictionary<string, object> fields = new()
-			{
-				["format"] = "UMF.ModHeaderGenerationRequest",
-				["schemaVersion"] = 1,
-				["buildInput"] = buildInput,
-				["outputDirectory"] = output,
-				["metadataOptions"] = options,
-				["libclang"] = clang ?? "",
-				["lifecycleSource"] = exportLifecycle ? lifecycleSource : "",
-				["blueprintSnapshot"] = blueprintSnapshot,
-			};
-			fields["hostCompiler"] = "UBT";
-			string sourceTool =
-				Environment.GetEnvironmentVariable("UMF_MOD_SOURCE_TOOL_EXECUTABLE")
-				?? OptionalText(config, "sourceTool")
-				?? LocalExecutable(pluginRoot, "ModSourceTool");
-			fields["sourceTool"] = Resolve(projectRoot, sourceTool);
-			WriteFileIfChanged(request, JsonSerializer.SerializeToUtf8Bytes(fields));
-			AddDependency(factory, request);
-			AddDependency(factory, buildInput);
-			foreach (string key in new[] { "compilationDatabase", "typeIdentities" })
-			{
-				if (OptionalText(context, key) is string path)
-				{
-					AddDependency(factory, Resolve(projectRoot, path));
-				}
-			}
-			if (clang != null)
-			{
-				AddDependency(factory, clang);
-			}
-			factory.Session.Logger.LogInformation(
-				"ModRuntime MHT: generate for {Target}; output {Output}",
-				targetName,
-				output
-			);
-			MhtProcess.Run(factory.Session.Logger, executable, new[] { "generate", request }, projectRoot, timeout);
-			RegisterGeneratedDependencies(factory, output, context);
-			string watch = Path.Combine(variantDirectory, "watch.json");
-			WriteFileIfChanged(
-				watch,
-				JsonSerializer.SerializeToUtf8Bytes(
-					new
-					{
-						format = "UMF.ModHostContextSet",
-						schemaVersion = 1,
-						project,
-						engineDirectory = factory.Session.EngineDirectory,
-						contexts = new Dictionary<string, string>(),
-						generatedManifest = Path.Combine(
-							output,
-							RequiredText(context, "gameId") + ".generated-artifacts.json"
-						),
-					}
-				)
-			);
-			factory.AddExternalDependency(watch);
-			string stamp = Path.Combine(variantDirectory, ".mht-watch.stamp");
-			if (!File.Exists(stamp))
-			{
-				WriteFileIfChanged(stamp, Encoding.UTF8.GetBytes("UMF watched inputs\n"));
-			}
-			factory.AddExternalDependency(stamp);
-		}
-		else
+		);
+		factory.AddExternalDependency(watch);
+		string stamp = Path.Combine(variantDirectory, ".mht-watch.stamp");
+		if (!File.Exists(stamp))
 		{
-			string output = Path.Combine(mht, "Scan", targetName, platform, configuration);
-			Directory.CreateDirectory(output);
-			using MemoryStream result = new();
-			factory.Session.Logger.LogInformation("ModRuntime MHT: scan for {Target}", targetName);
-			MhtProcess.Run(
-				factory.Session.Logger,
-				executable,
-				new[] { "scan", project, options },
-				projectRoot,
-				timeout,
-				standardOutput: result
-			);
-			string content = Encoding.UTF8.GetString(result.ToArray());
-			using JsonDocument report = JsonDocument.Parse(content);
-			if (!report.RootElement.GetProperty("ParametersValidated").GetBoolean())
-			{
-				throw new UhtException("ModRuntime MHT: scan did not validate export parameters.");
-			}
-			if (report.RootElement.GetProperty("MetadataOptions").GetString() is string scannedOptions)
-			{
-				using JsonDocument catalog = ReadJson(scannedOptions);
-				foreach (JsonProperty input in catalog.RootElement.GetProperty("Inputs").EnumerateObject())
-				{
-					AddDependency(factory, input.Name);
-				}
-			}
-			JsonElement watches = report.RootElement.GetProperty("WatchedDirectories");
-			foreach (var watch in watches.EnumerateArray())
-			{
-				foreach (var file in watch.GetProperty("files").EnumerateArray())
-				{
-					AddDependency(factory, file.GetString()!);
-				}
-			}
-			if (architecture.Length > 0 && !factory.Session.FailIfGeneratedCodeChanges)
-			{
-				string variant = Path.Combine(mht, "HostTargets", targetName, platform, configuration, architecture);
-				string watch = Path.Combine(variant, "watch.json");
-				string scope = Path.ChangeExtension(project, ".modexport");
-				WriteFileIfChanged(
-					watch,
-					JsonSerializer.SerializeToUtf8Bytes(
-						new
-						{
-							status = "Complete",
-							watchedDirectories = watches,
-							inputFiles = new[]
-							{
-								new
-								{
-									path = scope,
-									contentHash = File.Exists(scope)
-										? Convert
-											.ToHexString(SHA256.HashData(File.ReadAllBytes(scope)))
-											.ToLowerInvariant()
-										: "",
-								},
-							},
-						}
-					)
-				);
-				string stamp = Path.Combine(variant, ".mht-watch.stamp");
-				if (!File.Exists(stamp))
-				{
-					WriteFileIfChanged(stamp, Encoding.UTF8.GetBytes("UMF watched inputs\n"));
-				}
-				factory.AddExternalDependency(stamp);
-			}
-			factory.CommitOutput(Path.Combine(output, "Scan.json"), new StringBuilder(content));
+			WriteFileIfChanged(stamp, Encoding.UTF8.GetBytes("UMF watched inputs\n"));
 		}
+		factory.AddExternalDependency(stamp);
 	}
 
 	private static void RegisterGeneratedDependencies(IUhtExportFactory factory, string output, JsonElement context)
@@ -518,10 +379,9 @@ internal static class ModRuntimeExporter
 		throw new UhtException("ModRuntime MHT: cannot locate ModRuntime.uplugin.");
 	}
 
-	private static string FindExecutable(string pluginRoot, string projectRoot, JsonElement config)
+	private static string FindExecutable(string pluginRoot, string projectRoot)
 	{
-		string? configured =
-			Environment.GetEnvironmentVariable("UMF_MHT_EXECUTABLE") ?? OptionalText(config, "executable");
+		string? configured = Environment.GetEnvironmentVariable("UMF_MHT_EXECUTABLE");
 		if (configured != null)
 		{
 			string path = Resolve(projectRoot, configured);
@@ -548,9 +408,7 @@ internal static class ModRuntimeExporter
 				return candidate;
 			}
 		}
-		throw new UhtException(
-			"ModRuntime MHT: build the native tool and set UMF_MHT_EXECUTABLE or Config/ModHeaderTool.json executable."
-		);
+		throw new UhtException("ModRuntime MHT: build the native tool and set UMF_MHT_EXECUTABLE to its path.");
 	}
 
 	private static JsonDocument ReadJson(string path) => JsonDocument.Parse(File.ReadAllText(path));

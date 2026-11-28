@@ -116,13 +116,18 @@ bool ReadDynamicTables(const Native::FImageFile& Image, const Elf64_Phdr& Segmen
 
 bool IsSystemLibrary(const FString& Name)
 {
-	const TCHAR* const SystemLibraries[] = {
-	    TEXT("libc.so.6"), TEXT("libm.so.6"), TEXT("libpthread.so.0"), TEXT("libdl.so.2"), TEXT("librt.so.1"),
-	    TEXT("libstdc++.so.6"), TEXT("libgcc_s.so.1"), TEXT("libatomic.so.1"),
+	const TCHAR* const SystemLibraries[] = {TEXT("libc.so.6"),
+	                                        TEXT("libm.so.6"),
+	                                        TEXT("libpthread.so.0"),
+	                                        TEXT("libdl.so.2"),
+	                                        TEXT("librt.so.1"),
+	                                        TEXT("libstdc++.so.6"),
+	                                        TEXT("libgcc_s.so.1"),
+	                                        TEXT("libatomic.so.1"),
 #if PLATFORM_CPU_ARM_FAMILY
-	    TEXT("ld-linux-aarch64.so.1")
+	                                        TEXT("ld-linux-aarch64.so.1")
 #else
-	    TEXT("ld-linux-x86-64.so.2")
+	                                        TEXT("ld-linux-x86-64.so.2")
 #endif
 	};
 	for (const TCHAR* Library : SystemLibraries)
@@ -142,14 +147,16 @@ bool ReadDynamicString(const Native::FImageFile& Image, uint64 StringOffset, con
 	       ReadNativeImportString(Image, StringOffset + Index, Tables.StringBytes - Index, Out);
 }
 
-bool ReadRequiredVersions(const Native::FImageFile& Image, const TArray<Elf64_Phdr>& Headers, const FDynamicTables& Tables,
-                          uint64 StringOffset, const TSet<FString>& Dependencies, TSet<uint16>& OutVersions)
+bool ReadRequiredVersions(const Native::FImageFile& Image, const TArray<Elf64_Phdr>& Headers,
+                          const FDynamicTables& Tables, uint64 StringOffset, const TSet<FString>& Dependencies,
+                          TSet<uint16>& OutVersions)
 {
 	if (Tables.VersionNeedCount == 0)
 	{
 		return Tables.VersionNeeds == 0;
 	}
-	if (!Tables.VersionNeeds || !Tables.SymbolVersions || Tables.VersionNeedCount > static_cast<uint64>(Dependencies.Num()))
+	if (!Tables.VersionNeeds || !Tables.SymbolVersions ||
+	    Tables.VersionNeedCount > static_cast<uint64>(Dependencies.Num()))
 	{
 		return false;
 	}
@@ -214,8 +221,9 @@ bool CheckSymbols(const Native::FImageFile& Image, const Elf64_Ehdr& Header, con
 		}
 	}
 	const TOptional<uint64> SymbolOffset = FindFileRange(Image, Headers, Tables.Symbols, SymbolTable.sh_size);
-	if (!SymbolOffset.IsSet() || SymbolOffset.GetValue() != SymbolTable.sh_offset || SymbolTable.sh_entsize != sizeof(Elf64_Sym) ||
-	    SymbolTable.sh_size <= sizeof(Elf64_Sym) || SymbolTable.sh_size % sizeof(Elf64_Sym) != 0)
+	if (!SymbolOffset.IsSet() || SymbolOffset.GetValue() != SymbolTable.sh_offset ||
+	    SymbolTable.sh_entsize != sizeof(Elf64_Sym) || SymbolTable.sh_size <= sizeof(Elf64_Sym) ||
+	    SymbolTable.sh_size % sizeof(Elf64_Sym) != 0)
 	{
 		return false;
 	}
@@ -307,7 +315,8 @@ bool ValidateNativeImports(const FString& Path, FString& Error)
 	}
 	const TOptional<uint64> DynamicOffset = FindFileRange(Image, ProgramHeaders, Dynamic->p_vaddr, Dynamic->p_filesz);
 	FDynamicTables Tables;
-	if (!DynamicOffset.IsSet() || DynamicOffset.GetValue() != Dynamic->p_offset || !ReadDynamicTables(Image, *Dynamic, Tables))
+	if (!DynamicOffset.IsSet() || DynamicOffset.GetValue() != Dynamic->p_offset ||
+	    !ReadDynamicTables(Image, *Dynamic, Tables))
 	{
 		return false;
 	}
@@ -320,7 +329,8 @@ bool ValidateNativeImports(const FString& Path, FString& Error)
 	for (const uint64 NameOffset : Tables.Needed)
 	{
 		FString Library;
-		if (!ReadDynamicString(Image, StringOffset.GetValue(), Tables, NameOffset, Library) || !IsSystemLibrary(Library))
+		if (!ReadDynamicString(Image, StringOffset.GetValue(), Tables, NameOffset, Library) ||
+		    !IsSystemLibrary(Library))
 		{
 			Error = TEXT("The ELF extension imports an unsupported library: ") + Library;
 			return false;

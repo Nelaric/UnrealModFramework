@@ -72,22 +72,12 @@ add_executable(ModSourceTool
     src/Cli/AnalysisCommand.h
     src/Cli/AnalysisOptions.cpp
     src/Cli/AnalysisOptions.h
-    src/Cli/AnalysisReport.cpp
-    src/Cli/AnalysisReport.h
     src/Cli/CommandLine.cpp
     src/Cli/CommandLine.h
     src/Cli/HostLinkHeader.cpp
     src/Cli/HostLinkHeader.h
-    src/Errors/CatalogText.cpp
-    src/Errors/CatalogText.h
-    src/Errors/ErrorBindings.cpp
-    src/Errors/ErrorBindings.h
-    src/Errors/ErrorCatalog.cpp
-    src/Errors/ErrorCatalog.h
     src/Errors/ErrorCodePolicy.cpp
     src/Errors/ErrorCodePolicy.h
-    src/Errors/PendingBindings.cpp
-    src/Errors/PendingBindings.h
 )
 
 target_include_directories(ModSourceTool SYSTEM PRIVATE

@@ -39,7 +39,7 @@ $inputs = @("--configuration", "Development", "--metadata", $bundle)
 
 每次自动化运行使用一个新的报告目录。使用 UMFCI SDK 时，设置 `UE_USE_SYSTEM_DOTNET=1`，让 `DOTNET_ROOT` 指向锁定的原生 .NET SDK。可用 `UMF_MSVC_VERSION` 与 `UMF_WINDOWS_SDK_VERSION` 选择 Windows 工具链，CI 会在调用 MBT 前解析和校验版本。Linux ARM64 使用 `LinuxArm64` 和 `arm64`，Windows ARM64 使用 `Win64` 和 `arm64`。两者均消费 Game SDK。
 
-`prepare-metadata` 会复用已验证的 Bundle。Bundle 缺失或过期时，它通过 Bootstrap 规则构建本机 Development Editor，并调用导出 Commandlet。`validate-metadata` 可独立核对 Bundle 与目标。正常构建先在 MBT 中校验 Bundle，再进入 UBT。各目标独立生成编译输入。CI 将同一经审查的提交传给所有 Job。本地存在编辑时，工具也会计算当前项目文件的摘要。
+`prepare-metadata` 会复用已验证的 Bundle。Bundle 缺失或过期时，它通过 Bootstrap 规则构建本机 Development Editor，并调用导出 Commandlet。`validate-metadata` 可独立核对 Bundle 与目标。正常构建先在 MBT 中校验 Bundle，再进入 UBT。各目标独立生成编译输入。CI 将同一经审查的提交传给所有 Job。本地编辑工程时，工具也会计算工程文件和蓝图发现输入的摘要。MBT 从 UBT 查询生产者和消费目标类型。Editor 按保存的声明标记及依赖发现导出蓝图，各目标使用自身编译命令推导原生身份、布局和错误路径。
 
 Bundle 的四个文件位于 `Metadata/`。文件名基于 `Project/` 和 `Engine/` 逻辑根。Options 和 Blueprint 数据使用反射名、参数角色与标量字段结构。消费目标会检查配置投影与生产方输入是否一致，不兼容的重定向、架构专用配置、蓝图包变化、源码漂移和负载损坏都会导致失败。C++ 布局、编译参数、Hook 对象和 ABI 由目标自身的编译数据库生成。Blueprint 使用反射结构体时，目标会以加载的反射类型校验字段结构。`Intermediate/` 下的 Bundle 为构建产物。
 

@@ -141,20 +141,8 @@ jobs:
               common / "Files/Path.cpp",
               common / "Files/TemporaryName.cpp",
           )
-          catalog = root / "Config/catalog.json"
-          catalog.parent.mkdir()
           member = "api/ci/build-tool/write-response"
-          catalog.write_text(json.dumps({
-              "format": "UMF.SourceErrorCatalog",
-              "schemaVersion": 2,
-              "members": {member: {
-                  "function": "Mod::BuildTool::ResponseFile::WriteResponseFile",
-                  "module": "ModBuildTool",
-                  "source": str(response),
-                  "reasons": {},
-              }},
-              "nextDetailByType": {},
-          }), encoding="utf-8")
+          function = "Mod::BuildTool::ResponseFile::WriteResponseFile"
 
           previous = None
           for compiler in ("g++", "clang++-19"):
@@ -176,18 +164,18 @@ jobs:
               request = directory / "SourceAnalysisRequest.json"
               request.write_text(json.dumps({
                   "format": "UMF.SourceAnalysisRequest",
-                  "schemaVersion": 1,
+                  "schemaVersion": 2,
                   "compilationDatabase": str(database),
                   "target": "MSTNative",
-                  "catalog": str(catalog),
-                  "member": member,
+                  "projectRoot": str(root),
+                  "members": [{"id": member, "function": function, "module": "ModBuildTool",
+                               "source": str(response), "translationUnit": str(response)}],
                   "libclang": "/usr/lib/llvm-19/lib/libclang.so",
                   "resourceDirectory": os.environ["MST_RESOURCE_DIR"],
                   "analysisArguments": [],
               }), encoding="utf-8")
-              action = "update-catalog" if previous is None else "analyze-errors"
-              command = [str(mst), action, str(request)]
-              result = json.loads(subprocess.check_output(command, text=True))
+              command = [str(mst), "analyze-errors", str(request)]
+              result = json.loads(subprocess.check_output(command, text=True))["members"][0]
               failures = result["failures"]
               direct = any(
                   item["originFunction"] == "Mod::BuildTool::ResponseFile::WriteResponseFile"

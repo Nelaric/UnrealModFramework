@@ -52,7 +52,7 @@ struct FModPackageRequest
 	bool Validate(FText& OutError) const;
 	/// Returns the Cook platform.
 	FString GetCookPlatform() const;
-	/// Returns the requested architecture, including the legacy Win64 default for native packages.
+	/// Returns the requested architecture or the legacy Win64 default.
 	FString GetCookArchitecture() const;
 };
 

@@ -218,8 +218,7 @@ void UeHookBuild::Run(const UeHookTarget& Target)
 	MetadataBundle::Consume(Target, Inputs);
 	Environment["UMF_METADATA_INPUTS"] = Path::PathToUtf8(Inputs);
 
-	const auto Game =
-	    ContextDocument::Text(ContextDocument::ReadJson(Root / "Config/ModHeaderTool.json").at("generation"), "gameId");
+	const auto Game = Path::PathToUtf8(Project.stem());
 	const auto StagePath = Work / (".mbt-stage-" + TemporaryName::UniqueSuffix());
 	if (!fs::create_directory(Path::FileSystemPath(StagePath)))
 	{

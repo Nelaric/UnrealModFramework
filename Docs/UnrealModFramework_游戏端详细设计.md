@@ -181,7 +181,7 @@ PIE 可隔离会话可变状态，但仍共享进程包命名空间与已注册�
 
 ## 6 宿主配置
 
-开发宿主在 `Config/DefaultGame.ini` 的 `[ModLoader]` 节中记录 `GameId`、`BaseReleaseVersion`、`BaseRegistrySha256` 与 `Backend`，并在同一节配置选择集合、整包摘要及扩展权限。`Config/ModHeaderTool.json` 用于指定生成模式、目标模块、类型身份与蓝图资产。宿主通过 `FWorldPolicy` 配置 World 授权、内容胜者、预期玩法指纹及存档暂存逻辑，详见[加载器配置](CodingStandards/Modules.zh-CN.md#模组加载器)。
+开发宿主在 `Config/DefaultGame.ini` 的 `[ModLoader]` 节中记录 `GameId`、`BaseReleaseVersion`、`BaseRegistrySha256` 与 `Backend`，并在同一节配置选择集合、整包摘要及扩展权限。生成流程以 UBT 目标、UHT 反射与项目内的导出声明为输入。宿主通过 `FWorldPolicy` 配置 World 授权、内容胜者、预期玩法指纹及存档暂存逻辑，详见[加载器配置](CodingStandards/Modules.zh-CN.md#模组加载器)。
 
 | 配置组 | 必填信息 | 验证规则 |
 | --- | --- | --- |
@@ -277,7 +277,7 @@ EXPORTTEST_API void PublishHealthChanged(float CurrentHealth);
 | `MOD_EXPORT_HOOK()` | World 成员，在 `.cpp` 中定义，接收一个标量并返回同类型结果 | 在声明上标记宏并保留原函数体，由 MHT 与 MST 生成 `Pre`、`On`、`Post` 入口 |
 | `MOD_EXPORT_EVENT` | World 成员，接收一个载荷并返回 `void` | 在事实发生处调用生成的 `Publish` |
 
-关联过程仅跨过受支持的 UE 标记、属性及注释，随后按活动 AST 解析声明。宿主在 `Config/ModAPITypes.json` 中保留稳定类型身份，ExportId、类型和权限均参与契约校验。标记本身不构造对象，也不改变成员的 C++ 访问级别或跨模块导出；私有访问桥和额外类型级标记属于设计扩展。[^R08]
+关联过程仅跨过受支持的 UE 标记、属性及注释，随后按活动 AST 解析声明。生成器从 UHT 或模块限定的 C++ 名称推导稳定身份。ExportId、类型和权限均参与契约校验。标记本身不构造对象，也不改变成员的 C++ 访问级别或跨模块导出；私有访问桥和额外类型级标记属于设计扩展。[^R08]
 
 ### 统一选项 Schema
 
@@ -306,7 +306,7 @@ MHT 按类型与公开名生成 C++ API 的契约标识，类型映射、生成�
 
 **蓝图Mod导出** 面板提供 API、Event 和 Hook 管理：API 与 Hook 的实现图由各自的独立声明持有，Event 保存发布设置。游戏将声明对应的 **Hook Point** 或 **Publish Event** 节点放入业务图，并连接其执行输入。C++ 宿主通过 `UModExtensionSubsystem` 另行提供内容槽与锚点，并通过 `UModAPIHostSubsystem` 提供 API 实例。
 
-`Config/ModHeaderTool.json` 中的 `blueprintExports` 列出待导出的已保存资产、typeId 与所属模块，由 `ModExportBlueprints` 将编译后的受支持签名写入快照。当前蓝图 API 使用 `World`、`GameThread` 与 `ReturnError`，接受标量输入和最多一个标量结果；已连线的 Hook/Event 可使用标量、受支持的结构体或具备 World 视图的 UObject，未连线的扩展声明则跳过导出。已导出的宿主蓝图由游戏注册 World 实例，生成的 SDK 通过活动 `UModInstance` 获取已授权的引用，详见[UHT 蓝图导出](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#从宿主蓝图导出-api)。
+`ModExportBlueprints` 使用 Asset Registry 发现拥有导出声明的蓝图，解析其持久身份与所属模块，再将编译后的受支持签名写入快照。当前蓝图 API 使用 `World`、`GameThread` 与 `ReturnError`，接受标量输入和最多一个标量结果；已连线的 Hook/Event 可使用标量、受支持的结构体或具备 World 视图的 UObject，未连线的扩展声明则跳过导出。已导出的宿主蓝图由游戏注册 World 实例，生成的 SDK 通过活动 `UModInstance` 获取已授权的引用，详见[UHT 蓝图导出](../UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#从宿主蓝图导出-api)。
 
 在目标设计中，C++ 与蓝图声明汇入统一的生成模型，按受支持的类型闭包、签名投影与检查规则完成解析，进而生成 C++ 受限视图、蓝图具体包装类型、API 函数桥、Event 回调签名、Hook 阶段上下文及节点展开规则。蓝图不直接使用任意 C++ 模板实例，所需的具体反射包装按第 10 节的构建顺序生成并编译。
 

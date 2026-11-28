@@ -202,6 +202,14 @@ class UModBlueprintExports final : public UBlueprintExtension
 	GENERATED_BODY()
 
 public:
+	/// Retains a previously published identity.
+	UPROPERTY()
+	FString StableTypeId;
+
+	/// Selects an owner when runtime module ownership is ambiguous.
+	UPROPERTY()
+	FName OwnerModule;
+
 	UPROPERTY()
 	TArray<TObjectPtr<UModBlueprintAPIExport>> APIs;
 

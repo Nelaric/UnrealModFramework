@@ -2,6 +2,7 @@
 #include "ModExportBlueprintsCommandlet.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "BlueprintDiscovery.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Blueprint.h"
 #include "Engine/BlueprintGeneratedClass.h"
@@ -16,7 +17,6 @@
 #include "ModExportMetadataOptions.h"
 #include "ModExportOptionsCommandlet.h"
 #include "Modules/ModuleManager.h"
-#include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "UObject/Package.h"
 
@@ -204,26 +204,37 @@ bool WriteExtension(const FExportedExtension& Entry, UBlueprint& Blueprint, TSet
 	return true;
 }
 
-bool WriteType(const FJsonObject& Config, IAssetRegistry& Registry, TSet<FGuid>& Ids, TSet<FName>& Seen,
+bool WriteType(const FAssetData& Data, IAssetRegistry& Registry, TSet<FGuid>& Ids, TSet<FName>& Seen,
                TSet<FString>& Files, TArray<TSharedPtr<FJsonValue>>& Output)
 {
-	FString Asset, TypeId, Module;
-	if (!Config.TryGetStringField(TEXT("asset"), Asset) || !Config.TryGetStringField(TEXT("typeId"), TypeId) ||
-	    !Config.TryGetStringField(TEXT("module"), Module) || TypeId.IsEmpty() || Module.IsEmpty() ||
-	    !FPackageName::IsValidObjectPath(Asset))
-	{
-		UE_LOG(LogTemp, Error, TEXT("Invalid Blueprint export configuration. Expected asset, typeId and module."));
-		return false;
-	}
-	FString AssetFilename;
-	if (!FPackageName::DoesPackageExist(FPackageName::ObjectPathToPackageName(Asset), &AssetFilename))
-	{
-		UE_LOG(LogTemp, Error, TEXT("%s: Blueprint package does not exist."), *Asset);
-		return false;
-	}
-	Registry.ScanFilesSynchronous({FPaths::ConvertRelativePathToFull(AssetFilename)});
-	const auto Data = Registry.GetAssetByObjectPath(FSoftObjectPath(Asset), true);
+	const FString Asset = Data.GetObjectPathString();
 	auto* Blueprint = Cast<UBlueprint>(Data.GetAsset());
+	Mod::BlueprintIntegration::FExportIdentity Identity;
+	if (!Blueprint)
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s: Could not load the candidate Blueprint."), *Asset);
+		return false;
+	}
+	if (!Mod::BlueprintIntegration::ReadExportIdentity(*Blueprint, Identity))
+	{
+		return true;
+	}
+	const FName Owner = Mod::ExportCodeGenerator::ResolveExportOwner(*Blueprint, Identity.Module);
+	if (Owner.IsNone())
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s: Select a runtime module in the Blueprint export declarations."), *Asset);
+		return false;
+	}
+	if (Identity.TypeId.IsEmpty())
+	{
+		const FGuid Guid = Blueprint->GetOutermost()->GetPersistentGuid();
+		if (!Guid.IsValid())
+		{
+			UE_LOG(LogTemp, Error, TEXT("%s: Save the Blueprint to establish its persistent identity."), *Asset);
+			return false;
+		}
+		Identity.TypeId = TEXT("bp.") + Guid.ToString(EGuidFormats::Digits).ToLower();
+	}
 	FString Filename;
 	if (!Blueprint || Blueprint->GetPathName() != Asset || Blueprint->GetOutermost()->IsDirty() ||
 	    Blueprint->BlueprintType == BPTYPE_LevelScript || Blueprint->BlueprintType == BPTYPE_FunctionLibrary ||
@@ -259,8 +270,8 @@ bool WriteType(const FJsonObject& Config, IAssetRegistry& Registry, TSet<FGuid>&
 		}
 	}
 	auto Json = MakeShared<FJsonObject>();
-	Json->SetStringField(TEXT("typeId"), TypeId);
-	Json->SetStringField(TEXT("module"), Module);
+	Json->SetStringField(TEXT("typeId"), Identity.TypeId);
+	Json->SetStringField(TEXT("module"), Owner.ToString());
 	Json->SetStringField(TEXT("asset"), Asset);
 	Json->SetStringField(TEXT("class"), Blueprint->GeneratedClass->GetPathName());
 	Json->SetStringField(TEXT("file"), FPaths::ConvertRelativePathToFull(Filename));
@@ -275,8 +286,7 @@ bool WriteType(const FJsonObject& Config, IAssetRegistry& Registry, TSet<FGuid>&
 	}
 	if (APIs.IsEmpty() && ExtensionRecords.IsEmpty())
 	{
-		UE_LOG(LogTemp, Error, TEXT("%s: No declaration has a runtime implementation."), *Asset);
-		return false;
+		return true;
 	}
 	Json->SetArrayField(TEXT("extensions"), MoveTemp(ExtensionRecords));
 	Output.Add(MakeShared<FJsonValueObject>(Json));
@@ -294,17 +304,10 @@ UModExportBlueprintsCommandlet::UModExportBlueprintsCommandlet()
 
 int32 UModExportBlueprintsCommandlet::Main(const FString& Params)
 {
-	FString Input, Output, Text;
-	FParse::Value(*Params, TEXT("Input="), Input);
-	FParse::Value(*Params, TEXT("Output="), Output);
-	TSharedPtr<FJsonObject> Config;
-	const TArray<TSharedPtr<FJsonValue>>* Types = nullptr;
-	if (Output.IsEmpty() || !FFileHelper::LoadFileToString(Text, *Input) ||
-	    !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Config) || !Config ||
-	    !Config->TryGetArrayField(TEXT("blueprintExports"), Types))
+	FString Output, Text;
+	if (!FParse::Value(*Params, TEXT("Output="), Output) || Output.IsEmpty())
 	{
-		UE_LOG(LogTemp, Error,
-		       TEXT("Expected -Input=<ModHeaderTool.json> with blueprintExports and -Output=<snapshot>."));
+		UE_LOG(LogTemp, Error, TEXT("Expected -Output=<Blueprint export snapshot>."));
 		return 1;
 	}
 	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
@@ -318,10 +321,9 @@ int32 UModExportBlueprintsCommandlet::Main(const FString& Params)
 	TSet<FName> Seen;
 	TSet<FString> Files;
 	TArray<TSharedPtr<FJsonValue>> ExportedTypes;
-	for (const auto& Type : *Types)
+	for (const FAssetData& Asset : Mod::ExportCodeGenerator::FindExportCandidates(Registry))
 	{
-		const TSharedPtr<FJsonObject>* Entry = nullptr;
-		if (!Type->TryGetObject(Entry) || !WriteType(**Entry, Registry, Ids, Seen, Files, ExportedTypes))
+		if (!WriteType(Asset, Registry, Ids, Seen, Files, ExportedTypes))
 		{
 			return 1;
 		}

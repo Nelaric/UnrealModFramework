@@ -163,16 +163,21 @@ API DeclarationBinding::Bind(GenerationModel& Model, ClangLibrary& Clang, Export
 	const auto Start =
 	    CursorSource::ReadLocation(Clang, Clang.clang_getRangeStart(Clang.clang_getCursorExtent(Method)));
 	const bool bReflected = CheckGap(Macro, Source, Start.Offset);
-	const auto& Owner = TypeResolution::ResolveRecord(Model, Clang, Clang.clang_getCursorSemanticParent(Method), Macro);
+	const auto Parent = Clang.clang_getCursorSemanticParent(Method);
+	auto Scope = Field(Macro, "Scope");
+	if (Scope.empty())
+	{
+		Scope = TypeResolution::InferExportScope(Clang, Parent, Macro);
+	}
+	const auto& Owner = TypeResolution::ResolveRecord(Model, Clang, Parent, Macro, {}, Scope);
 	API API;
 	API.Owner = Owner.Identity.CppName;
 	API.Module = Owner.Module;
 	API.Version = Field(Macro, "ExportVersion");
-	API.Scope = Field(Macro, "Scope");
-	if (API.Scope != Owner.Identity.Scope || Field(Macro, "Thread") != "GameThread" ||
-	    Field(Macro, "FailureRule") != "ReturnError")
+	API.Scope = Owner.Identity.Scope;
+	if (Field(Macro, "Thread") != "GameThread" || Field(Macro, "FailureRule") != "ReturnError")
 	{
-		CursorSource::Fail(Macro, "require the owner's declared scope, GameThread, and ReturnError for this backend.");
+		CursorSource::Fail(Macro, "require GameThread and ReturnError for this backend.");
 	}
 	for (const auto& Item : Macro.Fields)
 	{

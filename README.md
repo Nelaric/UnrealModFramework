@@ -52,7 +52,7 @@ The script exports the plugin source, the four tool executables, `libclang`, and
 ## Export APIs, Hooks, and Events
 
 1. Call `ExportMetadata.ConfigureTarget(this)` once in each participating Game or Editor target. Exporting modules depend on `ModAPI` through their normal UE build rules. This dependency also exposes the export macros. [Host module and link setup](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#host-compilation-and-linking)
-2. Set `mode` to `generate` in `Config/ModHeaderTool.json` and specify the game ID, type identities, and `metadataEditorTarget`. For Blueprint exports, list each saved asset, its stable `typeId`, and its owning module under `blueprintExports`. [Sample host configuration](UnrealModFramework/Config/ModHeaderTool.json)
+2. Declare exports in C++ or the Blueprint Mod Export panel. UMF derives the project identity, discovers reflected and signature types, and validates the selected target using its real compile commands. [UHT and discovery](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
 3. MHT discovers project modules under `Source`. Use `Plugins` in the optional `<project>.modexport` beside the `.uproject` to select plugins. Set `ExcludeModules` at the top level for all selected modules or inside a plugin entry for that plugin alone. [Module selection](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md#module-selection)
 4. Declare exports in C++ or in the Blueprint editor's **蓝图Mod导出** panel, and build the target through MBT when using automatic C++ Hooks. [Host declarations and supported signatures](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.md)
 

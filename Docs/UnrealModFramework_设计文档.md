@@ -112,7 +112,7 @@ MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Pe
 EXPORTTEST_API float GetCurrentHealth() const;
 ```
 
-其中，`MOD_EXPORT_API` 关联具体成员，`MOD_EXPORT_EVENT` 关联显式发布函数，`MOD_EXPORT_HOOK` 关联业务函数；类型身份保存在宿主的 `Config/ModAPITypes.json` 中，生成器仅使用当前 Target 下的活动声明。在开发宿主的[角色业务实现](../UnrealModFramework/Source/ExportTest/GameCharacter.cpp)中，`ChangeHealth` 直接调用 `ApplyHealth`。各字段及声明说明详见[游戏端详细设计第 8 节](UnrealModFramework_游戏端详细设计.md#8-游戏声明与蓝图接入)。
+其中，`MOD_EXPORT_API` 关联具体成员，`MOD_EXPORT_EVENT` 关联显式发布函数，`MOD_EXPORT_HOOK` 关联业务函数；类型身份由 UHT 和活动 Clang AST 推导，已发布的旧 ID 可在其类型声明上明确保留。在开发宿主的[角色业务实现](../UnrealModFramework/Source/ExportTest/GameCharacter.cpp)中，`ChangeHealth` 直接调用 `ApplyHealth`。各字段及声明说明详见[游戏端详细设计第 8 节](UnrealModFramework_游戏端详细设计.md#8-游戏声明与蓝图接入)。
 
 | 机制 | 声明提供的信息 | 游戏必须显式完成的接入 |
 | --- | --- | --- |

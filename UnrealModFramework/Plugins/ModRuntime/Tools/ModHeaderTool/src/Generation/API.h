@@ -7,6 +7,7 @@
 #include "ModHeaderTool/src/Scan/ExportMacro.h"
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <string>
@@ -44,6 +45,8 @@ struct API
 	std::vector<APIParameter> Parameters;
 	std::string SourceSignature;
 	std::string DeclarationUsr;
+	std::filesystem::path DefinitionFile;
+	std::filesystem::path TranslationUnit;
 	std::optional<std::map<std::string, std::uint32_t>> SourceErrorCodes;
 	std::string Symbol;
 	std::optional<BlueprintFunction> Blueprint;

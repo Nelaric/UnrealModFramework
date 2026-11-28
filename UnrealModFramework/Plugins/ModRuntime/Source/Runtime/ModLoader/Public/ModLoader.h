@@ -115,7 +115,7 @@ struct FLoadPolicy
 	float PreparationTimeoutSeconds = 120.0f;
 	/// Overrides the default of enforcing only a populated allowlist.
 	TOptional<bool> bEnforcePackageAllowlist;
-	/// Enables hash-verified independent native extensions for desktop Pak packages.
+	/// Enables hash-verified native extensions for desktop Pak packages.
 	bool bAllowNativeExtensions = false;
 	/// Selection for this load and its directory watcher.
 	FPackageSelection Selection;

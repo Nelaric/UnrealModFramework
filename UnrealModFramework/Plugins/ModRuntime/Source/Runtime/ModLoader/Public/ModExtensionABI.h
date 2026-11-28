@@ -124,7 +124,7 @@ extern "C"
 	typedef uint32_t(UMF_EXTENSION_CALL* UMF_ExtensionCallbackV1)(uint64_t User, const UMF_ExtensionCallV1* Call,
 	                                                              UMF_ExtensionReplyV1* Reply);
 
-	/// An exact SDK contract and subscription owned by this native extension session.
+	/// An SDK contract and subscription owned by this session.
 	typedef struct UMF_ExtensionRegistrationV1
 	{
 		uint32_t StructSize;

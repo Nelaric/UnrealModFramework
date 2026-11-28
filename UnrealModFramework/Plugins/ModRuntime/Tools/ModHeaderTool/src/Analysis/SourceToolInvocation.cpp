@@ -86,10 +86,10 @@ nlohmann::json SourceToolInvocation::SourceRequest(const GenerationModel& Model,
 		throw std::runtime_error("Source error analysis requires an absolute -resource-dir in analysisArguments.");
 	}
 	return {{"format", "UMF.SourceAnalysisRequest"},
-	        {"schemaVersion", 1},
+	        {"schemaVersion", 2},
 	        {"compilationDatabase", Path::PathToUtf8(Database)},
 	        {"target", Model.Input.Target},
-	        {"catalog", Path::PathToUtf8(Model.SourceErrorCatalog)},
+	        {"projectRoot", Path::PathToUtf8(Model.Input.Project.Root)},
 	        {"libclang", Path::PathToUtf8(fs::canonical(ClangLibrary))},
 	        {"resourceDirectory", Path::PathToUtf8(fs::canonical(ResourceDirectory))},
 	        {"analysisArguments", std::move(AnalysisArguments)}};
@@ -145,8 +145,9 @@ void SourceToolInvocation::RewriteHooks(GenerationModel& Model, const fs::path& 
 	Model.Dependencies.insert(Tool);
 	auto Request = SourceRequest(Model, Database, ClangLibrary);
 	Request["format"] = "UMF.HookSourceRequest";
+	Request["schemaVersion"] = 1;
 	Request["modules"] = std::move(Modules);
-	const SourceReport Report;
+	const SourceReport Report(Model.Input.File.parent_path());
 	Mod::BuildTool::File::WriteFileAtomically(Report.Request, Request.dump(2) + "\n");
 	const auto Started = std::chrono::steady_clock::now();
 	const int Exit = Mod::BuildTool::Process::RunProcess(

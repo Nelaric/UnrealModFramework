@@ -30,7 +30,7 @@ namespace Mod::BuildTool
 namespace
 {
 constexpr const char* Format = "UMF.MetadataBundle";
-constexpr const char* Generator = "ModBuildTool.Metadata/1";
+constexpr const char* Generator = "ModBuildTool.Metadata/2";
 constexpr const char* Payloads[] = {"options.json", "blueprints.json", "inputs.json"};
 namespace Schema = ExportMetadata::Schema;
 
@@ -135,7 +135,7 @@ std::string NormalizedText(const fs::path& FilePath)
 	return Text;
 }
 
-void Walk(const fs::path& Root, const auto& Visit)
+void Walk(const fs::path& Root, const auto& Visit, bool bIncludeContent = false)
 {
 	if (!fs::is_directory(Path::FileSystemPath(Root)))
 	{
@@ -148,7 +148,7 @@ void Walk(const fs::path& Root, const auto& Visit)
 		{
 			const auto Name = Lower(Path::PathToUtf8(It->path().filename()));
 			if (Name == "binaries" || Name == "intermediate" || Name == "saved" || Name == "obj" || Name == "bin" ||
-			    Name == "tools" || Name == "content")
+			    Name == "tools" || (!bIncludeContent && Name == "content"))
 			{
 				It.disable_recursion_pending();
 			}
@@ -189,6 +189,26 @@ Json SourceInputs(const Roots& Files)
 				     Record(Input);
 			     }
 		     });
+	}
+	return Result;
+}
+
+Json AssetInventory(const Roots& Files)
+{
+	Json Result = Json::object();
+	for (const auto* Directory : {"Content", "Plugins"})
+	{
+		Walk(
+		    Files.Project.parent_path() / Directory,
+		    [&](const fs::path& Asset)
+		    {
+			    const auto Extension = Lower(Path::PathToUtf8(Asset.extension()));
+			    if (Extension == ".uasset" || Extension == ".umap")
+			    {
+				    Result[Files.Encode(Asset)] = Hash::HashFile(Asset);
+			    }
+		    },
+		    true);
 	}
 	return Result;
 }
@@ -294,58 +314,95 @@ Json ConfigInputs(const Roots& Files, const Json& ConfigRoots, std::string_view 
 	return Result;
 }
 
-Json AllowedTargets(const Roots& Files, const UeHookTarget& Producer)
+Json DiscoverTargetTypes(const Roots& Files, const fs::path& Output)
 {
-	const auto Config = ContextDocument::ReadJson(Files.Project.parent_path() / "Config/ModHeaderTool.json");
-	if (Producer.Target != ContextDocument::Text(Config, "metadataEditorTarget") ||
-	    Producer.Configuration != "Development" ||
+	const auto Environment = ProcessEnvironment::CaptureEnvironment();
+	const auto Ubt = Files.Engine / "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll";
+	UeInvocation::Run(UeInvocation::Dotnet(Files.Engine, Environment),
+	                  {Path::PathToUtf8(Ubt), "-Mode=QueryTargets", "-Project=" + Path::PathToUtf8(Files.Project),
+	                   "-IncludeAllTargets", "-DontIncludeParentAssembly", "-NoEngineChanges",
+	                   "-Output=" + Path::PathToUtf8(Output)},
+	                  Files.Project.parent_path(), Environment, "query project targets");
+	const auto Document = ContextDocument::ReadJson(Output);
+	Json Types = Json::object();
+	for (const auto& Target : Document.at("Targets"))
+	{
+		const auto Name = ContextDocument::Text(Target, "Name");
+		if (Name.empty() ||
+		    Name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") != Name.npos ||
+		    Types.contains(Name))
+		{
+			throw std::runtime_error("UBT returned an invalid or duplicate project target: " + Name);
+		}
+		Types[Name] = ContextDocument::Text(Target, "Type");
+	}
+	return Types;
+}
+
+Json AllowedTargets(const Json& Types, const UeHookTarget& Producer)
+{
+	if (!Types.is_object() || Types.value(Producer.Target, "") != "Editor" || Producer.Configuration != "Development" ||
 	    ((Producer.Platform == "Win64" || Producer.Platform == "Linux") && Producer.Architecture != "x64") ||
 	    (Producer.Platform != "Win64" && Producer.Platform != "Linux" && Producer.Platform != "Mac") ||
 	    (Producer.Architecture != "x64" && Producer.Architecture != "arm64"))
 	{
-		throw std::runtime_error("Invalid Development Editor metadata producer.");
+		throw std::runtime_error("Metadata requires a project Development Editor as the producer.");
 	}
 	Json Targets = Json::array({Identity(Producer)});
-	for (const auto& Name : Config.at("metadataGameTargets").get<std::vector<std::string>>())
+	for (const auto& [Name, Type] : Types.items())
 	{
-		auto Consumer = Producer;
-		Consumer.Target = Name;
-		Targets.push_back(Identity(Consumer));
-		if (Producer.Platform != "Mac")
+		if (Type != "Game" && Type != "Client" && Type != "Server")
 		{
-			Consumer.Architecture = "arm64";
-			Consumer.Platform = Producer.Platform == "Linux" ? "LinuxArm64" : "Win64";
+			continue;
+		}
+		const auto Add = [&](std::string_view Platform, std::string_view Architecture)
+		{
+			auto Consumer = Producer;
+			Consumer.Target = Name;
+			Consumer.Platform = Platform;
+			Consumer.Architecture = Architecture;
 			Targets.push_back(Identity(Consumer));
-		}
-	}
-	// Additional desktop or cross-build variants must pass the same target config comparison.
-	for (const auto& Consumer : Config.value("metadataExtraConsumers", Json::array()))
-	{
-		for (const auto* Key : {"name", "platform", "architecture", "configuration"})
+		};
+		Add(Producer.Platform, Producer.Architecture);
+		if (Producer.Platform == "Win64")
 		{
-			const auto Identifier = ContextDocument::Text(Consumer, Key);
-			if (Identifier.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") !=
-			    Identifier.npos)
+			Add("Win64", "arm64");
+			Add("Win64", "arm64ec");
+		}
+		else if (Producer.Platform == "Linux")
+		{
+			Add("LinuxArm64", "arm64");
+			Add("Android", "x64");
+			Add("Android", "arm64");
+		}
+		else
+		{
+			for (const auto* AppleTarget : {"IOS", "TVOS", "VisionOS"})
 			{
-				throw std::runtime_error("Invalid explicit metadata consumer variant.");
+				Add(AppleTarget, "arm64");
+				Add(AppleTarget, std::string_view(AppleTarget) == "TVOS" ? "tvossimulator" : "iossimulator");
 			}
-		}
-		if (std::ranges::find(Targets, Consumer) == Targets.end())
-		{
-			Targets.push_back(Consumer);
 		}
 	}
 	return Targets;
 }
 
-void VerifySelection(const Roots& Files, const Json& Blueprints)
+void ValidateBlueprints(const Json& Blueprints)
 {
-	const auto Settings = ContextDocument::ReadJson(Files.Project.parent_path() / "Config/ModHeaderTool.json");
-	Json Selection = Json::array();
+	if (Blueprints.at("format") != "UMF.BlueprintExports" || Blueprints.at("schemaVersion") != 1 ||
+	    !Blueprints.at("types").is_array() || !Blueprints.at("inputs").is_array())
+	{
+		throw std::runtime_error("Invalid Blueprint export snapshot.");
+	}
+	std::set<std::string> TypeIds;
+	std::set<std::string> Classes;
 	for (const auto& Type : Blueprints.at("types"))
 	{
-		Selection.push_back(
-		    {{"asset", Type.at("asset")}, {"module", Type.at("module")}, {"typeId", Type.at("typeId")}});
+		if (!TypeIds.insert(Lower(ContextDocument::Text(Type, "typeId"))).second ||
+		    !Classes.insert(ContextDocument::Text(Type, "class")).second)
+		{
+			throw std::runtime_error("Duplicate Blueprint export identity.");
+		}
 		for (const auto& Extension : Type.at("extensions"))
 		{
 			if (Extension.contains("structLayout") ||
@@ -355,11 +412,6 @@ void VerifySelection(const Roots& Files, const Json& Blueprints)
 				    "Blueprint struct metadata must describe reflected fields without native layout.");
 			}
 		}
-	}
-	if (!Blueprints.at("types").is_array() || Blueprints.at("format") != "UMF.BlueprintExports" ||
-	    Blueprints.at("schemaVersion") != 1 || Selection != Settings.value("blueprintExports", Json::array()))
-	{
-		throw std::runtime_error("Metadata Blueprint exports do not match the configured declarations.");
 	}
 }
 
@@ -389,11 +441,6 @@ Bundle ReadBundle(const UeHookTarget& Target, const Roots& Files)
 	Producer.Platform = IdentityDocument.at("platform").get<std::string>();
 	Producer.Architecture = IdentityDocument.at("architecture").get<std::string>();
 	Producer.Configuration = IdentityDocument.at("configuration").get<std::string>();
-	const auto Targets = AllowedTargets(Files, Producer);
-	if (Manifest.at("consumers") != Targets || std::ranges::find(Targets, Identity(Target)) == Targets.end())
-	{
-		throw std::runtime_error("Metadata producer does not cover the requested target.");
-	}
 	const auto Read = [&](const char* Name)
 	{
 		const auto Payload = File::ReadFile(Path::ResolveGeneratedPath(Directory, Name));
@@ -404,7 +451,16 @@ Bundle ReadBundle(const UeHookTarget& Target, const Roots& Files)
 		return Json::parse(Payload);
 	};
 	Bundle Result{Hash::HashBytes(Bytes), Read("options.json"), Read("blueprints.json"), Read("inputs.json")};
-	VerifySelection(Files, Result.Blueprints);
+	ValidateBlueprints(Result.Blueprints);
+	const auto Targets = AllowedTargets(Result.Inputs.at("targetTypes"), Producer);
+	if (Manifest.at("consumers") != Targets || std::ranges::find(Targets, Identity(Target)) == Targets.end())
+	{
+		throw std::runtime_error("Metadata producer does not cover the requested target.");
+	}
+	if (Result.Inputs.at("assetInventory") != AssetInventory(Files))
+	{
+		throw std::runtime_error("Metadata is stale: the project Blueprint discovery inputs have changed.");
+	}
 	if (Result.Options.at("SchemaVersion") != Schema::SnapshotVersion ||
 	    Result.Options.at("Project") != Manifest.at("project") || Result.Inputs.at("sources") != SourceInputs(Files))
 	{
@@ -464,7 +520,6 @@ void MetadataBundle::Prepare(const UeHookTarget& Producer)
 	RequireCommits(Producer);
 	const Roots Files{fs::canonical(Path::FileSystemPath(Producer.Project)),
 	                  UeInvocation::EngineDirectory(Producer.Engine)};
-	const auto Targets = AllowedTargets(Files, Producer);
 	const auto Editor = UeInvocation::Editor(Files.Engine, Producer);
 	const auto Output = fs::weakly_canonical(Path::FileSystemPath(Producer.Metadata));
 	fs::create_directories(Path::FileSystemPath(Output.parent_path()));
@@ -481,47 +536,45 @@ void MetadataBundle::Prepare(const UeHookTarget& Producer)
 	}
 
 	const auto SourceBefore = SourceInputs(Files);
+	const auto AssetsBefore = AssetInventory(Files);
+	const auto Temporary = Output.parent_path() / (".mbt-stage-" + TemporaryName::UniqueSuffix());
+	fs::create_directory(Path::FileSystemPath(Temporary));
+	const OwnedStage Stage{Temporary, Output.parent_path()};
+	const auto Types = DiscoverTargetTypes(Files, Stage.Path / "targets.json");
+	const auto Targets = AllowedTargets(Types, Producer);
 	UeHookBuild::Run(Producer);
 	const auto Receipt = ContextDocument::ReadJson(UeInvocation::Receipt(Files.Project, Producer));
 	if (Receipt.at("TargetType") != "Editor")
 	{
 		throw std::runtime_error("Metadata bootstrap did not build an Editor target.");
 	}
-	const auto Temporary = Output.parent_path() / (".mbt-stage-" + TemporaryName::UniqueSuffix());
-	fs::create_directory(Path::FileSystemPath(Temporary));
-	const OwnedStage Stage{Temporary, Output.parent_path()};
-	const auto Settings = Files.Project.parent_path() / "Config/ModHeaderTool.json";
-	const auto BlueprintOptions = ContextDocument::ReadJson(Settings);
-	const auto Selection = Stage.Path / "selection.json";
-	File::WriteFileAtomically(
-	    Selection, Json{{"blueprintExports", BlueprintOptions.value("blueprintExports", Json::array())}}.dump());
 	const auto RawOptions = Stage.Path / "options.json";
 	const auto RawBlueprints = Stage.Path / "blueprints.json";
-	UeInvocation::Run(
-	    Editor,
-	    {Path::PathToUtf8(Files.Project), "-run=ModExportBlueprints", "-Input=" + Path::PathToUtf8(Selection),
-	     "-Output=" + Path::PathToUtf8(RawBlueprints), "-OptionsOutput=" + Path::PathToUtf8(RawOptions),
-	     "-abslog=" + Path::PathToUtf8(Output.parent_path() / "metadata-export.log"), "-unattended", "-nullrhi",
-	     "-nosound", "-nosplash", "-SkipCompile", "-noP4", "-stdout", "-ddc=InstalledNoZenLocalFallback"},
-	    Files.Project.parent_path(), ProcessEnvironment::CaptureEnvironment(), "metadata commandlet");
+	UeInvocation::Run(Editor,
+	                  {Path::PathToUtf8(Files.Project), "-run=ModExportBlueprints",
+	                   "-Output=" + Path::PathToUtf8(RawBlueprints), "-OptionsOutput=" + Path::PathToUtf8(RawOptions),
+	                   "-abslog=" + Path::PathToUtf8(Output.parent_path() / "metadata-export.log"), "-unattended",
+	                   "-nullrhi", "-nosound", "-nosplash", "-SkipCompile", "-noP4", "-stdout",
+	                   "-ddc=InstalledNoZenLocalFallback"},
+	                  Files.Project.parent_path(), ProcessEnvironment::CaptureEnvironment(), "metadata commandlet");
 
 	Json Options = ContextDocument::ReadJson(RawOptions);
 	Json Blueprints = ContextDocument::ReadJson(RawBlueprints);
-	VerifySelection(Files, Blueprints);
+	ValidateBlueprints(Blueprints);
 	Json ConfigRoots = Json::array();
 	for (const auto& Item : Options.at("ConfigRoots"))
 	{
 		ConfigRoots.push_back(Files.Encode(Path::PathFromUtf8(Item.get<std::string>())));
 	}
 	auto SourceAfter = SourceInputs(Files);
-	if (SourceBefore != SourceAfter)
+	if (SourceBefore != SourceAfter || AssetsBefore != AssetInventory(Files))
 	{
 		throw std::runtime_error("Project inputs changed during metadata preparation.");
 	}
-	Json Inputs = {{"sources", std::move(SourceAfter)},
-	               {"assets", Json::object()},
-	               {"configRoots", ConfigRoots},
-	               {"config", ConfigInputs(Files, ConfigRoots, Producer.Platform, false)}};
+	Json Inputs = {
+	    {"sources", std::move(SourceAfter)}, {"assets", Json::object()},
+	    {"assetInventory", AssetsBefore},    {"targetTypes", Types},
+	    {"configRoots", ConfigRoots},        {"config", ConfigInputs(Files, ConfigRoots, Producer.Platform, false)}};
 	for (auto& Item : Blueprints.at("inputs"))
 	{
 		const auto Path = Path::PathFromUtf8(Item.get<std::string>());

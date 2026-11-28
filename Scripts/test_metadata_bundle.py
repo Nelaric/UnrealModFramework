@@ -20,20 +20,16 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def variant(name, architecture):
-    return {"name": name, "platform": "Win64", "configuration": "Development", "architecture": architecture}
+def variant(name, architecture, platform="Win64"):
+    return {"name": name, "platform": platform, "configuration": "Development", "architecture": architecture}
 
 
-def make_bundle(project, bundle):
+def make_bundle(project, bundle, platform):
     project.mkdir()
     (project / "Config").mkdir()
     (project / "Content").mkdir()
-    settings = {"schemaVersion": 1, "metadataEditorTarget": "TestEditor", "metadataGameTargets": ["Test"],
-                "blueprintExports": [{"asset": "/Game/BP.BP", "typeId": "probe", "module": "Fixture"}]}
     project_path = project / "Test.uproject"
     project_path.write_bytes(encoded({"FileVersion": 3}))
-    config = project / "Config/ModHeaderTool.json"
-    config.write_bytes(encoded(settings))
     asset = project / "Content/BP.uasset"
     asset.write_bytes(b"fixture bytes")
     source = "Project/Test.uproject"
@@ -41,12 +37,20 @@ def make_bundle(project, bundle):
     payloads = {
         "options.json": {"Project": source, "SchemaVersion": 5, "Options": {}, "FunctionRedirects": []},
         "blueprints.json": {"format": "UMF.BlueprintExports", "schemaVersion": 1, "inputs": [asset_path],
-                            "types": [{**settings["blueprintExports"][0], "extensions": [], "apis": [],
+                            "types": [{"asset": "/Game/BP.BP", "typeId": "probe", "module": "Fixture", "extensions": [], "apis": [],
                                        "class": "/Game/BP.BP_C", "file": asset_path}]},
-        "inputs.json": {"sources": {source: digest(project_path.read_bytes()),
-                                    "Project/Config/ModHeaderTool.json": digest(config.read_bytes())},
-                        "assets": {asset_path: digest(asset.read_bytes())}, "configRoots": [], "config": {}},
+        "inputs.json": {"sources": {source: digest(project_path.read_bytes())},
+                        "assets": {asset_path: digest(asset.read_bytes())},
+                        "assetInventory": {asset_path: digest(asset.read_bytes())},
+                        "targetTypes": {"Test": "Game", "TestEditor": "Editor"},
+                        "configRoots": [], "config": {}},
     }
+    targets = [variant("TestEditor", "x64", platform), variant("Test", "x64", platform)]
+    if platform == "Linux":
+        targets.extend([variant("Test", "arm64", "LinuxArm64"), variant("Test", "x64", "Android"),
+                        variant("Test", "arm64", "Android")])
+    else:
+        targets.extend([variant("Test", "arm64"), variant("Test", "arm64ec")])
     hashes = {}
     bundle.mkdir()
     for name, payload in payloads.items():
@@ -54,15 +58,15 @@ def make_bundle(project, bundle):
         (bundle / name).write_bytes(data)
         hashes[name] = digest(data)
     (bundle / "manifest.json").write_bytes(encoded({
-        "format": "UMF.MetadataBundle", "schemaVersion": 1, "generatorVersion": "ModBuildTool.Metadata/1",
+        "format": "UMF.MetadataBundle", "schemaVersion": 1, "generatorVersion": "ModBuildTool.Metadata/2",
         "project": source, "sourceCommit": SOURCE_COMMIT, "engine": {"major": 5, "minor": 6, "patch": 1,
-        "upstreamCommit": ENGINE_COMMIT}, "producer": variant("TestEditor", "x64"),
-        "consumers": [variant("TestEditor", "x64"), variant("Test", "x64"), variant("Test", "arm64")],
+        "upstreamCommit": ENGINE_COMMIT}, "producer": variant("TestEditor", "x64", platform),
+        "consumers": targets,
         "payloads": hashes,
     }))
 
 
-def exercise(mbt, root):
+def exercise(mbt, root, platform):
     engine = root / "SDK/Engine"
     ubt = engine / "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll"
     ubt.parent.mkdir(parents=True)
@@ -71,11 +75,11 @@ def exercise(mbt, root):
     (engine / "Build/Build.version").write_bytes(encoded({"MajorVersion": 5, "MinorVersion": 6, "PatchVersion": 1}))
     producer = root / "EditorProject"
     bundle = root / "Metadata"
-    make_bundle(producer, bundle)
+    make_bundle(producer, bundle, platform)
     consumer = root / "GameProject"
     shutil.copytree(producer, consumer)
     args = [mbt, "validate-metadata", "--engine", engine, "--project", consumer / "Test.uproject", "--target", "Test",
-            "--platform", "Win64", "--configuration", "Development", "--architecture", "arm64",
+            "--platform", "LinuxArm64" if platform == "Linux" else platform, "--configuration", "Development", "--architecture", "arm64",
             "--commit", SOURCE_COMMIT, "--engine-commit", ENGINE_COMMIT, "--metadata", bundle]
 
     def verify(expected=None, **overrides):
@@ -106,8 +110,13 @@ def exercise(mbt, root):
     options.write_bytes(options_bytes)
     asset = consumer / "Content/BP.uasset"
     asset.write_bytes(b"changed")
-    verify("Blueprint package dependency changed")
+    verify("Blueprint discovery inputs have changed")
     asset.write_bytes((producer / "Content/BP.uasset").read_bytes())
+    added = consumer / "Content/NewBlueprint.uasset"
+    added.write_bytes(b"new export candidate")
+    verify("Blueprint discovery inputs have changed")
+    added.unlink()
+    verify()
     (engine / "Config").mkdir()
     (engine / "Config/BaseEngine.ini").write_text("[CoreRedirects]\n+FunctionRedirects=(OldName=\"x\",NewName=\"y\")\n",
                                                 encoding="utf-8")
@@ -121,5 +130,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise SystemExit("Usage: test_metadata_bundle.py MOD_BUILD_TOOL")
     with tempfile.TemporaryDirectory(prefix="umf-metadata-") as directory:
-        exercise(Path(sys.argv[1]).resolve(strict=True), Path(directory))
+        executable = Path(sys.argv[1]).resolve(strict=True)
+        exercise(executable, Path(directory) / "Windows", "Win64")
+        exercise(executable, Path(directory) / "Linux", "Linux")
     print("Portable metadata and rejection checks passed")

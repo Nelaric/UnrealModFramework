@@ -1,10 +1,6 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
+/** @file ModNativeTarget.h */
 #pragma once
-
-/**
- * @file ModNativeTarget.h
- * @brief Shared desktop native-extension target and image format rules.
- */
 
 #include "CoreMinimal.h"
 #include "GenericPlatform/GenericPlatformFile.h"
@@ -44,7 +40,7 @@ struct FTarget
 	}
 };
 
-/// Resolves the exact platform and architecture pair recorded in a cook profile.
+/// Resolves the platform and architecture recorded in a cook profile.
 inline TOptional<FTarget> ResolveTarget(FStringView Platform, FStringView Architecture)
 {
 	const bool bX64 = Architecture.Equals(TEXT("x64"), ESearchCase::CaseSensitive);
@@ -84,8 +80,8 @@ inline const TCHAR* GetHostArchitecture()
 inline bool IsLibraryName(const FString& Name, const FTarget& Target)
 {
 	const TCHAR* Suffix = Target.GetSuffix();
-	const ESearchCase::Type SearchCase = Target.Format == EImageFormat::Pe ? ESearchCase::IgnoreCase
-	                                                                      : ESearchCase::CaseSensitive;
+	const ESearchCase::Type SearchCase =
+	    Target.Format == EImageFormat::Pe ? ESearchCase::IgnoreCase : ESearchCase::CaseSensitive;
 	if (Name.Len() <= FCString::Strlen(Suffix) || Name.Len() > 128 || Name.Contains(TEXT("..")) ||
 	    !Name.EndsWith(Suffix, SearchCase))
 	{
@@ -106,21 +102,41 @@ inline bool IsLibraryName(const FString& Name, const FTarget& Target)
 class FImageFile
 {
 public:
+	/** @brief Opens a bounded view of an existing file handle.
+	 * @param InFile Keep this handle alive for the lifetime of the view.
+	 */
 	explicit FImageFile(IFileHandle& InFile) : File(InFile), Size(FMath::Max<int64>(File.Size(), 0))
 	{
 	}
 
+	/** @brief Tests whether a byte range fits within the file.
+	 * @param Offset Start of the range.
+	 * @param Bytes Number of bytes in the range.
+	 * @return Whether the range is readable.
+	 */
 	bool Contains(uint64 Offset, uint64 Bytes) const
 	{
 		return Offset <= Size && Bytes <= Size - Offset;
 	}
 
+	/** @brief Reads a bounded range from the file.
+	 * @param Offset File offset to read.
+	 * @param Out Caller-owned buffer with space for Bytes.
+	 * @param Bytes Number of bytes to read.
+	 * @return Whether the complete range was read.
+	 */
 	bool ReadBytes(uint64 Offset, void* Out, uint64 Bytes) const
 	{
 		return Contains(Offset, Bytes) && File.Seek(static_cast<int64>(Offset)) &&
 		       File.Read(static_cast<uint8*>(Out), static_cast<int64>(Bytes));
 	}
 
+	/** @brief Reads a fixed-size header value from the file.
+	 * @tparam T Plain data type matching the header bytes.
+	 * @param Offset File offset of the header value.
+	 * @param Out Receives the value.
+	 * @return Whether the complete value was read.
+	 */
 	template <typename T> bool Read(uint64 Offset, T& Out) const
 	{
 		return ReadBytes(Offset, &Out, sizeof(T));
@@ -135,9 +151,8 @@ inline bool MatchesMacOSImage(const FImageFile& Image, bool bX64)
 {
 	// Read the thin Mach-O 64 header and require a macOS deployment command.
 	uint32 Header[8]{};
-	if (!Image.Read(0, Header) || Header[0] != 0xfeedfacf ||
-	    Header[1] != (bX64 ? 0x01000007u : 0x0100000cu) || Header[3] != 6 ||
-	    !Image.Contains(sizeof(Header), Header[5]) || Header[4] > Header[5] / 8)
+	if (!Image.Read(0, Header) || Header[0] != 0xfeedfacf || Header[1] != (bX64 ? 0x01000007u : 0x0100000cu) ||
+	    Header[3] != 6 || !Image.Contains(sizeof(Header), Header[5]) || Header[4] > Header[5] / 8)
 	{
 		return false;
 	}
@@ -160,7 +175,8 @@ inline bool MatchesMacOSImage(const FImageFile& Image, bool bX64)
 		}
 		switch (Command[0])
 		{
-		case BuildVersion: {
+		case BuildVersion:
+		{
 			uint32 Platform = 0;
 			if (bMacOS || Command[1] < 24 || !Image.Read(Offset + sizeof(Command), Platform) ||
 			    Platform != MacOSPlatform)
@@ -196,7 +212,8 @@ inline bool MatchesImage(IFileHandle& File, const FTarget& Target)
 	const bool bX64 = Target.Architecture == EArchitecture::X64;
 	switch (Target.Format)
 	{
-	case EImageFormat::Pe: {
+	case EImageFormat::Pe:
+	{
 		uint16 DosMagic = 0;
 		uint32 PeOffset = 0;
 		uint32 Signature = 0;
@@ -209,14 +226,14 @@ inline bool MatchesImage(IFileHandle& File, const FTarget& Target)
 			return false;
 		}
 		const uint64 Offset = PeOffset;
-		return Image.Read(Offset, Signature) && Signature == 0x00004550 &&
-		       Image.Read(Offset + 4, Machine) && Machine == (bX64 ? 0x8664 : 0xaa64) &&
-		       Image.Read(Offset + 20, OptionalSize) && OptionalSize >= sizeof(OptionalMagic) &&
-		       Image.Read(Offset + 22, Characteristics) && (Characteristics & 0x2000) != 0 &&
-		       Image.Contains(Offset + 24, OptionalSize) && Image.Read(Offset + 24, OptionalMagic) &&
-		       OptionalMagic == 0x20b;
+		return Image.Read(Offset, Signature) && Signature == 0x00004550 && Image.Read(Offset + 4, Machine) &&
+		       Machine == (bX64 ? 0x8664 : 0xaa64) && Image.Read(Offset + 20, OptionalSize) &&
+		       OptionalSize >= sizeof(OptionalMagic) && Image.Read(Offset + 22, Characteristics) &&
+		       (Characteristics & 0x2000) != 0 && Image.Contains(Offset + 24, OptionalSize) &&
+		       Image.Read(Offset + 24, OptionalMagic) && OptionalMagic == 0x20b;
 	}
-	case EImageFormat::Elf: {
+	case EImageFormat::Elf:
+	{
 		uint8 Ident[16]{};
 		uint16 Type = 0;
 		uint16 Machine = 0;

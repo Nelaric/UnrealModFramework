@@ -112,6 +112,7 @@ public:
 	UMF_SOURCE_CLANG(clang_getTokenKind)
 	UMF_SOURCE_CLANG(clang_getTokenSpelling)
 	UMF_SOURCE_CLANG(clang_Cursor_Evaluate)
+	UMF_SOURCE_CLANG(clang_EvalResult_getAsStr)
 	UMF_SOURCE_CLANG(clang_EvalResult_getKind)
 	UMF_SOURCE_CLANG(clang_EvalResult_getAsLongLong)
 	UMF_SOURCE_CLANG(clang_EvalResult_isUnsignedInt)

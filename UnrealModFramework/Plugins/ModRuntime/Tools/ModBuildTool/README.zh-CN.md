@@ -158,7 +158,7 @@ MHT 将 `SDK/Public/<game>.modabi.h` 标记为 `SdkHeader`，将生成的 JSON �
 
 MBT 驱动 UBT 使用生成的自动 Hook 源码副本，并依据目标回执核对桌面原生二进制。宿主与编译校验单元由 UBT 在所属模块编译。
 
-目标与 UHT 使用同一个 `Config/ModHeaderTool.json`。在运行 MBT 前准备工具，嵌套 UBT 调用复用该组可执行文件。
+UBT 为导出器提供目标图和编译动作。在运行 MBT 前准备原生工具，嵌套 UBT 调用复用对应可执行文件。
 
 以下更完整的动作图接入仍是后续契约：
 

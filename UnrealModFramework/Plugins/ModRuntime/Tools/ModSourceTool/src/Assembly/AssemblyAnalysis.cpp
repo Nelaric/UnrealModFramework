@@ -24,7 +24,7 @@ using Json = nlohmann::json;
 
 void AssemblyAnalysis::AnalyzeAssembly(const SourceRequest& Request, const fs::path& Compiler,
                                        const fs::path& Directory, const std::vector<std::string>& Arguments,
-                                       Json& Report)
+                                       std::optional<std::string>& CachedListing, Json& Report)
 {
 	const auto Symbol = Report.at("assemblySymbol").get<std::string>();
 	const auto Flag = Report.at("garbageFlag").get<std::uint64_t>();
@@ -57,8 +57,12 @@ void AssemblyAnalysis::AnalyzeAssembly(const SourceRequest& Request, const fs::p
 	    (Dialect != AssemblyCompiler::EDialect::Msvc || Compiler.parent_path().filename() == "x64") &&
 	    std::none_of(Arguments.begin(), Arguments.end(), [](const auto& Argument)
 	                 { return Argument == "/GL" || Argument == "-m32" || Argument.starts_with("-flto"); });
-	const auto Listing =
-	    bSupported ? AssemblyCompiler::CompileListing(Compiler, Directory, Arguments, Dialect) : std::string{};
+	if (bSupported && !CachedListing)
+	{
+		CachedListing = AssemblyCompiler::CompileListing(Compiler, Directory, Arguments, Dialect);
+	}
+	const std::string EmptyListing;
+	const std::string& Listing = CachedListing ? *CachedListing : EmptyListing;
 	const auto Source = Mod::BuildTool::Path::PathToUtf8(Request.Source);
 	const auto Locations = Dialect == AssemblyCompiler::EDialect::Msvc
 	                           ? DebugLocations{}

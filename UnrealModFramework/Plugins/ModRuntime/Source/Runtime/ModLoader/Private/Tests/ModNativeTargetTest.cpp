@@ -67,12 +67,9 @@ bool FModNativeTargetTest::RunTest(const FString&)
 		const TCHAR* Architecture;
 		const TCHAR* FileName;
 	} Targets[] = {
-	    {TEXT("Win64"), TEXT("x64"), TEXT("Extension.dll")},
-	    {TEXT("Win64"), TEXT("arm64"), TEXT("Extension.dll")},
-	    {TEXT("Linux"), TEXT("x64"), TEXT("Extension.so")},
-	    {TEXT("LinuxArm64"), TEXT("arm64"), TEXT("Extension.so")},
-	    {TEXT("Mac"), TEXT("x64"), TEXT("Extension.dylib")},
-	    {TEXT("Mac"), TEXT("arm64"), TEXT("Extension.dylib")},
+	    {TEXT("Win64"), TEXT("x64"), TEXT("Extension.dll")}, {TEXT("Win64"), TEXT("arm64"), TEXT("Extension.dll")},
+	    {TEXT("Linux"), TEXT("x64"), TEXT("Extension.so")},  {TEXT("LinuxArm64"), TEXT("arm64"), TEXT("Extension.so")},
+	    {TEXT("Mac"), TEXT("x64"), TEXT("Extension.dylib")}, {TEXT("Mac"), TEXT("arm64"), TEXT("Extension.dylib")},
 	};
 	const FString Path = FPaths::CreateTempFilename(*FPaths::ProjectIntermediateDir(), TEXT("ModNativeImage"));
 	ON_SCOPE_EXIT

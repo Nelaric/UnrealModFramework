@@ -10,8 +10,8 @@
 class AGameCharacter;
 
 /// Resolves the current character of one explicitly bound local player.
-UCLASS()
-class EXPORTTEST_API UGameLocalPlayerAPI : public ULocalPlayerSubsystem
+UCLASS(MinimalAPI, meta = (ModTypeId = "game.local_player_api"))
+class UGameLocalPlayerAPI : public ULocalPlayerSubsystem
 {
 	GENERATED_BODY()
 
@@ -20,6 +20,6 @@ public:
 	 * @return The character, or null while
 	 * no matching pawn is available.
 	 */
-	MOD_EXPORT_API(Scope = Player, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldRead))
-	AGameCharacter* GetLocalCharacter() const;
+	MOD_EXPORT_API(Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldRead))
+	EXPORTTEST_API AGameCharacter* GetLocalCharacter() const;
 };

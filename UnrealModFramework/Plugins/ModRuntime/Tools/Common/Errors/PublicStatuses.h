@@ -48,5 +48,21 @@ public:
 	    {"InternalError", "MOD_ERROR_INTERNALERROR", 65538,
 	     ErrorCodes::EncodeErrorCode(ErrorCodes::EErrorDomain::Adapter, 0x701)},
 	};
+
+	// Published source classifications retain their assigned values on every target.
+	static constexpr PublicStatus SourceStatuses[] = {
+	    {"InvalidMeshNull", "MOD_ERROR_INVALIDMESH_NULL", 0, 0x32010001},
+	    {"InvalidMeshGarbage", "MOD_ERROR_INVALIDMESH_GARBAGE", 0, 0x32010002},
+	    {"MeshHasNoSkeleton", "MOD_ERROR_MESH_SKELETON_MISSING", 0, 0x32030001},
+	    {"CurrentMeshHasNoSkeleton", "MOD_ERROR_CURRENT_MESH_SKELETON_MISSING", 0, 0x32030002},
+	    {"SkeletonMismatch", "MOD_ERROR_SKELETON_MISMATCH", 0, 0x32040001},
+	    {"MeshComponentUnavailable", "MOD_ERROR_MESH_COMPONENT_UNAVAILABLE", 0, 0x33020001},
+	    {"MeshComponentGarbage", "MOD_ERROR_MESH_COMPONENT_GARBAGE", 0, 0x33020002},
+	    {"MeshComponentNull", "MOD_ERROR_MESH_COMPONENT_NULL", 0, 0x33020003},
+	    {"DeclaredFailure", "MOD_ERROR_DECLARED_FAILURE", 0,
+	     ErrorCodes::EncodeErrorCode(ErrorCodes::EErrorDomain::Adapter, 0x801, 1)},
+	    {"NativeException", "MOD_ERROR_NATIVE_EXCEPTION", 0,
+	     ErrorCodes::EncodeErrorCode(ErrorCodes::EErrorDomain::Adapter, 0x802, 1)},
+	};
 };
 } // namespace Mod::Tools

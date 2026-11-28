@@ -77,13 +77,7 @@ public class ExportMetadata : ModuleRules
 				: GetUnixToolsBuildCommand(root, buildScript);
 			target.PreBuildSteps.Add(command);
 		}
-		string config = Path.Combine(root, "Config", "ModHeaderTool.json");
-		bool generate = GeneratesHost(config);
 		string configured = Environment.GetEnvironmentVariable("UMF_MBT_EXECUTABLE");
-		if (configured == null && File.Exists(config))
-		{
-			JsonObject.Read(new FileReference(config)).TryGetStringField("mbt", out configured);
-		}
 		string mbt = Path.GetFullPath(
 			configured
 				?? Path.Combine(
@@ -106,10 +100,6 @@ public class ExportMetadata : ModuleRules
 		);
 		string Quote(string path) => OperatingSystem.IsWindows() ? QuoteCommandPath(path) : QuotePosixPath(path);
 		target.PreBuildSteps.Add($"{Quote(mbt)} refresh-ue-watches --contexts {Quote(contexts)}");
-		if (!generate)
-		{
-			return;
-		}
 		string receipt = TargetReceipt
 			.GetDefaultPath(project.Directory, target.Name, target.Platform, target.Configuration, target.Architectures)
 			.FullName;
@@ -158,14 +148,6 @@ public class ExportMetadata : ModuleRules
 		libraryModule.Type = ModuleType.External;
 	}
 
-	private static bool GeneratesHost(string config) =>
-		Environment.GetEnvironmentVariable("UMF_MHT_BUILD_INPUT") != null
-		|| (
-			File.Exists(config)
-			&& JsonObject.Read(new FileReference(config)).TryGetStringField("mode", out string mode)
-			&& mode == "generate"
-		);
-
 	private static bool IsHostTarget(ReadOnlyTargetRules target) =>
 		target.ProjectFile != null
 		&& target.ProjectDefinitions.Contains("UMF_MHT_TARGET_CONFIGURATION=" + target.Configuration);
@@ -189,11 +171,6 @@ public class ExportMetadata : ModuleRules
 			return;
 		}
 		string root = target.ProjectFile!.Directory.FullName;
-		string config = Path.Combine(root, "Config", "ModHeaderTool.json");
-		if (File.Exists(config))
-		{
-			runtime.ExternalDependencies.Add(config);
-		}
 		string variant = VariantDirectory(
 			Path.Combine(root, "Intermediate", "ModTools", "ModHeaderTool", "HostTargets"),
 			target
@@ -205,10 +182,6 @@ public class ExportMetadata : ModuleRules
 			runtime.ExternalDependencies.Add(scope);
 		}
 		runtime.ExternalDependencies.Add(Path.Combine(variant, ".mht-watch.stamp"));
-		if (!GeneratesHost(config))
-		{
-			return;
-		}
 		if (target.Architectures.Architectures.Count != 1)
 		{
 			throw new BuildException("ModRuntime host generation requires a single architecture.");

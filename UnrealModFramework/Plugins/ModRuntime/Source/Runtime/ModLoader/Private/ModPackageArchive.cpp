@@ -325,10 +325,9 @@ bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, con
 	const TCHAR* HostArchitecture = Native::GetHostArchitecture();
 	FString Architecture;
 	const bool bHasArchitecture = Cook.HasField(TEXT("targetArchitecture"));
-	if (bHasArchitecture &&
-	    (!Cook.TryGetStringField(TEXT("targetArchitecture"), Architecture) ||
-	     !Native::ResolveTarget(HostTarget, Architecture).IsSet() ||
-	     !Architecture.Equals(HostArchitecture, ESearchCase::CaseSensitive)))
+	if (bHasArchitecture && (!Cook.TryGetStringField(TEXT("targetArchitecture"), Architecture) ||
+	                         !Native::ResolveTarget(HostTarget, Architecture).IsSet() ||
+	                         !Architecture.Equals(HostArchitecture, ESearchCase::CaseSensitive)))
 	{
 		return Fail(Result, ELoadError::Incompatible, TEXT("The cook target architecture does not match this host."));
 	}
@@ -346,11 +345,13 @@ bool ReadManifest(const FJsonObject& Manifest, const FArchiveLayout& Layout, con
 		Contents.NativeTarget = Native::ResolveTarget(HostTarget, Architecture);
 		if (!Contents.NativeTarget.IsSet() || !Architecture.Equals(HostArchitecture, ESearchCase::CaseSensitive))
 		{
-			return Fail(Result, ELoadError::Incompatible, TEXT("The native extension requires a matching desktop target."));
+			return Fail(Result, ELoadError::Incompatible,
+			            TEXT("The native extension requires a matching desktop target."));
 		}
 		if (!Native::IsLibraryName(Package.Extensions.NativeExtensionFile, Contents.NativeTarget.GetValue()))
 		{
-			return Fail(Result, ELoadError::InvalidArchive, TEXT("The native extension filename has an invalid target suffix."));
+			return Fail(Result, ELoadError::InvalidArchive,
+			            TEXT("The native extension filename has an invalid target suffix."));
 		}
 	}
 	return true;
@@ -803,7 +804,6 @@ bool PrepareArchive(const FLoadPolicy& Policy, FPreparationBudget Budget, FLoadR
 	{
 		Result.Package.NativeExtensionPath =
 		    FPaths::Combine(CacheDirectory, TEXT("Native"), Result.Package.Extensions.NativeExtensionFile);
-		IPlatformFile& Files = IPlatformFile::GetPlatformPhysical();
 		TUniquePtr<IFileHandle> NativeFile(Files.OpenRead(*Result.Package.NativeExtensionPath));
 		if (!NativeFile || !Native::MatchesImage(*NativeFile, Contents.NativeTarget.GetValue()))
 		{

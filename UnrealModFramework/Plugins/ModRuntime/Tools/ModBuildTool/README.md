@@ -109,7 +109,7 @@ The `UMF.ModHostLinkedArtifacts` / `Linked` output includes public files, contra
 
 MBT drives UBT with generated Hook source replacements and verifies the final desktop images against their target receipts. UBT compiles the generated host and verification units in their owning modules.
 
-The target and UHT share `Config/ModHeaderTool.json`. Prepare the native tools before calling MBT. Nested UBT invocations reuse those executables.
+UBT supplies the target graph and compilation actions to the exporter. Prepare the native tools before calling MBT. Nested UBT invocations reuse those executables.
 
 The following broader action-graph integration remains a future contract:
 
