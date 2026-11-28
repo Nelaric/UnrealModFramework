@@ -76,15 +76,23 @@ def verify_inventory(root, expected):
     return files
 
 
-def project_inputs(project):
+def project_inputs(project, engine):
     excluded = {"Binaries", "Intermediate", "Saved", "DerivedDataCache", "obj", "bin", "build"}
+    mac_resources = Path("Build/Mac/Resources")
     files = {}
     for directory, children, names in os.walk(project):
         children[:] = [name for name in children if name not in excluded and not name.startswith(".")]
         for name in names:
             path = Path(directory) / name
             if not name.startswith(".") and path.suffix not in {".pyc", ".sln", ".slnx"}:
-                files[path.relative_to(project).as_posix()] = file_sha(path)
+                relative = path.relative_to(project)
+                content = file_sha(path)
+                if relative.parent == mac_resources:
+                    # UBT copies missing Xcode resources from the locked SDK during the Mac link.
+                    default = engine / relative
+                    if default.is_file() and file_sha(default) == content:
+                        continue
+                files[relative.as_posix()] = content
     return digest(files)
 
 

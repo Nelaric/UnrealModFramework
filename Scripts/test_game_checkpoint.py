@@ -6,12 +6,34 @@ from pathlib import Path
 from unittest.mock import patch
 
 from game_checkpoint import (
-    ActionGraph, file_sha, inventory, logical_path, read_json, restore_objects, save_actions, validate_actions,
+    ActionGraph, file_sha, inventory, logical_path, project_inputs, read_json, restore_objects, save_actions, validate_actions,
     verify_inventory, verify_pch_objects, write_json,
 )
 
 
 class CheckpointTests(unittest.TestCase):
+    def test_default_mac_resources_leave_project_inputs_unchanged(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project, engine = root / "Project", root / "Engine"
+            relative = Path("Build/Mac/Resources")
+            (project / relative).mkdir(parents=True)
+            (engine / relative).mkdir(parents=True)
+            (project / "Game.uproject").write_text("{}", encoding="utf-8")
+            before_link = project_inputs(project, engine)
+
+            for name in ("Info.Template.plist", "Sandbox.Server.entitlements", "Sandbox.NoNet.entitlements"):
+                (engine / relative / name).write_text(name, encoding="utf-8")
+                (project / relative / name).write_bytes((engine / relative / name).read_bytes())
+            self.assertEqual(project_inputs(project, engine), before_link)
+
+            custom = project / relative / "Info.Template.plist"
+            custom.write_text("Project-specific info", encoding="utf-8")
+            self.assertNotEqual(project_inputs(project, engine), before_link)
+            after_customization = project_inputs(project, engine)
+            (project / relative / "AppIcon.icns").write_bytes(b"Project icon")
+            self.assertNotEqual(project_inputs(project, engine), after_customization)
+
     def graph(self, root, absolute=False):
         project = root / "Project"
         engine = root / "Engine"
