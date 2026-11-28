@@ -1,7 +1,7 @@
 {
   "name": "Protect main",
   "target": "branch",
-  "enforcement": "disabled",
+  "enforcement": "active",
   "conditions": {
     "ref_name": { "exclude": [], "include": ["~DEFAULT_BRANCH"] }
   },
@@ -29,6 +29,9 @@
         "strict_required_status_checks_policy": true,
         "do_not_enforce_on_create": false,
         "required_status_checks": [
+          { "context": "Format and text" },
+          { "context": "API documentation" },
+          { "context": "PR and commit naming" },
           { "context": "Code Quality", "integration_id": 15368 },
           { "context": "Development Result", "integration_id": 15368 }
         ]

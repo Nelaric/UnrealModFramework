@@ -56,9 +56,9 @@ python Scripts/CI/approve_development.py <PR 编号> <已审查的测试合并 S
 
 工作流将 Metadata 或项目 Checkpoint 及其构建记录上传为 GitHub Actions Artifact。项目产物路径只存放不含 Unreal Engine 文件的构建输出。每个 Game 在同一次运行中按 ID 下载两个上游 Artifact。Checkpoint 记录锁定的 UMFCI SDK，Runner 直接从对应的私有发行版安装 SDK。构建日志随 Actions Job 展示。产物封存后一小时内可用于续跑。GitHub 最短保留期为一天，Development Result 成功后清理已使用的 Artifact。超过续跑窗口或产物已清理时，重跑整个工作流。
 
-### 切换合并门禁
+### 合并门禁
 
-当前的合并条件由 Quality 工作流提供。配置文件中的 Development CI 规则集可在完整引擎检查可用后启用。
+main 分支要求通过 Quality 工作流的公开检查，以及 GitHub 原生的 Code Quality 和 Development Result 检查。
 
 [main 规则集](../.github/rulesets/protect-main.json)使用 GitHub Actions 原生检查 `Code Quality` 和 `Development Result`。Development Result 要求当前测试合并提交具备完整的引擎验证。合并前，规则集要求 PR 分支包含 main 的当前提交。Fork 候选提交由维护者审查后发起这次运行。
 

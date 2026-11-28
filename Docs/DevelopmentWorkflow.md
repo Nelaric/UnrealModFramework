@@ -56,9 +56,9 @@ Project validators supply the following small reports in `{evidence}`. Derive re
 
 The workflow uploads each metadata bundle or project checkpoint and its build record as a GitHub Actions artifact. The project payload paths are reserved for outputs without Unreal Engine files. Each Game downloads the two upstream artifacts by ID within the same run. The checkpoint record identifies the locked UMFCI SDK, which the runner installs directly from its private release. Build logs are available in the Actions job. Each handoff can be used for one hour after it is sealed. GitHub's minimum retention is one day, and Development Result removes consumed artifacts after success. To regenerate artifacts after the handoff window or cleanup, rerun all jobs.
 
-### Switch The Merge Gate
+### Merge Requirements
 
-Quality supplies the current required checks. Enable the versioned Development CI ruleset when full engine validation is available.
+The main branch requires the public Quality checks and the native Code Quality and Development Result checks.
 
 [The main ruleset](../.github/rulesets/protect-main.json) defines `Code Quality` and `Development Result` as native GitHub Actions checks. Development Result requires a full run for the current test merge commit. The ruleset requires the PR branch to include the current main commit before merging. The fork validation request starts that run after a maintainer reviews the candidate.
 
