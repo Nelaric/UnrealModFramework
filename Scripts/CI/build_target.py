@@ -15,7 +15,6 @@ import sys
 import time
 from pathlib import Path
 
-from artifact_store import ArtifactStore, FILES as ARTIFACT_FILES
 from development import (
     COMMAND_FILE, CONTROL, EDITORS, LOCK, PLATFORMS, build_commands, engine_lock, engine_run,
     is_digest, json_object, numeric, output, require, sha256, validate_live_pr, verify_checkout,
@@ -33,10 +32,6 @@ LABELS = {
     "prepare-game": "Metadata Independent Build",
     "save-checkpoint": "Checkpoint Serialization",
     "seal-checkpoint": "Checkpoint Serialization",
-    "upload-checkpoint": "Checkpoint Upload",
-    "download-checkpoint": "Checkpoint Download",
-    "upload-metadata": "Metadata Upload",
-    "download-metadata": "Metadata Download",
     "restore-checkpoint": "Checkpoint Restoration",
     "import-metadata": "Metadata Import",
 }
@@ -63,21 +58,11 @@ def verify_reuse(checkpoint, game):
     )
 
 
-def verify_payload(directory, kind, expected, attempt):
+def handoff_evidence(directory, kind, expected):
     record = json_object(directory / "envelope.json")
-    require(record["attempt"] == attempt and record["identity"] == expected, f"{kind}: handoff identity mismatch")
-    require(set(record["files"]) == set(ARTIFACT_FILES[kind]), f"{kind}: handoff has unexpected payloads")
-    require(
-        {path.name for path in directory.iterdir()} == {"envelope.json", *ARTIFACT_FILES[kind]},
-        f"{kind}: handoff contains unexpected entries",
-    )
-    for name, value in record["files"].items():
-        path = directory / name
-        require(
-            path.is_file() and not path.is_symlink() and path.stat().st_size == value["bytes"]
-            and value["bytes"] > 0 and sha256(path) == value["sha256"],
-            f"{kind}: {name} is missing or corrupt",
-        )
+    require(record["identity"] == expected, f"{kind}: handoff identity mismatch")
+    require(0 <= time.time() - record["sealed_at"] < 3600,
+            f"{kind}: its one-hour consumption window expired. Re-run all jobs.")
     return record["evidence"]
 
 
@@ -118,6 +103,8 @@ class Target:
         write_json(self.metrics, {"timings": {}})
         output("installer", self.lock["installerCommit"])
         output("dotnet", self.lock["dotnetSdk"])
+        for kind in ("metadata", "checkpoint"):
+            output(f"{kind}-path", (self.work / kind).as_posix())
 
     def identity(self, target):
         return {
@@ -132,7 +119,6 @@ class Target:
     def transport_identity(self, target):
         return {
             **self.identity(target),
-            "run_id": os.environ["GITHUB_RUN_ID"],
             "engine_manifest_sha256": self.lock["targets"][target]["manifestSha256"],
             "command_sha256": self.command_hash,
         }
@@ -246,20 +232,22 @@ class Target:
         environment = self.work / "toolchain-env.json"
         if environment.is_file():
             env.update(json_object(environment))
-        for token in ("GH_TOKEN", "GITHUB_TOKEN", "PUBLIC_READ_TOKEN", "STATUS_TOKEN", "SDK_TOKEN", "UMF_TRANSFER_TOKEN"):
+        for token in ("GH_TOKEN", "GITHUB_TOKEN", "PUBLIC_READ_TOKEN", "STATUS_TOKEN", "SDK_TOKEN"):
             env.pop(token, None)
         argv = [argument.format_map(variables) for argument in self.commands[name]]
         subprocess.run(argv, cwd=self.source, env=env, check=True)
 
     def verified_metadata(self):
+        producer = None
+        if self.profile == "game":
+            producer = handoff_evidence(self.work / "metadata", "metadata", self.transport_identity(self.editor))
         path = self.evidence / "metadata.json"
         path.unlink(missing_ok=True)
         self.command("validate-metadata")
         report = self.record(path, self.editor)
         require(report["bundle_valid"] is True, "Project metadata validation failed")
-        if self.profile == "game":
-            require(report == json_object(self.work / "metadata" / "envelope.json")["evidence"],
-                    "Metadata validated by the consumer differs from its producer")
+        if producer is not None:
+            require(report == producer, "Metadata validated by the consumer differs from its producer")
         self.metrics_update(metadata="valid")
 
     def verified_checkpoint(self):
@@ -344,36 +332,22 @@ class Target:
         validate_live_pr(self.candidate)
         directory = self.work / kind
         record = json_object(self.evidence / f"{kind}.json")
-        files = {}
-        for name in ARTIFACT_FILES[kind]:
-            path = directory / name
-            require(path.is_file() and not path.is_symlink() and path.stat().st_size > 0,
-                    f"{kind}: missing or empty {name}")
-            files[name] = {"bytes": path.stat().st_size, "sha256": sha256(path)}
-        require({path.name for path in directory.iterdir()} == set(files), f"{kind}: unexpected output files")
         write_json(directory / "envelope.json", {
-            "attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]), "identity": self.transport_identity(self.slug),
-            "evidence": record, "files": files,
+            "sealed_at": time.time(), "identity": self.transport_identity(self.slug), "evidence": record,
         })
 
-    def upload(self, kind):
-        commit = self.candidate["commit"]
-        name = f"{kind}-{self.slug}-{commit}-{os.environ['GITHUB_RUN_ATTEMPT']}"
-        digest = ArtifactStore().push(self.work / kind, kind, self.slug, commit, name)
-        output("artifact-id", digest)
-        output("artifact-name", name)
+    def restore_checkpoint(self):
+        evidence = handoff_evidence(self.work / "checkpoint", "checkpoint", self.transport_identity(self.slug))
+        require(evidence["toolchain_sha256"] == sha256(self.work / "toolchain.json"),
+                "Checkpoint toolchain differs from the toolchain on the resume runner")
+        self.command("restore-checkpoint")
 
-    def download(self, kind):
-        prefix = kind.upper()
-        target = self.slug if kind == "checkpoint" else self.editor
-        attempt = ArtifactStore().pull(
-            self.work / kind, kind, target, self.candidate["commit"],
-            os.environ[f"{prefix}_NAME"], os.environ[f"{prefix}_ID"],
-        )
-        evidence = verify_payload(self.work / kind, kind, self.transport_identity(target), attempt)
-        if kind == "checkpoint":
-            require(evidence["toolchain_sha256"] == sha256(self.work / "toolchain.json"),
-                    "Checkpoint toolchain differs from the toolchain on the resume runner")
+    def mark(self, label, end=False):
+        path = self.work / f"{label}.time"
+        if end:
+            self.add_time(label, time.monotonic() - float(path.read_text()))
+        else:
+            path.write_text(str(time.monotonic()))
 
     def metrics_update(self, **metrics):
         current = json_object(self.metrics)
@@ -389,12 +363,10 @@ class Target:
     def step(self, name):
         actions = {
             "configure": self.configure, "install": self.install, "toolchain": self.toolchain,
-            "verify-artifact-store": lambda: ArtifactStore().verify_private(),
             "validate-metadata": self.verified_metadata, "validate-checkpoint": self.verified_checkpoint,
             "test-editor": self.run_automation, "verify-editor": self.verified_editor, "verify-game": self.verified_game,
             "seal-metadata": lambda: self.seal("metadata"), "seal-checkpoint": lambda: self.seal("checkpoint"),
-            "upload-metadata": lambda: self.upload("metadata"), "upload-checkpoint": lambda: self.upload("checkpoint"),
-            "download-metadata": lambda: self.download("metadata"), "download-checkpoint": lambda: self.download("checkpoint"),
+            "restore-checkpoint": self.restore_checkpoint,
             "metrics": lambda: output("value", json.dumps(json_object(self.metrics), separators=(",", ":"), ensure_ascii=True)),
         }
         started = time.monotonic()
@@ -422,7 +394,11 @@ def main():
     if name == "test-native-development":
         test_native_development()
         return
-    Target().step(name)
+    target = Target()
+    if name in {"start-timing", "finish-timing"}:
+        target.mark(sys.argv[2], end=name == "finish-timing")
+    else:
+        target.step(name)
 
 
 if __name__ == "__main__":

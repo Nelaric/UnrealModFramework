@@ -252,6 +252,21 @@ def job_durations(token):
     }
 
 
+def artifact_sizes(token):
+    repo = os.environ["GITHUB_REPOSITORY"]
+    run_id = os.environ["GITHUB_RUN_ID"]
+    sizes = {}
+    for page in range(1, 12):
+        artifacts = api(f"/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100&page={page}", token)["artifacts"]
+        sizes.update({
+            str(artifact["id"]): artifact["size_in_bytes"] for artifact in artifacts
+            if not artifact["expired"] and artifact["size_in_bytes"] > 0
+        })
+        if len(artifacts) < 100:
+            break
+    return sizes
+
+
 def required_timings(job):
     if job.startswith("editor-"):
         return {"Engine Installation", "Toolchain Preparation", "Native Tool Compilation", "Metadata Export",
@@ -273,14 +288,11 @@ def critical_path(durations):
 
 
 def aggregate():
-    from artifact_store import ArtifactStore
-
     started = datetime.now(timezone.utc)
     needs = json.loads(os.environ["NEEDS_JSON"])
     candidate = json.loads(os.environ.get("CI_IDENTITY") or "{}")
     version = json_object(LOCK).get("ueVersion", "Unavailable")
     token = os.environ["ACTIONS_READ_TOKEN"]
-    store = None
     lines = [
         "## Development Result", "",
         f"- Source Commit `{candidate.get('commit', 'Unavailable')}`",
@@ -293,11 +305,17 @@ def aggregate():
     issues = []
     timings = []
     mobility = []
+    consumed_artifacts = []
     try:
         durations = job_durations(token)
     except (OSError, KeyError, ValueError) as error:
         durations = {}
         issues.append(f"Cannot read job timings ({error})")
+    try:
+        sizes = artifact_sizes(token)
+    except (OSError, KeyError, ValueError) as error:
+        sizes = {}
+        issues.append(f"Cannot read artifact sizes ({error})")
     for job, name in JOBS.items():
         item = needs.get(job, {})
         state = item.get("result", "missing")
@@ -319,12 +337,12 @@ def aggregate():
                     tests = metrics["automation_tests"]
                     require(type(tests) is int and tests > 0 and metrics["metadata"] == "valid", "Missing test or metadata evidence")
                     metadata = "Valid"
-                    kind, target = "metadata", job.removeprefix("editor-") + "-editor"
+                    kind = "Metadata"
                 elif job.startswith("prepare-game-"):
                     require(metrics["checkpoint"] == "valid", "Invalid checkpoint")
                     checkpoint = "Valid"
                     mobility.extend((name, reason, number) for reason, number in metrics["nonportable_actions"].items())
-                    kind, target = "checkpoint", job.removeprefix("prepare-game-") + "-game"
+                    kind = "Checkpoint"
                 else:
                     reused, replayed = metrics["reused_actions"], metrics["reexecuted_actions"]
                     require(
@@ -334,13 +352,11 @@ def aggregate():
                     )
                     metadata = checkpoint = "Valid"
                     kind = None
-                if kind:
-                    if store is None:
-                        store = ArtifactStore()
-                    size, _ = store.inspect(
-                        kind, target, candidate["commit"], values.get("artifact-name", ""),
-                        values.get("artifact-id", ""), check_age=False,
-                    )
+                if kind and state == "success":
+                    artifact_id = values.get("artifact-id", "")
+                    require(artifact_id in sizes, f"Missing or expired {kind} artifact")
+                    size = sizes[artifact_id]
+                    consumed_artifacts.append(artifact_id)
             except (KeyError, TypeError, ValueError, OSError, subprocess.CalledProcessError) as error:
                 if state == "success":
                     issues.append(f"{name}: {error}")
@@ -374,6 +390,8 @@ def aggregate():
         lines.extend(f"- {issue.replace(chr(10), ' ')}" for issue in issues)
     lines.extend(["", f"**Final Result** {'Failure' if issues else 'Success'}"])
     summary(lines)
+    if not issues:
+        output("artifact-ids", " ".join(consumed_artifacts))
     output("passed", "false" if issues else "true")
 
 
@@ -391,28 +409,14 @@ def publish():
 
 
 def cleanup():
-    from artifact_store import ArtifactStore
-
     require(engine_run(), "Artifact cleanup requires an authorized Development build")
-    candidate = json.loads(os.environ["CI_IDENTITY"])
-    needs = json.loads(os.environ["NEEDS_JSON"])
-    try:
-        store = ArtifactStore()
-        transfers = []
-        for job, item in needs.items():
-            if job.startswith("editor-"):
-                kind, target = "metadata", job.removeprefix("editor-") + "-editor"
-            elif job.startswith("prepare-game-"):
-                kind, target = "checkpoint", job.removeprefix("prepare-game-") + "-game"
-            else:
-                continue
-            name = item["outputs"]["artifact-name"]
-            artifact_id = item["outputs"]["artifact-id"]
-            store.inspect(kind, target, candidate["commit"], name, artifact_id, check_age=False)
-            transfers.append((name, artifact_id))
-        store.remove(transfers)
-    except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
-        print(f"::warning::Could not remove the private artifacts ({error})")
+    repo = os.environ["GITHUB_REPOSITORY"]
+    token = os.environ["ACTIONS_TOKEN"]
+    for artifact_id in os.environ["ARTIFACT_IDS"].split():
+        try:
+            api(f"/repos/{repo}/actions/artifacts/{artifact_id}", token, method="DELETE")
+        except OSError as error:
+            print(f"::warning::Could not remove artifact {artifact_id} ({error})")
 
 
 def main():

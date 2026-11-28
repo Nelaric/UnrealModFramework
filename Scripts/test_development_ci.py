@@ -5,15 +5,14 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from check_automation_report import DEVELOPMENT_TESTS, check_development_report
 
 sys.path.insert(0, str(Path(__file__).parent / "CI"))
-import artifact_store as storage
 import build_target as target
 import development as ci
 
@@ -33,85 +32,20 @@ class AuthorizationTests(unittest.TestCase):
 
 
 class ArtifactTests(unittest.TestCase):
-    def test_artifact_can_come_from_a_successful_earlier_attempt_only_in_the_same_run(self):
-        commit = "a" * 40
-        name = f"metadata-linux-x64-editor-{commit}-1"
-        digest = "sha256:" + "b" * 64
-        manifest = {
-            "artifactType": storage.ARTIFACT_TYPE + "metadata.v1",
-            "annotations": {storage.CREATED: datetime.now(timezone.utc).isoformat()},
-            "layers": [{"size": 5, "annotations": {storage.TITLE: filename}}
-                       for filename in ("envelope.json", "payload")],
-        }
-        with patch.dict(os.environ, GITHUB_RUN_ID="42", GITHUB_RUN_ATTEMPT="2", GITHUB_REPOSITORY_ID="12",
-                        CI_TRANSFER_PACKAGE="ghcr.io/nelaric/build", UMF_TRANSFER_USER="test", UMF_TRANSFER_TOKEN="test"):
-            store = storage.ArtifactStore()
-            with (
-                patch.object(storage, "api", return_value={"visibility": "private"}),
-                patch.object(store, "oras", side_effect=[json.dumps({"digest": digest}), json.dumps(manifest)]) as oras,
-            ):
-                self.assertEqual(store.inspect("metadata", "linux-x64-editor", commit, name, digest), (10, 1))
-                self.assertEqual(oras.call_args_list[0].args[-1], f"ghcr.io/nelaric/build:umf-12-42-{name}")
-                with self.assertRaisesRegex(ValueError, "producing attempt"):
-                    store.inspect("metadata", "linux-x64-editor", commit, name[:-1] + "3", digest)
-            with (
-                patch.object(storage, "api", return_value={"visibility": "private"}),
-                patch.object(store, "oras", return_value=json.dumps({"digest": "sha256:" + "c" * 64})),
-            ):
-                with self.assertRaisesRegex(ValueError, "tag does not match"):
-                    store.inspect("metadata", "linux-x64-editor", commit, name, digest)
-            manifest["annotations"][storage.CREATED] = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-            with self.assertRaisesRegex(ValueError, "reuse window expired"):
-                storage.validate_manifest(manifest, "metadata", check_age=True)
-
-    def test_public_storage_is_rejected_before_upload(self):
-        commit = "a" * 40
-        name = f"checkpoint-linux-x64-game-{commit}-1"
-        with patch.dict(os.environ, GITHUB_RUN_ID="42", GITHUB_RUN_ATTEMPT="1", GITHUB_REPOSITORY_ID="12",
-                        CI_TRANSFER_PACKAGE="ghcr.io/nelaric/build", UMF_TRANSFER_USER="test", UMF_TRANSFER_TOKEN="test"):
-            store = storage.ArtifactStore()
-            with (
-                patch.object(storage, "api", return_value={"visibility": "public"}),
-                patch.object(store, "oras") as oras,
-                self.assertRaisesRegex(ValueError, "storage must be private"),
-            ):
-                store.push(Path.cwd(), "checkpoint", "linux-x64-game", commit, name)
-            oras.assert_not_called()
-
-    def test_corrupt_payload_or_wrong_identity_cannot_be_restored(self):
+    def test_checkpoint_requires_the_locked_engine_and_a_fresh_build_record(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
-            payload = directory / "payload"
-            payload.write_bytes(b"original")
-            expected = {"source_commit": "a" * 40, "architecture": "arm64", "run_id": "12"}
+            identity = {"source_commit": "a" * 40, "architecture": "arm64", "engine_manifest_sha256": "b" * 64}
             contents = {
-                "attempt": 2, "identity": expected, "evidence": {},
-                "files": {"payload": {"bytes": payload.stat().st_size, "sha256": ci.sha256(payload)}},
+                "sealed_at": time.time(), "identity": identity, "evidence": {"completed_actions": 8},
             }
             target.write_json(directory / "envelope.json", contents)
-            target.verify_payload(directory, "metadata", expected, 2)
+            self.assertEqual(target.handoff_evidence(directory, "checkpoint", identity), contents["evidence"])
             with self.assertRaisesRegex(ValueError, "identity mismatch"):
-                target.verify_payload(directory, "metadata", {**expected, "architecture": "x64"}, 2)
-            payload.write_bytes(b"tampered")
-            with self.assertRaisesRegex(ValueError, "corrupt"):
-                target.verify_payload(directory, "metadata", expected, 2)
-
-    def test_checkpoint_requires_exact_engine_manifest_without_an_engine_archive(self):
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp)
-            payload = directory / "payload"
-            payload.write_bytes(b"project objects")
-            identity = {"engine_manifest_sha256": "a" * 64}
-            target.write_json(directory / "envelope.json", {
-                "identity": identity, "attempt": 1, "evidence": {},
-                "files": {"payload": {"sha256": ci.sha256(payload), "bytes": payload.stat().st_size}},
-            })
-            target.verify_payload(directory, "checkpoint", identity, 1)
-            with self.assertRaisesRegex(ValueError, "identity mismatch"):
-                target.verify_payload(directory, "checkpoint", {"engine_manifest_sha256": "b" * 64}, 1)
-            (directory / "sdk.tar.gz").touch()
-            with self.assertRaisesRegex(ValueError, "unexpected entries"):
-                target.verify_payload(directory, "checkpoint", identity, 1)
+                target.handoff_evidence(directory, "checkpoint", {**identity, "engine_manifest_sha256": "c" * 64})
+            with patch.object(target.time, "time", return_value=contents["sealed_at"] + 3600):
+                with self.assertRaisesRegex(ValueError, "one-hour consumption window expired"):
+                    target.handoff_evidence(directory, "checkpoint", identity)
 
 
 class ResultTests(unittest.TestCase):
@@ -135,18 +69,17 @@ class ResultTests(unittest.TestCase):
                     "automation_tests": 3, "metadata": "valid", "checkpoint": "valid",
                     "nonportable_actions": {}, "reused_actions": 5, "reexecuted_actions": 0,
                 }
-                values = {"metrics": json.dumps(metrics), "artifact-id": "12", "artifact-name": "from-producer"}
+                values = {"metrics": json.dumps(metrics), "artifact-id": "12"}
             needs[job] = {"result": "success", "outputs": values}
         durations = dict.fromkeys(ci.JOBS.values(), 1.5)
         with (
             patch.dict(os.environ, CI_IDENTITY=json.dumps(candidate), ACTIONS_READ_TOKEN=""),
             patch.object(ci, "job_durations", return_value=durations),
-            patch.object(storage, "ArtifactStore") as artifact_store,
+            patch.object(ci, "artifact_sizes", return_value={"12": 10}) as sizes,
             patch.object(ci, "validate_live_pr"),
             patch.object(ci, "summary") as report,
             patch.object(ci, "output") as outcome,
         ):
-            artifact_store.return_value.inspect.return_value = (10, 1)
             for state in ("success", "skipped", "failure", "cancelled"):
                 needs["game-linux-arm64"]["result"] = state
                 with patch.dict(os.environ, NEEDS_JSON=json.dumps(needs)):
@@ -158,6 +91,12 @@ class ResultTests(unittest.TestCase):
                 ci.aggregate()
             outcome.assert_called_with("passed", "false")
             self.assertIn("Missing or Invalid", "\n".join(report.call_args.args[0]))
+            needs["editor-linux-x64"]["outputs"]["metrics"] = needs["editor-macos-x64"]["outputs"]["metrics"]
+            sizes.return_value = {}
+            with patch.dict(os.environ, NEEDS_JSON=json.dumps(needs)):
+                ci.aggregate()
+            outcome.assert_called_with("passed", "false")
+            self.assertIn("Missing or expired Metadata artifact", "\n".join(report.call_args.args[0]))
 
 
 class EditorReportTests(unittest.TestCase):

@@ -22,9 +22,8 @@ Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界
 ### 配置引擎任务
 
 1. 配置 `development-engine` GitHub 环境，由维护者审查候选提交。将可读取私有 UMFCI 安装器与发行版的 `UMFCI_READ_TOKEN` 放入该环境。为回传 `ci/development` 的 GitHub App 设置 `UMF_STATUS_APP_ID` 和 `UMF_STATUS_APP_PRIVATE_KEY`。
-2. 建立 Nelaric 专用的私有 Container Package。将完整的 `ghcr.io/nelaric/<package>` 地址设为环境变量 `UMF_TRANSFER_PACKAGE`，将包账户设为 `UMF_TRANSFER_USER`。在环境 Secret `UMF_TRANSFER_TOKEN` 中存放可读取、发布和删除该包版本的凭据。将包访问权限限定于受保护的环境凭据。
-3. 在[引擎锁](../.github/engine-lock.json)中为十个目标分别填写不可变 UMFCI 发行版标签、Recipe 和 Manifest 摘要，并设置安装器提交、上游引擎提交、准确的 .NET SDK 版本及工具链配置。添加下述命令文件。
-4. 如需手动运行已审查的 PR，从受保护的默认分支使用 PR 编号、PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 发起运行。同一 PR 更新时会取消旧运行。
+2. 在[引擎锁](../.github/engine-lock.json)中为十个目标分别填写不可变 UMFCI 发行版标签、Recipe 和 Manifest 摘要，并设置安装器提交、上游引擎提交、准确的 .NET SDK 版本及工具链配置。添加下述命令文件。
+3. 如需手动运行已审查的 PR，从受保护的默认分支使用 PR 编号、PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 发起运行。同一 PR 更新时会取消旧运行。
 
 ### 接入构建阶段
 
@@ -45,7 +44,7 @@ Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界
 - `checkpoint.json` 还包含 `toolchain_sha256`、`build_manifest_sha256`、`paths_valid`、`native_tools_runnable`、`inputs_valid`、`actions_valid`、`completed_actions`、`pending_actions`、`metadata_independent_pending_actions` 和记录原因及数量的 `nonportable_actions` 对象。CI 独立配置续跑 Runner 的工具链，在恢复 Checkpoint 之前将规范化 `{toolchain}` 文件的 SHA-256 与生产者的记录比对。
 - `game.json` 写入为 `Monolithic` 的 `link_type`、`link_receipt_valid`、相对源码目录的 `link_receipt` 和 `binary`、相对工作目录的 `mbt`、`metadata_input_sha256`、`reused_actions`、`reexecuted_actions`、`reexecuted_portable_actions`、`pending_actions`、`metadata_dependent_seconds` 和 `link_seconds`。重执行 Action 必须在 Checkpoint 标明的不可移植范围内，可移植 Action 的重复执行数量必须为零。
 
-私有包传递 Metadata 和项目 Checkpoint。每份产物记录 OCI Manifest 摘要、目标、Commit、Run 和 Attempt。Checkpoint 封套记录不可变的 UMFCI SDK Manifest，Runner 直接从对应的私有发行版安装 SDK。构建日志随 Actions Job 展示。失败 Job 重跑时，可使用同一 Workflow Run 内发布未满一小时的产物。超过该窗口或 Development Result 已清理产物时，重跑整个工作流。
+工作流将 Metadata 或项目 Checkpoint 及其构建记录上传为 GitHub Actions Artifact。项目产物路径只存放不含 Unreal Engine 文件的构建输出。每个 Game 在同一次运行中按 ID 下载两个上游 Artifact。Checkpoint 记录锁定的 UMFCI SDK，Runner 直接从对应的私有发行版安装 SDK。构建日志随 Actions Job 展示。产物封存后一小时内可用于续跑。GitHub 最短保留期为一天，Development Result 成功后清理已使用的 Artifact。超过续跑窗口或产物已清理时，重跑整个工作流。
 
 ### 切换合并门禁
 

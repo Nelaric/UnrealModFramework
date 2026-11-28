@@ -14,34 +14,16 @@ inputs:
   sdk-token:
     description: Read-only access to the private UMFCI installer and release
     required: true
-  transfer-package:
-    description: Dedicated private Nelaric GHCR package
-    required: true
-  transfer-user:
-    description: Account authorized to use the private package
-    required: true
-  transfer-token:
-    description: Credentials for the private package
-    required: true
   checkpoint-id:
     description: Checkpoint producer artifact ID
-    required: false
-  checkpoint-name:
-    description: Checkpoint producer artifact name
     required: false
   metadata-id:
     description: Metadata producer artifact ID
     required: false
-  metadata-name:
-    description: Metadata producer artifact name
-    required: false
 outputs:
   artifact-id:
-    description: Published immutable OCI manifest digest
+    description: Published Actions artifact ID
     value: ${{ steps.metadata.outputs.artifact-id || steps.checkpoint.outputs.artifact-id }}
-  artifact-name:
-    description: Published artifact name including its producing attempt
-    value: ${{ steps.metadata.outputs.artifact-name || steps.checkpoint.outputs.artifact-name }}
   metrics:
     description: Validated build metrics for Development Result
     value: ${{ steps.metrics.outputs.value }}
@@ -64,17 +46,6 @@ runs:
       id: lock
       shell: bash
       run: python Scripts/CI/build_target.py configure
-    - name: Set Up ORAS
-      uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
-      with:
-        version: '1.3.6'
-    - name: Verify Private Artifact Store
-      env:
-        CI_TRANSFER_PACKAGE: ${{ inputs.transfer-package }}
-        UMF_TRANSFER_USER: ${{ inputs.transfer-user }}
-        UMF_TRANSFER_TOKEN: ${{ inputs.transfer-token }}
-      shell: bash
-      run: python Scripts/CI/build_target.py verify-artifact-store
     - name: Checkout Locked Engine Installer
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -128,15 +99,26 @@ runs:
       if: inputs.phase == 'editor'
       shell: bash
       run: python Scripts/CI/build_target.py seal-metadata
+    - name: Start Metadata Upload Timing
+      if: inputs.phase == 'editor'
+      shell: bash
+      run: python Scripts/CI/build_target.py start-timing "Metadata Upload"
     - name: Upload Metadata
       if: inputs.phase == 'editor'
       id: metadata
-      env:
-        CI_TRANSFER_PACKAGE: ${{ inputs.transfer-package }}
-        UMF_TRANSFER_USER: ${{ inputs.transfer-user }}
-        UMF_TRANSFER_TOKEN: ${{ inputs.transfer-token }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: metadata-${{ env.CI_TARGET }}-${{ inputs.commit }}-${{ github.run_attempt }}
+        path: |
+          ${{ steps.lock.outputs.metadata-path }}/envelope.json
+          ${{ steps.lock.outputs.metadata-path }}/payload
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+    - name: Record Metadata Upload Time
+      if: inputs.phase == 'editor'
       shell: bash
-      run: python Scripts/CI/build_target.py upload-metadata
+      run: python Scripts/CI/build_target.py finish-timing "Metadata Upload"
     - name: Build Normal Editor
       if: inputs.phase == 'editor'
       shell: bash
@@ -165,25 +147,41 @@ runs:
       if: inputs.phase == 'prepare'
       shell: bash
       run: python Scripts/CI/build_target.py seal-checkpoint
+    - name: Start Checkpoint Upload Timing
+      if: inputs.phase == 'prepare'
+      shell: bash
+      run: python Scripts/CI/build_target.py start-timing "Checkpoint Upload"
     - name: Upload Checkpoint
       if: inputs.phase == 'prepare'
       id: checkpoint
-      env:
-        CI_TRANSFER_PACKAGE: ${{ inputs.transfer-package }}
-        UMF_TRANSFER_USER: ${{ inputs.transfer-user }}
-        UMF_TRANSFER_TOKEN: ${{ inputs.transfer-token }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: checkpoint-${{ env.CI_TARGET }}-${{ inputs.commit }}-${{ github.run_attempt }}
+        path: |
+          ${{ steps.lock.outputs.checkpoint-path }}/envelope.json
+          ${{ steps.lock.outputs.checkpoint-path }}/payload
+        if-no-files-found: error
+        retention-days: 1
+        compression-level: 0
+    - name: Record Checkpoint Upload Time
+      if: inputs.phase == 'prepare'
       shell: bash
-      run: python Scripts/CI/build_target.py upload-checkpoint
+      run: python Scripts/CI/build_target.py finish-timing "Checkpoint Upload"
+    - name: Start Checkpoint Download Timing
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py start-timing "Checkpoint Download"
     - name: Download Checkpoint
       if: inputs.phase == 'resume'
-      env:
-        CI_TRANSFER_PACKAGE: ${{ inputs.transfer-package }}
-        UMF_TRANSFER_USER: ${{ inputs.transfer-user }}
-        UMF_TRANSFER_TOKEN: ${{ inputs.transfer-token }}
-        CHECKPOINT_ID: ${{ inputs.checkpoint-id }}
-        CHECKPOINT_NAME: ${{ inputs.checkpoint-name }}
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        artifact-ids: ${{ inputs.checkpoint-id || '0' }}
+        path: ${{ steps.lock.outputs.checkpoint-path }}
+        merge-multiple: true
+    - name: Record Checkpoint Download Time
+      if: inputs.phase == 'resume'
       shell: bash
-      run: python Scripts/CI/build_target.py download-checkpoint
+      run: python Scripts/CI/build_target.py finish-timing "Checkpoint Download"
     - name: Restore Build Checkpoint
       if: inputs.phase == 'resume'
       shell: bash
@@ -192,16 +190,21 @@ runs:
       if: inputs.phase == 'resume'
       shell: bash
       run: python Scripts/CI/build_target.py validate-checkpoint
+    - name: Start Metadata Download Timing
+      if: inputs.phase == 'resume'
+      shell: bash
+      run: python Scripts/CI/build_target.py start-timing "Metadata Download"
     - name: Download Metadata
       if: inputs.phase == 'resume'
-      env:
-        CI_TRANSFER_PACKAGE: ${{ inputs.transfer-package }}
-        UMF_TRANSFER_USER: ${{ inputs.transfer-user }}
-        UMF_TRANSFER_TOKEN: ${{ inputs.transfer-token }}
-        METADATA_ID: ${{ inputs.metadata-id }}
-        METADATA_NAME: ${{ inputs.metadata-name }}
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        artifact-ids: ${{ inputs.metadata-id || '0' }}
+        path: ${{ steps.lock.outputs.metadata-path }}
+        merge-multiple: true
+    - name: Record Metadata Download Time
+      if: inputs.phase == 'resume'
       shell: bash
-      run: python Scripts/CI/build_target.py download-metadata
+      run: python Scripts/CI/build_target.py finish-timing "Metadata Download"
     - name: Validate Downloaded Metadata
       if: inputs.phase == 'resume'
       shell: bash

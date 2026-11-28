@@ -215,7 +215,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -234,9 +233,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   editor-linux-x64:
     name: Editor / Linux X64
@@ -248,7 +244,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -267,9 +262,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   editor-macos-x64:
     name: Editor / MacOS X64
@@ -281,7 +273,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -300,9 +291,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   editor-macos-arm64:
     name: Editor / MacOS ARM64
@@ -314,7 +302,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -333,9 +320,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-windows-x64:
     name: Game Prepare / Windows X64
@@ -347,7 +331,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
       identity: ${{ needs.code-quality.outputs.identity }}
       source: ${{ needs.code-quality.outputs.source }}
       commit: ${{ needs.code-quality.outputs.commit }}
@@ -369,9 +352,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-windows-arm64:
     name: Game Prepare / Windows ARM64
@@ -383,7 +363,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
       identity: ${{ needs.code-quality.outputs.identity }}
       source: ${{ needs.code-quality.outputs.source }}
       commit: ${{ needs.code-quality.outputs.commit }}
@@ -405,9 +384,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-linux-x64:
     name: Game Prepare / Linux X64
@@ -419,7 +395,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
       identity: ${{ needs.code-quality.outputs.identity }}
       source: ${{ needs.code-quality.outputs.source }}
       commit: ${{ needs.code-quality.outputs.commit }}
@@ -441,9 +416,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-linux-arm64:
     name: Game Prepare / Linux ARM64
@@ -455,7 +427,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
       identity: ${{ needs.code-quality.outputs.identity }}
       source: ${{ needs.code-quality.outputs.source }}
       commit: ${{ needs.code-quality.outputs.commit }}
@@ -477,9 +448,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-macos-x64:
     name: Game Prepare / MacOS X64
@@ -491,7 +459,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
       identity: ${{ needs.code-quality.outputs.identity }}
       source: ${{ needs.code-quality.outputs.source }}
       commit: ${{ needs.code-quality.outputs.commit }}
@@ -513,9 +480,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   prepare-game-macos-arm64:
     name: Game Prepare / MacOS ARM64
@@ -527,7 +491,6 @@ jobs:
     outputs:
       metrics: ${{ steps.target.outputs.metrics }}
       artifact-id: ${{ steps.target.outputs.artifact-id }}
-      artifact-name: ${{ steps.target.outputs.artifact-name }}
       identity: ${{ needs.code-quality.outputs.identity }}
       source: ${{ needs.code-quality.outputs.source }}
       commit: ${{ needs.code-quality.outputs.commit }}
@@ -549,9 +512,6 @@ jobs:
           repository: ${{ needs.code-quality.outputs.source }}
           commit: ${{ needs.code-quality.outputs.commit }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-windows-x64:
     name: Game / Windows X64
@@ -579,13 +539,8 @@ jobs:
           repository: ${{ needs.prepare-game-windows-x64.outputs.source }}
           commit: ${{ needs.prepare-game-windows-x64.outputs.commit }}
           checkpoint-id: ${{ needs.prepare-game-windows-x64.outputs.artifact-id }}
-          checkpoint-name: ${{ needs.prepare-game-windows-x64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-windows-x64.outputs.artifact-id }}
-          metadata-name: ${{ needs.editor-windows-x64.outputs.artifact-name }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-windows-arm64:
     name: Game / Windows ARM64
@@ -613,13 +568,8 @@ jobs:
           repository: ${{ needs.prepare-game-windows-arm64.outputs.source }}
           commit: ${{ needs.prepare-game-windows-arm64.outputs.commit }}
           checkpoint-id: ${{ needs.prepare-game-windows-arm64.outputs.artifact-id }}
-          checkpoint-name: ${{ needs.prepare-game-windows-arm64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-windows-x64.outputs.artifact-id }}
-          metadata-name: ${{ needs.editor-windows-x64.outputs.artifact-name }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-linux-x64:
     name: Game / Linux X64
@@ -647,13 +597,8 @@ jobs:
           repository: ${{ needs.prepare-game-linux-x64.outputs.source }}
           commit: ${{ needs.prepare-game-linux-x64.outputs.commit }}
           checkpoint-id: ${{ needs.prepare-game-linux-x64.outputs.artifact-id }}
-          checkpoint-name: ${{ needs.prepare-game-linux-x64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-linux-x64.outputs.artifact-id }}
-          metadata-name: ${{ needs.editor-linux-x64.outputs.artifact-name }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-linux-arm64:
     name: Game / Linux ARM64
@@ -681,13 +626,8 @@ jobs:
           repository: ${{ needs.prepare-game-linux-arm64.outputs.source }}
           commit: ${{ needs.prepare-game-linux-arm64.outputs.commit }}
           checkpoint-id: ${{ needs.prepare-game-linux-arm64.outputs.artifact-id }}
-          checkpoint-name: ${{ needs.prepare-game-linux-arm64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-linux-x64.outputs.artifact-id }}
-          metadata-name: ${{ needs.editor-linux-x64.outputs.artifact-name }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-macos-x64:
     name: Game / MacOS X64
@@ -715,13 +655,8 @@ jobs:
           repository: ${{ needs.prepare-game-macos-x64.outputs.source }}
           commit: ${{ needs.prepare-game-macos-x64.outputs.commit }}
           checkpoint-id: ${{ needs.prepare-game-macos-x64.outputs.artifact-id }}
-          checkpoint-name: ${{ needs.prepare-game-macos-x64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-macos-x64.outputs.artifact-id }}
-          metadata-name: ${{ needs.editor-macos-x64.outputs.artifact-name }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   game-macos-arm64:
     name: Game / MacOS ARM64
@@ -749,13 +684,8 @@ jobs:
           repository: ${{ needs.prepare-game-macos-arm64.outputs.source }}
           commit: ${{ needs.prepare-game-macos-arm64.outputs.commit }}
           checkpoint-id: ${{ needs.prepare-game-macos-arm64.outputs.artifact-id }}
-          checkpoint-name: ${{ needs.prepare-game-macos-arm64.outputs.artifact-name }}
           metadata-id: ${{ needs.editor-macos-arm64.outputs.artifact-id }}
-          metadata-name: ${{ needs.editor-macos-arm64.outputs.artifact-name }}
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
-          transfer-package: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          transfer-user: ${{ vars.UMF_TRANSFER_USER }}
-          transfer-token: ${{ secrets.UMF_TRANSFER_TOKEN }}
 
   development-result:
     name: Development Result
@@ -784,18 +714,13 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      actions: read
+      actions: write
     steps:
       - name: Checkout Workflow
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-      - name: Set Up ORAS
-        if: needs.code-quality.result == 'success'
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
-        with:
-          version: '1.3.6'
       - name: Aggregate Development Results
         if: always() && !cancelled()
         id: aggregate
@@ -803,9 +728,6 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
           CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
           ACTIONS_READ_TOKEN: ${{ github.token }}
-          CI_TRANSFER_PACKAGE: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          UMF_TRANSFER_USER: ${{ vars.UMF_TRANSFER_USER }}
-          UMF_TRANSFER_TOKEN: ${{ secrets.UMF_TRANSFER_TOKEN }}
         run: python3 Scripts/CI/development.py aggregate
       - name: Create Status Publisher Token
         id: publisher
@@ -828,11 +750,8 @@ jobs:
       - name: Remove Consumed Artifacts
         if: success() && steps.aggregate.outputs.passed == 'true'
         env:
-          NEEDS_JSON: ${{ toJSON(needs) }}
-          CI_IDENTITY: ${{ needs.code-quality.outputs.identity }}
-          CI_TRANSFER_PACKAGE: ${{ vars.UMF_TRANSFER_PACKAGE }}
-          UMF_TRANSFER_USER: ${{ vars.UMF_TRANSFER_USER }}
-          UMF_TRANSFER_TOKEN: ${{ secrets.UMF_TRANSFER_TOKEN }}
+          ARTIFACT_IDS: ${{ steps.aggregate.outputs.artifact-ids }}
+          ACTIONS_TOKEN: ${{ github.token }}
         run: python3 Scripts/CI/development.py cleanup
       - name: Enforce Development Result
         if: always()
