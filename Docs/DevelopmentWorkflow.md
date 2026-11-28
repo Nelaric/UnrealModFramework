@@ -13,7 +13,45 @@ This page explains contribution checks, Linux builds, and documentation publishi
 3. Resolve any check failures and complete maintainer review before merging. Maintainers should configure branch protection to require the applicable checks.
 4. Once [API Pages is enabled](Hosting/README.md), merging to `main` publishes the generated API documentation.
 
-## Checks on a pull request
+## Development CI
+
+[Development CI](../.github/workflows/development.yml) runs Code Quality on the PR test merge commit. Native Tools starts after it passes. Public PR and manual runs can validate the engine-free work. A private dispatch in an authorized Nelaric repository also starts four Editor jobs and six Game Prepare jobs directly after Code Quality. Each Game job waits for its own Game Prepare job and the designated Editor. Windows and Linux ARM64 share their platform's X64 Editor metadata. Each MacOS job uses metadata from the Editor of the same architecture. Development Result checks all 18 upstream jobs.
+
+Editor uploads metadata as soon as validation succeeds, then builds the normal target and runs headless `Nelaric.*` Automation Tests. Game Prepare must reach the point where every remaining action depends on metadata. Game restores the installed SDK and the project's checkpoint on another native runner, validates the restored state, imports metadata, and finishes the monolithic Development target. The result includes actual automation counts, artifact sizes, phase durations, portable action reuse, and the reasons for nonportable actions. The cold-build goal is 5–10 minutes excluding runner queues. API Pages and release test sources have their own scope.
+
+### Authorize A Full Run
+
+1. Install this workflow, its local composite action, `Scripts/CI/`, `Scripts/check_git_naming.py`, and `Scripts/check_automation_report.py` on the protected default branch of an authorized private Nelaric repository. Limit workflow write and dispatch access to maintainers. Give `UMFCI_READ_TOKEN` read access to the private UMFCI installer and releases. Install a GitHub App with commit-status write access only for the public UMF repository and configure `UMF_STATUS_APP_ID` and `UMF_STATUS_APP_PRIVATE_KEY` in the private repository.
+2. Fill the private copy of [the engine lock](../.github/engine-lock.json) with the ten qualified immutable SDK releases, their recipe and manifest digests, the installer revision, upstream engine commit, exact .NET SDK, and accepted toolchain settings. The checked-in target inventory leaves release identities empty until supplied from UMFCI acceptance. The full run rejects an incomplete lock before it schedules any engine jobs.
+3. Add the reviewed command file described below to that protected branch. Organization billing settings enforce the spending limit for private hosted runners and artifact storage.
+4. Review the exact public PR head, current `main` base, and GitHub test merge SHA. Dispatch with the PR number and all three SHAs. The workflow validates the merge parents, rechecks current PR state before engine jobs and status publication, and posts `ci/development` to the validated test merge SHA. Public PR updates cancel older public runs. A new authorized dispatch for the same PR cancels its older private run. A public update alone cannot cancel a run in another repository, and a stale private run cannot publish a passing status.
+
+### Connect The Build Phases
+
+The private `.github/development-commands.json` contains `schemaVersion` set to `1` and a `commands` object. Each entry is a nonempty argument array for a real tool or a reviewed adapter that directly calls the implemented interface. CI executes each array from the candidate checkout without a shell. Arguments can use `{source}`, `{control}`, `{work}`, `{sdk}`, `{evidence}`, `{target}`, `{configuration}`, `{architecture}`, `{ubt_platform}`, `{ubt_architecture}`, `{commit}`, `{lock_sha256}`, `{engine_version}`, `{upstream_commit}`, `{toolchain}`, `{metadata_target}`, `{metadata_payload}`, and `{checkpoint_payload}`. The corresponding upper-case `UMF_` variables are also set. Keep executable permissions and relocation data in the project's checkpoint format.
+
+| Command Keys | Required Behavior |
+| --- | --- |
+| `build-native-tools`, `prepare-libclang` | Build the required tools once per producer job and prepare the host libclang used by its target. Store restorable tools and dependencies with the checkpoint. |
+| `prepare-editor-bootstrap`, `export-metadata`, `validate-metadata`, `build-editor` | Bootstrap only when the exporter requires it. Write the native metadata bundle to `{metadata_payload}`, validate it through the project, and build the normal Editor. The workflow runs the Editor test suite directly. The Game consumer calls the same validator with its assigned `{metadata_target}`. |
+| `prepare-game`, `save-checkpoint`, `validate-checkpoint` | Resolve the real target, module and action graph. Execute all work permitted without metadata. Save the native checkpoint to `{checkpoint_payload}` and use the project validator for action validity, input fingerprints, toolchain, native tools, ABI inputs, and path relocation. CI transports the installed SDK alongside this payload. |
+| `restore-checkpoint`, `import-metadata`, `resume-game`, `verify-game` | Restore the project state against the recovered SDK, check the effective host toolchain, and resume only the remaining work. Verify the monolithic target's native link receipt and provide the linked executable path to MBT's binary inspector. |
+| `test-native-development` | Run the implemented metadata, checkpoint, SDK plan and manifest tests in the Native Tools job. This key receives `{source}`, `{control}`, and `{native}` for the already built executable directory. |
+
+Project validators supply the following small reports in `{evidence}`. Derive reports from actual tool output and build state. Checkpoint serialization and resume remain responsibilities of the project's native interfaces.
+
+- Each report includes `target`, `source_commit`, `engine_lock_sha256`, `engine_version`, `configuration`, `architecture`, and `input_sha256`. For metadata, use the Editor producer's target and architecture.
+- `metadata.json` contains `bundle_valid`. The validator must compute the same source inputs independently on the Editor and Game runners.
+- `checkpoint.json` adds `toolchain_sha256`, `build_manifest_sha256`, `paths_valid`, `native_tools_runnable`, `inputs_valid`, `actions_valid`, `completed_actions`, `pending_actions`, `metadata_independent_pending_actions`, and `nonportable_actions` as an object mapping reasons to counts. The restore adapter must verify the runner's effective toolchain and recreate the same normalized `{toolchain}` file. CI compares its SHA-256 to the producer's and requires zero pending metadata-independent actions.
+- `game.json` includes `link_type` set to `Monolithic`, `link_receipt_valid`, the checkout-relative `link_receipt` and `binary`, the work-directory-relative `mbt`, `metadata_input_sha256`, `reused_actions`, `reexecuted_actions`, `reexecuted_portable_actions`, `pending_actions`, `metadata_dependent_seconds`, and `link_seconds`. Replayed actions must fit the checkpoint's reported nonportable actions and the count of replayed portable actions must be zero.
+
+Both artifacts use the producing job's immutable ID, target, commit and attempt. A failed-job rerun can use its successful upstream output within the same run for one hour from upload, provided the payload and identities still validate. After the window expires or successful aggregation removes the artifacts, rerun all jobs. GitHub's shortest native expiration is one day. CI removes consumed artifacts on success and enforces the one-hour download window even if a failed or cancelled run leaves files for GitHub expiration. [GitHub artifact retention](https://github.com/actions/upload-artifact#retention-period).
+
+### Switch The Merge Gate
+
+[The main ruleset](../.github/rulesets/protect-main.json) is staged disabled. After a successful authorized full run, bind `ci/development` to the approved GitHub App and `Code Quality` to GitHub Actions in the live ruleset. Activate the strict up-to-date rule alongside existing protection and verify both contexts on the current test merge commit. After the gate is proven, remove the old CircleCI checks, configurations, webhook and Fork PR build bot. The live checks still apply during this transition.
+
+## Existing Checks During The Transition
 
 The Quality workflow checks PR and commit naming, formatting, text conventions, and API documentation. It also runs unit tests for the CircleCI handoff and uses standalone Linux fixtures to verify automatic Hook compilation and linking across COFF, ELF, and Mach-O targets, as well as MST cross-file exception analysis with GCC and Clang compilation databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`. [Quality workflow](../.github/workflows/quality.yml)
 
