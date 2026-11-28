@@ -207,7 +207,7 @@ jobs:
           python Scripts/CI/build_target.py test-native-development
 
   editor-windows-x64:
-    name: Editor / Windows X64
+    name: Editor / Windows x86_64
     needs: code-quality
     if: &authorized ${{ needs.code-quality.outputs.engine == 'true' }}
     environment: development-engine
@@ -236,7 +236,7 @@ jobs:
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
 
   editor-linux-x64:
-    name: Editor / Linux X64
+    name: Editor / Linux x86_64
     needs: code-quality
     if: *authorized
     environment: development-engine
@@ -265,7 +265,7 @@ jobs:
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
 
   editor-macos-x64:
-    name: Editor / MacOS X64
+    name: Editor / MacOS x86_64
     needs: code-quality
     if: *authorized
     environment: development-engine
@@ -323,7 +323,7 @@ jobs:
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
 
   prepare-game-windows-x64:
-    name: Game Prepare / Windows X64
+    name: Game Prepare / Windows x86_64
     needs: code-quality
     if: *authorized
     environment: development-engine
@@ -387,7 +387,7 @@ jobs:
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
 
   prepare-game-linux-x64:
-    name: Game Prepare / Linux X64
+    name: Game Prepare / Linux x86_64
     needs: code-quality
     if: *authorized
     environment: development-engine
@@ -451,7 +451,7 @@ jobs:
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
 
   prepare-game-macos-x64:
-    name: Game Prepare / MacOS X64
+    name: Game Prepare / MacOS x86_64
     needs: code-quality
     if: *authorized
     environment: development-engine
@@ -515,7 +515,7 @@ jobs:
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
 
   game-windows-x64:
-    name: Game / Windows X64
+    name: Game / Windows x86_64
     needs: [prepare-game-windows-x64, editor-windows-x64]
     environment: development-engine
     runs-on: windows-2022
@@ -573,7 +573,7 @@ jobs:
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
 
   game-linux-x64:
-    name: Game / Linux X64
+    name: Game / Linux x86_64
     needs: [prepare-game-linux-x64, editor-linux-x64]
     environment: development-engine
     runs-on: ubuntu-24.04
@@ -631,7 +631,7 @@ jobs:
           sdk-token: ${{ secrets.UMFCI_READ_TOKEN }}
 
   game-macos-x64:
-    name: Game / MacOS X64
+    name: Game / MacOS x86_64
     needs: [prepare-game-macos-x64, editor-macos-x64]
     environment: development-engine
     runs-on: macos-15-intel

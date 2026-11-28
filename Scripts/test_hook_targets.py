@@ -704,7 +704,9 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
     obj = root / ("character.obj" if platform == "Win64" else "character.o")
     analysis_flags = []
     if platform == "Linux":
-        analysis_flags = ["-MD", f"-MF{obj.with_suffix('.d')}", "-Werror=unused-command-line-argument"]
+        analysis_flags = [
+            "-MD", f"-MF{obj.with_suffix('.d')}", "-gz=zlib", "-Werror=unused-command-line-argument",
+        ]
     database = write_json(
         root / "compile_commands.json",
         [

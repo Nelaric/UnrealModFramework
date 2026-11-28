@@ -81,7 +81,15 @@ runs:
     - name: Build Native Tools
       if: inputs.phase == 'editor' || inputs.phase == 'prepare'
       shell: bash
-      run: python Scripts/CI/build_target.py build-native-tools
+      run: |
+        if [[ "$RUNNER_OS" == macOS ]]; then
+          if ! CXX="$(command -v g++-14)"; then
+            echo "::error::GNU g++-14 is required to build native tools on macOS."
+            exit 1
+          fi
+          export CXX
+        fi
+        python Scripts/CI/build_target.py build-native-tools
     - name: Prepare LibClang
       if: inputs.phase == 'editor' || inputs.phase == 'prepare'
       shell: bash
@@ -164,6 +172,8 @@ runs:
           ${{ steps.sdk.outputs.checkpoint-path }}/envelope.json
           ${{ steps.sdk.outputs.checkpoint-path }}/payload
         if-no-files-found: error
+        # The validated payload includes the libclang .sha256 marker.
+        include-hidden-files: true
         retention-days: 1
         compression-level: 0
     - name: Record Checkpoint Upload Time

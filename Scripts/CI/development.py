@@ -19,11 +19,11 @@ UMFCI_REPOSITORY = "Nelaric/UMFCI"
 ENGINE_VERSION = "5.6.1"
 ENGINE_CONFIGURATION = "Development"
 PLATFORMS = {
-    "windows-x64": ("Windows X64", "windows-2022", "Windows", "x64", "Win64"),
+    "windows-x64": ("Windows x86_64", "windows-2022", "Windows", "x64", "Win64"),
     "windows-arm64": ("Windows ARM64", "windows-11-arm", "Windows", "arm64", "Win64"),
-    "linux-x64": ("Linux X64", "ubuntu-24.04", "Linux", "x64", "Linux"),
+    "linux-x64": ("Linux x86_64", "ubuntu-24.04", "Linux", "x64", "Linux"),
     "linux-arm64": ("Linux ARM64", "ubuntu-24.04-arm", "Linux", "arm64", "LinuxArm64"),
-    "macos-x64": ("MacOS X64", "macos-15-intel", "Darwin", "x64", "Mac"),
+    "macos-x64": ("MacOS x86_64", "macos-15-intel", "Darwin", "x64", "Mac"),
     "macos-arm64": ("MacOS ARM64", "macos-15", "Darwin", "arm64", "Mac"),
 }
 EDITORS = {key: key.replace("windows-arm64", "windows-x64").replace("linux-arm64", "linux-x64") for key in PLATFORMS}

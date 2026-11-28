@@ -108,6 +108,11 @@ CompileCommand CompilationDatabase::LoadCompileCommand(const Clang& Clang, const
 	}
 	for (const auto& Arg : Result.NativeArguments)
 	{
+		// Keep debug compression for native compilation and omit it from AST parsing.
+		if (Arg == "-gz" || Arg.starts_with("-gz="))
+		{
+			continue;
+		}
 		// UE 5.8 emits this MSVC switch, which clang-cl cannot use to build an AST.
 		if (!bMsvcStyle || !Arg.starts_with("/dximplicitlyinstantiatevirtualfunction"))
 		{
