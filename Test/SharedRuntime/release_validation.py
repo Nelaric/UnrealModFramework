@@ -214,13 +214,16 @@ class Validation:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", required=True, type=Path)
-    parser.add_argument("--engine-commit", required=True, help="Full upstream commit used to build the UE installation")
+    parser.add_argument(
+        "--engine-commit", default=os.environ.get("UMF_FULL_UE_COMMIT", ""),
+        help="Full upstream UE commit (defaults to UMF_FULL_UE_COMMIT)",
+    )
     parser.add_argument("--game-target", choices=(GAME, MODULAR), default=GAME)
     parser.add_argument("--work", required=True, type=Path)
     parser.add_argument("--commit", required=True)
     args = parser.parse_args()
     if not re.fullmatch(r"[a-f0-9]{40}", args.engine_commit):
-        parser.error("--engine-commit must be a full lowercase Git commit SHA")
+        parser.error("Supply a full lowercase Git commit SHA in --engine-commit or UMF_FULL_UE_COMMIT")
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     if not re.fullmatch(r"[a-f0-9]{40}", args.commit) or head != args.commit:
         raise SystemExit("Release Candidate commit does not match the checkout")

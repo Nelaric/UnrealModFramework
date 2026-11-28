@@ -26,7 +26,6 @@ jobs:
         run: |
           if ($env:RC_COMMIT -cnotmatch '^[a-f0-9]{40}$') { throw 'Use the full Release Candidate commit' }
           if (!$env:UMF_FULL_UE) { throw 'Configure a full UE installation on the authorized runner' }
-          if (!$env:UMF_FULL_UE_COMMIT) { throw 'Set UMF_FULL_UE_COMMIT to the upstream commit of the UE installation' }
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: Nelaric/UnrealModFramework
@@ -39,6 +38,6 @@ jobs:
         shell: pwsh
         run: |
           $work = Join-Path $env:RUNNER_TEMP "r-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
-          python -m Test.SharedRuntime.release_validation --engine "$env:UMF_FULL_UE" --engine-commit "$env:UMF_FULL_UE_COMMIT" --work "$work" --commit "$env:RC_COMMIT"
+          python -m Test.SharedRuntime.release_validation --engine "$env:UMF_FULL_UE" --work "$work" --commit "$env:RC_COMMIT"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-Content -LiteralPath (Join-Path $work 'ReleaseValidation.json')
