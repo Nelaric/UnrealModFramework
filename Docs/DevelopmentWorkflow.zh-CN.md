@@ -22,12 +22,12 @@ Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界
 ### 配置引擎任务
 
 1. 配置 `development-engine` GitHub 环境，由维护者审查候选提交。将可读取私有 UMFCI 安装器与发行版的 `UMFCI_READ_TOKEN` 放入该环境。为回传 `ci/development` 的 GitHub App 设置 `UMF_STATUS_APP_ID` 和 `UMF_STATUS_APP_PRIVATE_KEY`。
-2. 把 [Development CI](../.github/workflows/development.yml) 中的 `UMFCI_RELEASE_TAG` 设为包含全部十个 SDK 目标的不可变 UMFCI 正式发行版标签。Runner 使用该标签上的安装器和 .NET SDK 配置，并按发行版索引为各目标选择对应的 SDK 归档和安装清单。添加下述命令文件。
+2. 把 [Development CI](../.github/workflows/development.yml) 中的 `UMFCI_RELEASE_TAG` 设为包含全部十个 SDK 目标的不可变 UMFCI 正式发行版标签。Runner 使用该标签上的安装器和 .NET SDK 配置，并按发行版索引为各目标选择对应的 SDK 归档和安装清单。
 3. 如需手动运行已审查的 PR，从受保护的默认分支使用 PR 编号、PR Head SHA、当前 `main` Base SHA 和 GitHub 测试合并 SHA 发起运行。同一 PR 更新时会取消旧运行。
 
 ### 接入构建阶段
 
-`.github/development-commands.json` 包含值为 `1` 的 `schemaVersion` 和 `commands` 对象。每项都是调用已实现接口的真实工具或经审查适配器的非空参数数组。CI 从候选源码目录直接执行参数数组。可引用 `{source}`、`{control}`、`{work}`、`{sdk}`、`{evidence}`、`{target}`、`{configuration}`、`{architecture}`、`{ubt_platform}`、`{ubt_architecture}`、`{commit}`、`{lock_sha256}`、`{engine_version}`、`{upstream_commit}`、`{toolchain}`、`{metadata_target}`、`{metadata_payload}` 和 `{checkpoint_payload}`。构建命令也能读取对应的大写 `UMF_` 环境变量。原生 Checkpoint 格式负责保留可执行权限和路径重定位资料。
+[Development 命令配置](../.github/development-commands.json) 将 `schemaVersion` 设为 `1`，并为各阶段配置调用 `Scripts/development_commands.py` 的参数数组。CI 从候选源码目录直接执行参数数组。可引用 `{source}`、`{control}`、`{work}`、`{sdk}`、`{evidence}`、`{target}`、`{configuration}`、`{architecture}`、`{ubt_platform}`、`{ubt_architecture}`、`{commit}`、`{lock_sha256}`、`{engine_version}`、`{upstream_commit}`、`{toolchain}`、`{metadata_target}`、`{metadata_payload}` 和 `{checkpoint_payload}`。引擎阶段也能读取对应的大写 `UMF_` 环境变量。原生 Checkpoint 格式负责保留可执行权限和路径重定位资料。
 
 | 命令键 | 职责 |
 | --- | --- |

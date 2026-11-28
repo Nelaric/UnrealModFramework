@@ -22,12 +22,12 @@ Editor exports, validates, and publishes metadata before building the normal tar
 ### Configure Engine Jobs
 
 1. Configure the `development-engine` GitHub environment with maintainer review of the candidate. Store `UMFCI_READ_TOKEN` there with read access to the private UMFCI installer and releases. Set `UMF_STATUS_APP_ID` and `UMF_STATUS_APP_PRIVATE_KEY` for the GitHub App that publishes `ci/development` on the public test merge commit.
-2. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the published immutable UMFCI release for all ten SDK targets. The runner uses the installer and .NET SDK configuration at that tag. The release index maps each target to its named SDK archive and installation manifest. Add the command file described below.
+2. Set `UMFCI_RELEASE_TAG` in [Development CI](../.github/workflows/development.yml) to the published immutable UMFCI release for all ten SDK targets. The runner uses the installer and .NET SDK configuration at that tag. The release index maps each target to its named SDK archive and installation manifest.
 3. For a manual run of a reviewed PR, dispatch from the protected default branch with the PR number, PR head SHA, current `main` base SHA, and GitHub test merge SHA. PR updates cancel older runs for the same PR.
 
 ### Connect The Build Phases
 
-The `.github/development-commands.json` file contains `schemaVersion` set to `1` and a `commands` object. Each entry is a nonempty argument array for a real tool or a reviewed adapter that directly calls the implemented interface. CI executes each array from the candidate checkout without a shell. Arguments can use `{source}`, `{control}`, `{work}`, `{sdk}`, `{evidence}`, `{target}`, `{configuration}`, `{architecture}`, `{ubt_platform}`, `{ubt_architecture}`, `{commit}`, `{lock_sha256}`, `{engine_version}`, `{upstream_commit}`, `{toolchain}`, `{metadata_target}`, `{metadata_payload}`, and `{checkpoint_payload}`. The corresponding upper-case `UMF_` variables are also set. Keep executable permissions and relocation data in the project's checkpoint format.
+The [Development command configuration](../.github/development-commands.json) sets `schemaVersion` to `1` and maps each phase to an argument array for `Scripts/development_commands.py`. CI executes each array directly from the candidate checkout. Arguments can use `{source}`, `{control}`, `{work}`, `{sdk}`, `{evidence}`, `{target}`, `{configuration}`, `{architecture}`, `{ubt_platform}`, `{ubt_architecture}`, `{commit}`, `{lock_sha256}`, `{engine_version}`, `{upstream_commit}`, `{toolchain}`, `{metadata_target}`, `{metadata_payload}`, and `{checkpoint_payload}`. The engine phases also receive the corresponding upper-case `UMF_` variables. Keep executable permissions and relocation data in the project's checkpoint format.
 
 | Command Keys | Required Behavior |
 | --- | --- |
