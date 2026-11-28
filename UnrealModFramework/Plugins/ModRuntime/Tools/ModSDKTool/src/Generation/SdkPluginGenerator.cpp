@@ -469,9 +469,6 @@ void SdkPluginGenerator::GenerateSdkPlugin(const SdkRequest& Request, const fs::
 		Descriptor["Plugins"] = Json::array({{{"Name", "ModRuntime"}, {"Enabled", true}}});
 	}
 	Mod::BuildTool::File::WriteFileAtomically(Directory / (Plugin + ".uplugin"), Descriptor.dump(2) + "\n");
-	Mod::BuildTool::File::WriteFileAtomically(Directory / "Config" / "FilterPlugin.ini",
-	                                          "; Copyright (c) 2026 Nelaric Contributors\n[FilterPlugin]\n"
-	                                          "/Source/ThirdParty/ModClient/...\n/Contract/...\n");
 	Mod::BuildTool::File::WriteFileAtomically(Directory / "Contract" / "SdkContract.json",
 	                                          Request.Contract.dump(2) + "\n");
 	if (!Request.ConnectionArtifact.is_null())

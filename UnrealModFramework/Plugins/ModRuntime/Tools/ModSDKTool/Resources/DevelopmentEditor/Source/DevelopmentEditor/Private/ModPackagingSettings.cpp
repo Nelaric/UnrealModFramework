@@ -54,7 +54,25 @@ TArray<FString> UModPackagingSettings::GetModPluginNames() const
 
 TArray<FString> UModPackagingSettings::GetTargetPlatforms() const
 {
-	return {TEXT("Win64"), TEXT("Linux"), TEXT("Mac")};
+	return {TEXT("Win64"), TEXT("Linux"), TEXT("LinuxArm64"), TEXT("Mac")};
+}
+
+TArray<FString> UModPackagingSettings::GetTargetArchitectures() const
+{
+	if (TargetPlatform == TEXT("Linux"))
+	{
+		return {FString(), TEXT("x64")};
+	}
+	if (TargetPlatform == TEXT("LinuxArm64"))
+	{
+		return {FString(), TEXT("arm64")};
+	}
+	return {FString(), TEXT("x64"), TEXT("arm64")};
+}
+
+TArray<FString> UModPackagingSettings::GetCookConfigurations() const
+{
+	return {TEXT("Development"), TEXT("Shipping")};
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -9,6 +9,7 @@ public class PerformanceBenchmark : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 		PublicIncludePaths.Add(Path.Combine(ModuleDirectory, "..", "Shared"));
+		PrivateIncludePaths.Add(Path.Combine(ModuleDirectory, "..", "..", "Native"));
 		PublicDependencyModuleNames.AddRange(new[] { "Core", "CoreUObject", "Engine" });
 		PrivateDependencyModuleNames.AddRange(
 			new[]
@@ -16,13 +17,14 @@ public class PerformanceBenchmark : ModuleRules
 				"AIModule",
 				"InputCore",
 				"NavigationSystem",
-				"Niagara",
 				"PhysicsCore",
 				"Slate",
 				"SlateCore",
 				"TraceLog",
 				"UMG",
 				"ModLoader",
+				"ModAPI",
+				"BenchmarkMod",
 				"AssetRegistry",
 			}
 		);

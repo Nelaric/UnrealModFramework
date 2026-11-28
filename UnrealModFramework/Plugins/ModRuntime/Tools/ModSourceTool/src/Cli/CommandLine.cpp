@@ -18,23 +18,17 @@ int CommandLine::PrintHelp()
 {
 	std::cout << R"(Usage:
   ModSourceTool analyze-errors <SourceAnalysisRequest.json>
-  ModSourceTool update-catalog <SourceAnalysisRequest.json>
   ModSourceTool generate-host-link <owner-module> <output-header>
   ModSourceTool rewrite-hooks <HookSourceRequest.json>
   ModSourceTool --help | --version
 
-Traces configured failure returns and escaping C++ throws through visible definitions.
-For v2, failureReturn accepts a boolean, an integer, or null for a pointer.
-Omit failureReturn to analyze exceptions alone.
-Omit signature only when the qualified function name identifies one definition.
+Traces declared failure returns and escaping C++ throws through visible definitions.
 Requires a compiler database with complete non-PCH arguments for the selected Target.
-The UMF.SourceAnalysisRequest v1 document supplies compilationDatabase, target,
-catalog, member, libclang, resourceDirectory and an analysisArguments array.
-Both commands report JSON on stdout. update-catalog records new classifications
-and assigns their stable codes.
+The UMF.SourceAnalysisRequest v2 document groups AST-discovered members by their actual
+translation units and includes the toolchain information. The report contains bound
+framework codes and explicit authored business codes.
 generate-host-link writes the Win64 x64 MSVC header that retains an MHT host archive.
 rewrite-hooks reports the rewritten game translation units using their real compiler commands.
-Keep existing reason keys and codes when changing their guard spellings.
 )";
 	return std::cout ? 0 : 1;
 }
@@ -69,8 +63,7 @@ int CommandLine::RunCommandLine(const std::vector<std::string>& Arguments)
 		HookSourceWriter::Rewrite(Mod::BuildTool::Path::PathFromUtf8(Arguments[2]));
 		return std::cout ? 0 : 1;
 	}
-	const bool bUpdateCatalog = Arguments[1] == "update-catalog";
-	if (Arguments[1] != "analyze-errors" && !bUpdateCatalog)
+	if (Arguments[1] != "analyze-errors")
 	{
 		throw std::runtime_error("Unknown command. Use --help.");
 	}
@@ -79,6 +72,6 @@ int CommandLine::RunCommandLine(const std::vector<std::string>& Arguments)
 		throw std::runtime_error("Expected one source analysis request path. Use --help for usage.");
 	}
 	const auto Request = Mod::BuildTool::Path::PathFromUtf8(Arguments[2]);
-	return AnalysisCommand::RunAnalysis(AnalysisOptions::Read(Request), bUpdateCatalog);
+	return AnalysisCommand::RunAnalysis(AnalysisOptions::Read(Request));
 }
 } // namespace Mod::SourceTool

@@ -117,10 +117,11 @@ inline constexpr std::array<FFieldSpec, 3> CommonFields = {{
 /// Former names accepted by API and Hook declarations.
 inline constexpr FFieldSpec CompatibleNames{"CompatibleNames", EFieldType::FunctionNameList, nullptr, false};
 /// Fields belonging to API declarations.
-inline constexpr std::array<FFieldSpec, 6> APIFields = {{
-    {"Scope", EFieldType::Choice, "APIScopes", true},
+inline constexpr std::array<FFieldSpec, 7> APIFields = {{
+    {"Scope", EFieldType::Choice, "APIScopes", false},
     {"Thread", EFieldType::Choice, "APIThreads", true},
     {"FailureRule", EFieldType::Choice, "APIFailureRules", true},
+    {"FailureReturn", EFieldType::NonEmptyText, nullptr, false},
     {"Permissions", EFieldType::ChoiceList, "APIPermissions", false},
     {"FullView", EFieldType::ClassNameList, nullptr, false},
     CompatibleNames,

@@ -36,9 +36,9 @@
 
 请按[构建脚本、工具与审查规范](Docs/CodingStandards/BuildAndReview.zh-CN.md)运行与改动相关的检查，并在 PR 中注明已执行的检查以及因工具或环境限制未能运行的检查。
 
-GitHub Actions 会检查命名、格式与文本规范、API 文档，以及 Linux 环境下的自动 Hook 目标生成与 MST 源码分析用例。维护者可以在授权私有仓库针对已审查的 PR 测试合并提交启动 Development CI。检查顺序与构建范围详见[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)。每项独立框架功能都必须配备自动化测试，但 CI 不强制设定数值化的代码覆盖率门槛。
+GitHub Actions 会检查命名、格式、文本规范、API 文档、原生工具及自动 Hook 目标。普通 Fork PR 运行公开检查。同仓库 PR 可在受保护的 `development-engine` 环境中运行引擎构建。新增的独立能力须配备自动化测试，覆盖用户可观察的行为和重要的失败场景。[开发与 CI 流程](Docs/DevelopmentWorkflow.zh-CN.md)
 
-所有 PR 均以 `main` 为目标分支。合并前须满足该分支配置的必需检查，并获得最后一次推送者以外的维护者批准。维护者将从正确性、模块边界、API 契约、性能、安全性，以及与 Unreal Engine 5.6 及更高版本的兼容性等维度进行审查。
+PR 以 `main` 为目标。合并前须满足该分支配置的必需检查，并获得最后一次推送者以外的维护者批准。维护者审查正确性、模块边界、API 契约、性能、安全性及 Unreal Engine 5.6 和更高版本的兼容性。
 
 ## 大文件与 Git LFS
 

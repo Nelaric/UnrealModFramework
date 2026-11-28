@@ -18,36 +18,6 @@
 	],
 	"Plugins": [
 		{
-			"Name": "ACLPlugin",
-			"Enabled": true
-		},
-		{
-			"Name": "AnimationData",
-			"Enabled": true,
-			"TargetAllowList": [
-				"Editor"
-			]
-		},
-		{
-			"Name": "EnhancedInput",
-			"Enabled": true
-		},
-		{
-			"Name": "ControlRig",
-			"Enabled": true
-		},
-		{
-			"Name": "ControlRigSpline",
-			"Enabled": true
-		},
-		{
-			"Name": "IKRig",
-			"Enabled": true,
-			"TargetAllowList": [
-				"Editor"
-			]
-		},
-		{
 			"Name": "UMFDevSDK",
 			"Enabled": true
 		},

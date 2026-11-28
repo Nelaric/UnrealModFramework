@@ -19,8 +19,8 @@
 #include "GameFramework/SaveGame.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Materials/MaterialInstanceDynamic.h"
-#include "NiagaraComponent.h"
-#include "NiagaraSystem.h"
+#include "Particles/ParticleSystem.h"
+#include "Particles/ParticleSystemComponent.h"
 #include "Sound/SoundWave.h"
 #include "UObject/StrongObjectPtr.h"
 #include "WorldCollision.h"
@@ -71,7 +71,7 @@ struct FCallContext
 	USoundWave* Sound = nullptr;
 	UMaterialInterface* Material = nullptr;
 	TStrongObjectPtr<UMaterialInstanceDynamic> DynamicMaterial;
-	TStrongObjectPtr<UNiagaraSystem> Niagara;
+	TStrongObjectPtr<UParticleSystem> Emitter;
 
 	const FVector ActorStart{0, 300, 120};
 	const FVector OtherStart{200, 300, 120};

@@ -26,6 +26,7 @@ internal static class MhtProcess
 		Stream? standardOutput = null
 	)
 	{
+		var elapsed = Stopwatch.StartNew();
 		using ManagedProcessGroup group = new();
 		using ManagedProcess process = new(
 			group,
@@ -59,6 +60,7 @@ internal static class MhtProcess
 				$"{description} failed with exit code {process.ExitCode}. See the process diagnostics above."
 			);
 		}
+		logger.LogInformation("UMF timing {Stage} {Seconds:F3} s", description, elapsed.Elapsed.TotalSeconds);
 		return process.ExitCode;
 	}
 

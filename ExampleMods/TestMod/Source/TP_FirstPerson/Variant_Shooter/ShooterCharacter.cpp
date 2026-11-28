@@ -2,13 +2,13 @@
 
 #include "ShooterCharacter.h"
 #include "ShooterWeapon.h"
-#include "EnhancedInputComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/PawnNoiseEmitterComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "Camera/CameraComponent.h"
+#include "InputCoreTypes.h"
 #include "TimerManager.h"
 
 AShooterCharacter::AShooterCharacter()
@@ -44,18 +44,14 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	// base class handles move, aim and jump inputs
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
-	// Set up action bindings
-	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+	for (const FKey& Key : {EKeys::LeftMouseButton, EKeys::Gamepad_RightTrigger})
 	{
-		// Firing
-		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &AShooterCharacter::DoStartFiring);
-		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this,
-		                                   &AShooterCharacter::DoStopFiring);
-		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Canceled, this, &AShooterCharacter::DoStopFiring);
-
-		// Switch weapon
-		EnhancedInputComponent->BindAction(SwitchWeaponAction, ETriggerEvent::Triggered, this,
-		                                   &AShooterCharacter::DoSwitchWeapon);
+		PlayerInputComponent->BindKey(Key, IE_Pressed, this, &AShooterCharacter::DoStartFiring);
+		PlayerInputComponent->BindKey(Key, IE_Released, this, &AShooterCharacter::DoStopFiring);
+	}
+	for (const FKey& Key : {EKeys::E, EKeys::Gamepad_RightShoulder, EKeys::Gamepad_FaceButton_Top})
+	{
+		PlayerInputComponent->BindKey(Key, IE_Pressed, this, &AShooterCharacter::DoSwitchWeapon);
 	}
 }
 

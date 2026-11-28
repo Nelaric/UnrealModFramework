@@ -10,8 +10,6 @@
 class UInputComponent;
 class USkeletalMeshComponent;
 class UCameraComponent;
-class UInputAction;
-struct FInputActionValue;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -31,23 +29,6 @@ class ATP_FirstPersonCharacter : public ACharacter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UCameraComponent> FirstPersonCameraComponent;
 
-protected:
-	/** Jump Input Action */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> JumpAction;
-
-	/** Move Input Action */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> MoveAction;
-
-	/** Look Input Action */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> LookAction;
-
-	/** Mouse Look Input Action */
-	UPROPERTY(EditAnywhere, Category = "Input")
-	TObjectPtr<UInputAction> MouseLookAction;
-
 public:
 	ATP_FirstPersonCharacter();
 
@@ -60,11 +41,10 @@ public:
 	static UCameraComponent* FindFirstPersonCamera(const APawn* Pawn);
 
 protected:
-	/** Called from Input Actions for movement input */
-	void MoveInput(const FInputActionValue& Value);
-
-	/** Called from Input Actions for looking input */
-	void LookInput(const FInputActionValue& Value);
+	void MoveForward(float Value);
+	void MoveRight(float Value);
+	void Turn(float Value);
+	void LookUp(float Value);
 
 	/** Handles aim inputs from either controls or UI interfaces */
 	UFUNCTION(BlueprintCallable, Category = "Input")

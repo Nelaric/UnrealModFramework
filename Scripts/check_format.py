@@ -28,8 +28,11 @@ def main() -> int:
         if "18.1.8" not in version:
             print(f"Expected clang-format 18.1.8, found {version.strip()}", file=sys.stderr)
             return 1
-        result = subprocess.run(["clang-format", "--dry-run", "--Werror", *map(str, cpp)], cwd=ROOT)
-        failed |= result.returncode != 0
+        # Batch paths to stay within the Windows CreateProcess command-line limit.
+        for offset in range(0, len(cpp), 100):
+            batch = cpp[offset:offset + 100]
+            result = subprocess.run(["clang-format", "--dry-run", "--Werror", *map(str, batch)], cwd=ROOT)
+            failed |= result.returncode != 0
     else:
         print("No C++ files yet; clang-format check has no targets.")
 

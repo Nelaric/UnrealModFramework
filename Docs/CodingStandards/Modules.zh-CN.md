@@ -6,6 +6,8 @@
 
 仓库包含开发宿主工程和游戏侧的 `ModRuntime` 插件；MDT 从内嵌源码资源生成并构建独立制作插件。每个模块只承担单一职责，仅声明实际使用的依赖，并将实现细节放入 `Private`。公开头文件即契约：它们必须能够独立包含并通过编译，且只有当公开头文件确实需要某依赖时，才将该依赖声明为 `.Build.cs` 的公开依赖。禁止循环模块依赖。
 
+开发宿主、SDK 构建宿主、样例和测试工程均关闭默认引擎插件，只启用 UMF 自有插件。引擎能力通过 UE 核心模块使用，检查依赖时同时核对 C++ 模块和资产引用。
+
 UE 工程位于 `UnrealModFramework/`。本文中的所有模块与配置路径均相对于该工程目录。`ModRuntime` 插件包含 `HAL`、`ExportMetadata`、`ModAPI`、`ModLoader`、`BlueprintIntegration` 和 `ExportCodeGenerator` 模块；`ModDevelopmentSDKEditor` 插件包含 `DevelopmentEditor` 模块。
 
 | 职责 | 位置 | UE 模块类型 |
@@ -51,7 +53,7 @@ UE 工程位于 `UnrealModFramework/`。本文中的所有模块与配置路径�
 
 `ModAPI` 是适用于 Game 与 Editor Target 的 Runtime 模块，公开依赖 `Core`、`CoreUObject`、`Engine` 和 `ModLoader`，私有依赖 `Json`。`UModAPIHostSubsystem` 按 GameInstance 管理提供者、权限和生成的 API 绑定；`UModExtensionSubsystem` 按 World 准备和停止扩展，统筹 Hook/Event 快照、内容槽、Patch 锚点、服务租约和玩法指纹。`ExportTest` 承载宿主侧的具体接入，包括玩法准入和存档处理。
 
-MDT 将内嵌的 `DevelopmentEditor` 源码写入临时工作区，并调用 UAT `BuildPlugin` 独立构建制作插件。制作插件独立于游戏侧模块构建，通过版本化 JSON 契约和生成的公开头文件跨边界传递 SDK 与包接口。跨进程预览目前仍为设计项。
+MDT 将内嵌的 `DevelopmentEditor` 源码写入临时工作区，并通过项目 Editor 目标构建制作插件。临时工程关闭默认引擎插件，只启用正在构建的插件。制作插件独立于游戏侧模块构建，通过版本化 JSON 契约和生成的公开头文件传递 SDK 与包接口。跨进程预览目前仍为设计项。
 
 `ExportCodeGenerator` 是 Editor 模块，公开依赖 `ExportMetadata`，私有依赖 `Core`、`CoreUObject`、`Engine`、`Json`、`Projects`、`AssetRegistry`、`BlueprintIntegration`、`ModAPI` 和 `UnrealEd`。`ModExportOptions` 负责导出解析后的 GameMod 选项与 UE 重定向，`ModExportBlueprints` 负责导出配置中指定的蓝图声明。MHT 从目标的 libclang AST 解析活动 C++ 声明并读取蓝图快照，据此生成宿主桥接、公开契约、ABI 声明与校验代码。当前支持的配置档案包括同步 UObject API，以及携带受支持标量、反射值或投影对象载荷的 World Hook/Event 扩展。
 
@@ -61,7 +63,7 @@ MDT 将内嵌的 `DevelopmentEditor` 源码写入临时工作区，并调用 UAT
 
 ## 模组加载器
 
-`ModLoader` 负责发现、校验、提取和挂载 `.mod` 归档，并将结果转发给游戏会话。它支持 v1（Cooked 内容包）、v2（包含 UE 原生模块）和 v3（包含扩展清单及可选原生代码）三种归档格式。公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`HAL`、`RenderCore` 和引擎自带的 OpenSSL 库；Editor Target 额外私有依赖 `UnrealEd`，用于跟踪 PIE 生命周期并释放已加载的包。该运行时模块随 UBT 目标编译，确保生成的 Hook 可在桌面和移动宿主上注册。挂载要求 Pak 或 IoStore 后端以及游戏、基础发布、引擎和平台身份均相匹配。Win64 x64 Pak 宿主通过 `bAllowNativeModules=True` 显式启用 UE 模块加载，通过 `bAllowNativeExtensions=True` 显式启用独立扩展 DLL 加载。`ModLoader` 负责进程准入与包租约，`ModAPI` 负责安装生成的扩展契约校验器并管理 World 回调与绑定。
+`ModLoader` 负责发现、校验、提取和挂载 `.mod` 归档，并将结果转发给游戏会话。它支持 v1（Cooked 内容包）和 v3（扩展清单及可选独立 C ABI 共享库）两种归档格式。公开依赖为 `Core`、`CoreUObject` 和 `Engine`，私有依赖为 `Json`、`PakFile`、`AssetRegistry`、`HAL`、`RenderCore` 和引擎自带的 OpenSSL 库；Editor Target 额外私有依赖 `UnrealEd`，用于跟踪 PIE 生命周期并释放已加载的包。该运行时模块随 UBT 目标编译，确保生成的 Hook 可在桌面和移动宿主上注册。挂载要求 Pak 或 IoStore 后端以及游戏、基础发布、引擎和平台身份均相匹配。Windows、Linux 和 macOS 的 x64 与 ARM64 Pak 宿主均通过 `bAllowNativeExtensions=True` 为 Modular 和 Monolithic 启用同一条 C ABI 加载路径。每个原生包在 Cook Profile 中声明一个目标架构。`ModLoader` 负责进程准入与包租约，`ModAPI` 负责安装生成的扩展契约校验器并管理 World 回调与绑定。会话中的所有 World 排空后，宿主可调用 `UModAPIHostSubsystem::EndExtensionSession` 释放选定的 Mod 集合。
 
 引擎初始化完成后，Game Thread 代码可调用 `Mod::Loader::IModLoaderModule::Get().LoadPackage(Path, Policy)` 或 `LoadDirectory(Directory, Policy)`。C++ 调用方须在自身模块的 `.Build.cs` 中声明 `ModLoader` 依赖。这些调用会同步校验文件并准备资源，应在进入玩法前完成。成功结果会列出已挂载资源的长包名，供宿主按需加载资产。
 

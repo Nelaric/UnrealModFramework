@@ -9,6 +9,6 @@ public class PerformanceBenchmarkEditorTarget : TargetRules
 		Type = TargetType.Editor;
 		DefaultBuildSettings = BuildSettingsVersion.V5;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_6;
-		ExtraModuleNames.AddRange(new[] { "PerformanceBenchmark", "PerformanceBenchmarkEditor" });
+		ExtraModuleNames.AddRange(new[] { "PerformanceBenchmark", "BenchmarkMod", "PerformanceBenchmarkEditor" });
 	}
 }

@@ -131,9 +131,9 @@ void Merge(GenerationModel& Model, const fs::path& Snapshot)
 	{
 		Ids.insert(API.Id);
 	}
-	for (const auto& Entry : Model.Types)
+	for (const auto& [Identity, Owner] : Model.IdentityOwners)
 	{
-		TypeIds.insert(ExportNameRules::Fold(Entry.second.Identity.Id));
+		TypeIds.insert(Identity);
 	}
 	for (const auto& Record : Document.at("types"))
 	{
@@ -176,7 +176,7 @@ void Merge(GenerationModel& Model, const fs::path& Snapshot)
 			{
 				Entry.PayloadKind = "Struct";
 				Entry.PayloadPath = GenerationFields::Required(Item, "structPath");
-				Entry.PayloadLayout = GenerationFields::Required(Item, "structLayout");
+				Entry.PayloadLayout = GenerationFields::Required(Item, "structShape");
 			}
 			else
 			{

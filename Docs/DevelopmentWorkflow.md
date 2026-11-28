@@ -4,7 +4,7 @@ English | [简体中文](DevelopmentWorkflow.zh-CN.md)
 
 # Development and CI Workflow
 
-This page explains contribution checks, Linux builds, and documentation publishing. Start with the [contribution guide](../CONTRIBUTING.md) when preparing a change.
+This page describes Development CI, local builds, Release Validation, and documentation publishing. Start with the [contribution guide](../CONTRIBUTING.md) when preparing a change.
 
 ## From a change to `main`
 
@@ -48,11 +48,41 @@ The workflow uploads each metadata bundle or project checkpoint and its build re
 
 ### Switch The Merge Gate
 
+Quality supplies the current required checks. Enable the versioned Development CI ruleset when full engine validation is available.
+
 [The main ruleset](../.github/rulesets/protect-main.json) defines the Development CI merge gate. Bind `ci/development` to the authorized GitHub App and `Code Quality` to GitHub Actions when enabling the ruleset.
 
 ## Quality Workflow
 
-The Quality workflow checks PR and commit naming, formatting, text conventions, and API documentation. It uses standalone Linux fixtures to check automatic Hook compilation and linking across COFF, ELF, and Mach-O targets, as well as MST cross-file exception analysis with GCC and Clang compilation databases. Tool versions are pinned in the workflow and `.config/dotnet-tools.json`. [Quality workflow](../.github/workflows/quality.yml)
+Quality provides the current required checks for PR and commit naming, format and text, and API documentation. [Quality workflow](../.github/workflows/quality.yml)
+
+## Build locally
+
+Run [Setup](../README.md#build-the-development-host) once to build the native tools and prepare libclang. Run the same MBT stages that CI uses. This example uses a legal full Windows UE 5.6.1 installation for the Editor. Supply the independently verified Game SDK to the Game command when it is available.
+
+```powershell
+$mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
+$project = "UnrealModFramework/UnrealModFrameworkDev.uproject"
+$engine = "<full UE 5.6.1 or Editor SDK>"
+$gameSdk = "<Win64 Game SDK or full UE 5.6.1>"
+$bundle = "UnrealModFramework/Intermediate/ModTools/Metadata"
+$commit = git rev-parse HEAD
+$revision = (Get-Content .github/engine-lock.json -Raw | ConvertFrom-Json).upstreamCommit
+$platform = @("--project", $project, "--platform", "Win64", "--architecture", "x64")
+$identity = @("--commit", $commit, "--engine-commit", $revision)
+$inputs = @("--configuration", "Development", "--metadata", $bundle)
+
+& $mbt prepare-metadata --engine $engine --target UnrealModFrameworkDevEditor @platform @identity --output $bundle
+& $mbt build-ue-target --engine $engine --target UnrealModFrameworkDevEditor @platform @identity @inputs --mode normal
+& $mbt test-ue-target --engine $engine --target UnrealModFrameworkDevEditor @platform --report ".tools/automation"
+& $mbt build-ue-target --engine $gameSdk --target UnrealModFrameworkDev @platform @identity @inputs --mode normal
+```
+
+Use a new report directory for each automation run. For UMFCI SDKs, set `UE_USE_SYSTEM_DOTNET=1` and `DOTNET_ROOT` to the locked native .NET SDK. The Windows SDK toolchain can be selected with `UMF_MSVC_VERSION` and `UMF_WINDOWS_SDK_VERSION`. The GitHub installer resolves and checks these versions before invoking MBT. Linux ARM64 uses UBT platform `LinuxArm64` and architecture `arm64`. Windows ARM64 uses `Win64` and `arm64`. Both use Game SDKs.
+
+`prepare-metadata` reuses a current bundle. For a missing or stale bundle it builds the native Development Editor with the bootstrap rules and invokes the export commandlet. `validate-metadata` checks an existing bundle for one target without invoking UBT. Normal MBT builds validate the bundle before UBT and generate native inputs independently for each target. CI gives MBT the same reviewed commit on every job. A local checkout with edited sources also fingerprints the current project files and Blueprint discovery inputs. MBT queries UBT for the producer and consumer target types. The Editor discovers exported Blueprints by their saved declaration tags and dependencies. Each target derives native identities, layouts, and source error paths from its own compile commands.
+
+The four bundle files live under `Metadata/`. Paths use `Project/` and `Engine/` roots. Options and Blueprint declarations carry reflected names, roles and scalar-field shapes. Target-side configuration projections must match the producer's inputs. Incompatible redirects, architecture-specific config layers, changed Blueprint packages, source drift and payload corruption fail validation. The target derives C++ declarations, layout, compiler arguments, Hook objects and ABI from its own compile database. When a Blueprint uses a reflected struct, the target checks the field shape against its loaded reflected type. Bundle files are generated, and `Intermediate/` is ignored by Git.
 
 ## Read Unreal automation results
 
@@ -62,15 +92,21 @@ Each independent framework capability requires behavior-focused automated tests 
 python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
 ```
 
-## Run the call benchmark
+## Release Validation
 
-From the repository root, run the [benchmark driver](../Test/Performance/run_benchmark.py) with a UE 5.6 installation and an explicit report path so the checked-in measurement is preserved.
+Release Validation uses the [engine lock](../.github/engine-lock.json) for its full engine revision.
 
-```powershell
-python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/ue-call-benchmark.local.md'
+Use [Release Validation](../.github/workflows/release-validation.yml) from a private manual caller with the exact reviewed Release Candidate SHA. Its Win64 x64 `umf-release` runner uses a complete UE installation set by `UMF_FULL_UE`. This can be an authorized workstation with no paid runner. The same entry point can run directly on that workstation.
+
+```text
+python -m Test.SharedRuntime.release_validation --engine <full-ue> --work <new-directory> --commit <full-sha>
 ```
 
-The standalone benchmark runs 200 cases with 1,000 samples per available path. Win64 x64 measures host C++, host Blueprint, and the C++ and Blueprint paths inside a mounted `BenchmarkMod`. Use an engine source build capable of producing a modular Development Game, or pass the matching modular runtime via `--modular-runtime`. Other supported platforms run only the host paths. Unavailable paths are marked as `未测试` in the report. The summary reports the mean of available case means for each column and reflects the tested machine and fixtures; see the [checked-in results](../Test/Performance/ue-call-benchmark.md).
+The release flow stages the integration assets under their existing package names, builds the Monolithic Game, runs MDT plan/build/inspect, builds the author projects, and cooks, stages and packages the host and Mods. Its projects enable only UMF-owned plugins. MDT builds them in a dedicated UBT Editor target with default engine plugins disabled. The release version comes from the candidate commit and the digest comes from the actual cooked `AssetRegistry.bin`. The staged game loads two independent C ABI extensions and verifies Hook callbacks, API permissions, resource replacement, and unload. It then runs the 200-case performance benchmark. An existing full engine with Modular Game build products can run the same sample-game verification with `--game-target UnrealModFrameworkDevModular`. Preserve the reports in the authorized workspace. [SharedRuntime procedure](../Test/SharedRuntime/README.md)
+
+## Run the call benchmark
+
+Run `python Test/Performance/run_benchmark.py --engine <full-ue> --report <result.md>` to build, cook and measure the standalone benchmark. The benchmark builds the native extension for the selected desktop Game platform and architecture and includes the 200 host and packaged-Mod API cases. The Mod C++ samples time the C ABI Hook round trip and the host's engine call. The Mod Blueprint samples use graphs loaded from the same archive.
 
 ## If a check fails
 

@@ -11,6 +11,8 @@
 #include "Framework/Docking/TabManager.h"
 #include "Modules/ModuleManager.h"
 #include "ModAPIBlueprint.h"
+#include "ModBlueprintExportReader.h"
+#include "UObject/AssetRegistryTagsContext.h"
 #include "Styling/AppStyle.h"
 #include "Subsystems/AssetEditorSubsystem.h"
 #include "BlueprintModes/WidgetBlueprintApplicationMode.h"
@@ -117,6 +119,16 @@ class FBlueprintIntegrationModule final : public IModuleInterface
 public:
 	virtual void StartupModule() override
 	{
+		TagHandle = UObject::FAssetRegistryTag::OnGetExtraObjectTagsWithContext.AddLambda(
+		    [](FAssetRegistryTagsContext Context)
+		    {
+			    FExportIdentity Identity;
+			    if (const auto* Blueprint = Cast<UBlueprint>(Context.GetObject());
+			        Blueprint && ReadExportIdentity(*Blueprint, Identity))
+			    {
+				    Context.AddTag({ExportAssetTag, TEXT("1"), UObject::FAssetRegistryTag::TT_Hidden});
+			    }
+		    });
 		if (IsRunningCommandlet())
 		{
 			return;
@@ -147,6 +159,7 @@ public:
 
 	virtual void ShutdownModule() override
 	{
+		UObject::FAssetRegistryTag::OnGetExtraObjectTagsWithContext.Remove(TagHandle);
 		if (GEditor)
 		{
 			GEditor->OnBlueprintPreCompile().Remove(BlueprintPreCompileHandle);
@@ -175,6 +188,8 @@ public:
 	}
 
 private:
+	FDelegateHandle TagHandle;
+
 	void RegisterTabs(FWorkflowAllowedTabSet& TabSet, FName ModeName, TSharedPtr<FBlueprintEditor> Editor)
 	{
 		if (Editor && !TabSet.GetFactory(ExportTabId))

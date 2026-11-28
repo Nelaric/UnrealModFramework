@@ -28,18 +28,16 @@ def read_mod(archive):
     with archive.open("rb") as stream:
         magic, version, length, offset, size, index, index_size, total, reserved = struct.unpack(
             "<8sII6Q", stream.read(64))
-        if magic != b"UMFMOD\0\0" or version not in (2, 3) or length != offset or offset != 64 or reserved or total != archive.stat().st_size or index + index_size != total:
+        if magic != b"UMFMOD\0\0" or version != 3 or length != offset or offset != 64 or reserved or total != archive.stat().st_size or index + index_size != total:
             raise ValueError(f"Invalid native Mod header in {archive}")
         manifest = json.loads(stream.read(size))
         stream.seek(index)
         entries = json.loads(stream.read(index_size))["entries"]
-    modules = manifest["nativeCode"]["modules"]
-    dlls = [entry["path"] for entry in entries if entry["path"].casefold().endswith(".dll")]
-    if not modules or not dlls or any(RUNTIME.casefold() in name.casefold() for name in dlls):
-        raise ValueError(f"Invalid shared Runtime payload in {archive}: {dlls}")
-    if any(item["name"] in (RUNTIME, "ModLoader") for item in modules):
-        raise ValueError(f"Unexpected shared module inside {archive}")
-    return {"modId": manifest["modId"], "sha256": digest(archive), "modules": modules, "dlls": dlls}
+    payloads = [entry["path"] for entry in entries if entry["path"].startswith("Native/")]
+    library = manifest["extensions"]["nativeExtension"]
+    if "nativeCode" in manifest or payloads != [f"Native/{library}"] or not library.endswith(".dll"):
+        raise ValueError(f"Expected a single independent extension in {archive}: {payloads}")
+    return {"modId": manifest["modId"], "sha256": digest(archive), "nativeExtension": payloads[0]}
 
 
 def verify(args):
@@ -76,22 +74,33 @@ def verify(args):
     if not host_files or any(digest(file) != digest(installed_game / plugin_path / file.relative_to(published)) for file in host_files):
         raise ValueError("Installed game plugin differs from the published Host plugin")
     game_dir = args.stage / GAME
-    runtime_dir = game_dir / "Plugins" / PLUGIN / "Binaries/Win64"
-    runtime_map = read_json(runtime_dir / "UnrealGame.modules")
-    runtime = runtime_dir / runtime_map["Modules"][RUNTIME]
-    if project_files.get(runtime.relative_to(game_dir).as_posix()) != "DynamicLibrary" or runtime_map["BuildId"] != receipt["Version"]["BuildId"]:
-        raise ValueError("Staged shared module does not belong to this Game build")
+    launch_root, launch_path = receipt["Launch"].split("/", 1)
+    stage_roots = {"$(ProjectDir)": game_dir, "$(EngineDir)": args.stage / "Engine"}
+    executable = stage_roots[launch_root] / launch_path
+    project_arguments = [GAME] if launch_root == "$(EngineDir)" else []
+    build_products = {item["Path"]: item["Type"] for item in receipt["BuildProducts"]}
+    if build_products.get(receipt["Launch"]) != "Executable" or not executable.is_file():
+        raise ValueError(f"The staged launch executable does not match the Game receipt: {executable}")
+    if project_arguments:
+        runtime_dir = game_dir / "Plugins" / PLUGIN / "Binaries/Win64"
+        runtime_map = read_json(runtime_dir / "UnrealGame.modules")
+        runtime = runtime_dir / runtime_map["Modules"][RUNTIME]
+        if (project_files.get(runtime.relative_to(game_dir).as_posix()) != "DynamicLibrary" or
+                runtime_map["BuildId"] != receipt["Version"]["BuildId"]):
+            raise ValueError("Staged shared module does not belong to this Game build")
+    else:
+        runtime = executable
     if digest(runtime) != digest(installed_game / runtime.relative_to(game_dir)):
-        raise ValueError("The staged Runtime differs from the Runtime built for the installed game")
+        raise ValueError("The staged Runtime differs from the image built for the installed game")
     for image in link["binaries"]:
-        candidates = [game_dir / name for name, kind in project_files.items() if Path(name).name == Path(image["path"]).name and kind == image["kind"]]
+        candidates = [game_dir / name for name, kind in project_files.items()
+                      if Path(name).name == Path(image["path"]).name and kind == image["kind"]]
         if len(candidates) != 1 or digest(candidates[0]) != image["contentHash"]:
             raise ValueError(f"Staged image does not match the verified link for {image['ownerModule']}")
     archive_paths = [args.test_mod, args.other_mod]
     mods = [read_mod(path) for path in archive_paths]
     if [mod["modId"] for mod in mods] != ["testmod", "sharedcaller"]:
         raise ValueError("The test requires the TestMod and SharedCaller packages")
-    executable = args.stage / "Engine/Binaries/Win64/UnrealGame.exe"
     directory = executable.parent / "Mods"
     directory.mkdir(exist_ok=True)
     if any(directory.glob("*.mod")):
@@ -105,10 +114,11 @@ def verify(args):
     try:
         for source, destination in zip(archive_paths, installed):
             shutil.copy2(source, destination)
-        command = [executable, GAME, "/Game/Levels/Basic/L_Basic?game=/Script/SharedRuntimeChecks.SharedRuntimeTestMode",
+        command = [executable, *project_arguments, "/Game/Levels/Basic/L_Basic?game=/Script/SharedRuntimeChecks.SharedRuntimeTestMode",
                    "-nullrhi", "-nosound", "-unattended", "-NoCrashReports", "-NoSplash", "-NoTraceServer",
                    "-stdout", "-FullStdOutLogOutput", f"-UserDir={args.report / 'GameUser'}", f"-abslog={log}",
-                   f"-ini:Game:[ModLoader]:BaseReleaseVersion={base},[ModLoader]:BaseRegistrySha256={registry},[ModLoader]:bAllowNativeModules=True",
+                   f"-ini:Game:[ModLoader]:BaseReleaseVersion={base},[ModLoader]:BaseRegistrySha256={registry},[ModLoader]:bAllowNativeExtensions=True",
+                   f"-SharedRemovePath={installed[0]}",
                    f"-ExecCmds=Automation RunTests {TEST};SoftQuit"]
         with (args.report / "console.log").open("wb") as console:
             process = subprocess.Popen(command, stdout=console, stderr=subprocess.STDOUT)

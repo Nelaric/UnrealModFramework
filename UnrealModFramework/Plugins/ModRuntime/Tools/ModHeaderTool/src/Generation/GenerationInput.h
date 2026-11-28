@@ -3,7 +3,6 @@
 #pragma once
 
 #include "ModHeaderTool/src/Generation/ModuleInput.h"
-#include "ModHeaderTool/src/Generation/TypeIdentity.h"
 #include "ModHeaderTool/src/Project/Project.h"
 
 #include <filesystem>
@@ -15,12 +14,18 @@ namespace Mod::HeaderTool
 {
 namespace fs = std::filesystem;
 
+struct ReflectedType
+{
+	std::string Module;
+	std::string Path;
+	std::string LegacyId;
+};
+
 struct GenerationInput
 {
 	Mod::HeaderTool::Project Project;
 	fs::path File;
 	fs::path Database;
-	fs::path IdentityFile;
 	std::string GameId;
 	std::string Target;
 	std::string Platform;
@@ -28,7 +33,7 @@ struct GenerationInput
 	std::string Architecture;
 	bool bAutoDiscoverModules = false;
 	std::vector<ModuleInput> Modules;
-	std::map<std::string, TypeIdentity> Types;
+	std::map<std::pair<std::string, fs::path>, ReflectedType> Reflection;
 	std::vector<std::string> AnalysisArguments;
 	std::map<std::string, fs::path> PathRoots;
 };

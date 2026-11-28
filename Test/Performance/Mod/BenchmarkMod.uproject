@@ -8,7 +8,6 @@
   ],
   "Plugins": [
     { "Name": "ModRuntime", "Enabled": true },
-    { "Name": "Niagara", "Enabled": true },
     { "Name": "ModDevelopmentSDKEditor", "Enabled": true }
   ]
 }

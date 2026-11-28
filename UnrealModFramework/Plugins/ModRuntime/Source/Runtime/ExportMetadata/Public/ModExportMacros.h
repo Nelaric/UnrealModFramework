@@ -22,6 +22,22 @@
  */
 #define MOD_EXPORT_EVENT(...)
 
+namespace Mod::ExportMetadata
+{
+/// Returns the value and marks a business error for source analysis.
+template <typename T> constexpr T SourceFailure(const char*, unsigned int, T Value) noexcept
+{
+	return Value;
+}
+} // namespace Mod::ExportMetadata
+
+/** @brief Marks a business failure with its native return value.
+ * @param Name Stable, uppercase MOD_ERROR_* name published in the SDK.
+ * @param Code Fixed numeric code in the Business domain.
+ * @param Value Native failure value returned from the API.
+ */
+#define MOD_SOURCE_FAILURE(Name, Code, Value) ::Mod::ExportMetadata::SourceFailure(#Name, Code, Value)
+
 namespace Mod::ExportMetadata::Private
 {
 // The preprocessor folds whitespace in stringified macro arguments to single spaces.

@@ -14,14 +14,14 @@ class UModPackagingSettings : public UDeveloperSettings
 	GENERATED_BODY()
 
 public:
-	/// Packages the Runtime modules and content of the open project.
-	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (DisplayName = "打包当前工程"))
-	bool bPackageProject = false;
+	/// Packages the content of the open project.
+	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (DisplayName = "打包当前工程内容"))
+	bool bPackageProjectContent = false;
 
 	/// Selected content plugin.
 	UPROPERTY(Config, EditAnywhere, Category = "Mod",
 	          meta = (DisplayName = "Mod 内容插件", GetOptions = "GetModPluginNames",
-	                  EditCondition = "!bPackageProject"))
+	                  EditCondition = "!bPackageProjectContent"))
 	FString PluginName;
 
 	/// Published mod version.
@@ -46,17 +46,6 @@ public:
 	            ToolTip = "包含 <版本>/<Cook 平台>/AssetRegistry.bin 的 Releases 根目录；留空使用项目 Releases 目录。"))
 	FDirectoryPath BaseReleaseDirectory;
 
-	/// UBT receipt from the modular host build.
-	UPROPERTY(Config, EditAnywhere, Category = "Release",
-	          meta = (DisplayName = "宿主 Target 回执", FilePathFilter = "target", EditCondition = "bPackageProject"))
-	FFilePath HostTargetReceipt;
-
-	/// Host Engine directory, defaulting to the current Editor engine.
-	UPROPERTY(Config, EditAnywhere, Category = "Release",
-	          meta = (DisplayName = "宿主 Engine 目录", EditCondition = "bPackageProject",
-	                  ToolTip = "选择包含 Binaries、Build 和 Source 的 Engine 目录。留空使用当前编辑器的 Engine。"))
-	FDirectoryPath HostEngineDirectory;
-
 	/// Optional JSON describing this package's World extensions.
 	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (DisplayName = "Mod 扩展清单", FilePathFilter = "json"))
 	FFilePath ExtensionsFile;
@@ -65,14 +54,25 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (FilePathFilter = "json"))
 	FFilePath SdkContractFile;
 
-	/// Independently compiled Win64 callback DLL to include in the package.
-	UPROPERTY(Config, EditAnywhere, Category = "Mod", meta = (FilePathFilter = "dll"))
+	/// Independently compiled shared library for the selected desktop target.
+	UPROPERTY(Config, EditAnywhere, Category = "Mod",
+	          meta = (ToolTip = "选择与目标和架构匹配的 .dll、.so 或 .dylib 文件。"))
 	FFilePath NativeExtensionFile;
 
 	/// Target UAT platform.
 	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
 	          meta = (DisplayName = "目标平台", GetOptions = "GetTargetPlatforms"))
 	FString TargetPlatform = TEXT("Win64");
+
+	/// CPU architecture for the target build and its cook receipt.
+	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
+	          meta = (DisplayName = "目标架构", GetOptions = "GetTargetArchitectures"))
+	FString TargetArchitecture;
+
+	/// Target UAT configuration.
+	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
+	          meta = (DisplayName = "烘焙配置", GetOptions = "GetCookConfigurations"))
+	FString CookConfiguration = TEXT("Shipping");
 
 	/// Native container backend.
 	UPROPERTY(Config, EditAnywhere, Category = "Packaging",
@@ -110,4 +110,10 @@ private:
 
 	UFUNCTION()
 	TArray<FString> GetTargetPlatforms() const;
+
+	UFUNCTION()
+	TArray<FString> GetTargetArchitectures() const;
+
+	UFUNCTION()
+	TArray<FString> GetCookConfigurations() const;
 };

@@ -4,7 +4,7 @@
 
 # 开发与 CI 流程
 
-本文说明贡献检查、Linux 构建与文档发布流程。准备改动前，请先阅读[贡献指南](../CONTRIBUTING.zh-CN.md)。
+本页介绍 Development CI、本地构建、发布验证和文档发布。准备改动前，请先阅读[贡献指南](../CONTRIBUTING.zh-CN.md)。
 
 ## 从改动到 `main`
 
@@ -48,11 +48,41 @@ Editor 导出、校验并发布 Metadata，然后构建正常 Editor，以无界
 
 ### 切换合并门禁
 
+当前的合并条件由 Quality 工作流提供。配置文件中的 Development CI 规则集可在完整引擎检查可用后启用。
+
 [main 规则集](../.github/rulesets/protect-main.json)定义 Development CI 的合并门禁。启用规则集时，将 `ci/development` 绑定到授权的 GitHub App，将 `Code Quality` 绑定到 GitHub Actions。
 
 ## Quality 工作流
 
-Quality 工作流检查 PR 与提交命名、格式、文本规范及 API 文档。独立的 Linux 用例检查面向 COFF、ELF 与 Mach-O 目标的自动 Hook 编译链接，以及基于 GCC 和 Clang 编译数据库的 MST 跨文件异常分析。工具版本锁定在工作流文件及 `.config/dotnet-tools.json` 中。[Quality 工作流](../.github/workflows/quality.yml)
+Quality 提供目前用于合并的 PR 和提交命名、格式与文本、API 文档三项检查。[Quality 工作流](../.github/workflows/quality.yml)
+
+## 本地构建
+
+运行一次 [Setup](../README.zh-CN.md#构建开发宿主)准备四个工具和 libclang。然后使用与 CI 相同的 MBT 阶段。下例适用于合法的完整 Windows UE 5.6.1 Editor。有已验收的 Game SDK 时，将其路径传入 Game 构建。
+
+```powershell
+$mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
+$project = "UnrealModFramework/UnrealModFrameworkDev.uproject"
+$engine = "<完整 UE 5.6.1 或 Editor SDK>"
+$gameSdk = "<Win64 Game SDK 或完整 UE 5.6.1>"
+$bundle = "UnrealModFramework/Intermediate/ModTools/Metadata"
+$commit = git rev-parse HEAD
+$revision = (Get-Content .github/engine-lock.json -Raw | ConvertFrom-Json).upstreamCommit
+$platform = @("--project", $project, "--platform", "Win64", "--architecture", "x64")
+$identity = @("--commit", $commit, "--engine-commit", $revision)
+$inputs = @("--configuration", "Development", "--metadata", $bundle)
+
+& $mbt prepare-metadata --engine $engine --target UnrealModFrameworkDevEditor @platform @identity --output $bundle
+& $mbt build-ue-target --engine $engine --target UnrealModFrameworkDevEditor @platform @identity @inputs --mode normal
+& $mbt test-ue-target --engine $engine --target UnrealModFrameworkDevEditor @platform --report ".tools/automation"
+& $mbt build-ue-target --engine $gameSdk --target UnrealModFrameworkDev @platform @identity @inputs --mode normal
+```
+
+每次自动化运行使用一个新的报告目录。使用 UMFCI SDK 时，设置 `UE_USE_SYSTEM_DOTNET=1`，让 `DOTNET_ROOT` 指向锁定的原生 .NET SDK。可用 `UMF_MSVC_VERSION` 与 `UMF_WINDOWS_SDK_VERSION` 选择 Windows 工具链，CI 会在调用 MBT 前解析和校验版本。Linux ARM64 使用 `LinuxArm64` 和 `arm64`，Windows ARM64 使用 `Win64` 和 `arm64`。两者均消费 Game SDK。
+
+`prepare-metadata` 会复用已验证的 Bundle。Bundle 缺失或过期时，它通过 Bootstrap 规则构建本机 Development Editor，并调用导出 Commandlet。`validate-metadata` 可独立核对 Bundle 与目标。正常构建先在 MBT 中校验 Bundle，再进入 UBT。各目标独立生成编译输入。CI 将同一经审查的提交传给所有 Job。本地编辑工程时，工具也会计算工程文件和蓝图发现输入的摘要。MBT 从 UBT 查询生产者和消费目标类型。Editor 按保存的声明标记及依赖发现导出蓝图，各目标使用自身编译命令推导原生身份、布局和错误路径。
+
+Bundle 的四个文件位于 `Metadata/`。文件名基于 `Project/` 和 `Engine/` 逻辑根。Options 和 Blueprint 数据使用反射名、参数角色与标量字段结构。消费目标会检查配置投影与生产方输入是否一致，不兼容的重定向、架构专用配置、蓝图包变化、源码漂移和负载损坏都会导致失败。C++ 布局、编译参数、Hook 对象和 ABI 由目标自身的编译数据库生成。Blueprint 使用反射结构体时，目标会以加载的反射类型校验字段结构。`Intermediate/` 下的 Bundle 为构建产物。
 
 ## 查看 Unreal 自动化测试结果
 
@@ -62,15 +92,21 @@ Quality 工作流检查 PR 与提交命名、格式、文本规范及 API 文档
 python Scripts/check_automation_report.py <report/index.json> <automation.log> <editor-exit-code>
 ```
 
-## 运行调用性能基准
+## 发布验证
 
-在仓库根目录运行[基准脚本](../Test/Performance/run_benchmark.py)，并指定 UE 5.6 安装目录与报告输出路径。通过 `--report` 显式指定路径可保留仓库中已提交的测量结果，便于后续比对。
+Release Validation 使用[引擎锁](../.github/engine-lock.json)固定完整引擎的上游版本。
 
-```powershell
-python Test/Performance/run_benchmark.py --engine 'C:\UE_5.6' --report '.tools/ue-call-benchmark.local.md'
+从受授权的私有仓库以明确的 Release Candidate SHA 调用 [Release Validation](../.github/workflows/release-validation.yml)。Win64 x64 的 `umf-release` runner 通过 `UMF_FULL_UE` 提供可执行 Cook 和 Package 的完整 UE。可以使用既有的授权工作站，同一入口也可在该工作站直接运行。
+
+```text
+python -m Test.SharedRuntime.release_validation --engine <完整 UE> --work <新目录> --commit <完整 SHA>
 ```
 
-独立基准工程包含 200 项用例，每条可用路径采样 1,000 次。Win64 x64 会测量宿主 C++、宿主蓝图，以及已挂载 `BenchmarkMod` 中的 C++ 与蓝图调用路径。请使用能够构建模块化 Development Game 的引擎源码版，或通过 `--modular-runtime` 传入匹配的模块化运行时；其他受支持的平台仅运行宿主侧路径。不可用路径在报告中标为 `未测试`。汇总值为每列可用用例均值的平均，反映当前测试机器与测试场景的表现；详见[仓库中的测量结果](../Test/Performance/ue-call-benchmark.md)。
+发布流程按原有包名暂存集成资源，构建 Monolithic Game，执行 MDT plan/build/inspect，构建独立作者工程，并完成宿主和 Mod 的 Cook、Stage 与 Package。各工程只启用 UMF 自有插件。MDT 使用禁用引擎默认插件的独立 UBT Editor 目标。基础发行版本来自候选提交，摘要来自实际 Cook 输出的 `AssetRegistry.bin`。暂存游戏加载两个独立 C ABI 扩展，验证 Hook 回调、API 权限、资源替换与卸载，随后运行 200 项性能基准。已有 Modular Game 产物的完整引擎可加 `--game-target UnrealModFrameworkDevModular`，使用同一套示例游戏验证。报告保留在授权工作区。 [SharedRuntime 流程](../Test/SharedRuntime/README.md)
+
+## 运行调用性能基准
+
+使用 `python Test/Performance/run_benchmark.py --engine <完整 UE> --report <结果.md>` 构建、Cook 并测量独立性能基准。脚本为目标桌面 Game 平台和架构编译原生扩展，并覆盖宿主和打包 Mod 的 200 项 API 用例。Mod C++ 栏包含 C ABI Hook 往返和宿主 UE 调用的耗时。Mod 蓝图栏使用从同一个归档中加载的蓝图。
 
 ## 检查失败时
 

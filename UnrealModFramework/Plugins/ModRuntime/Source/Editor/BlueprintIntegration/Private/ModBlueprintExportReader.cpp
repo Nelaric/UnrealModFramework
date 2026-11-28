@@ -8,6 +8,17 @@
 
 namespace Mod::BlueprintIntegration
 {
+bool ReadExportIdentity(const UBlueprint& Blueprint, FExportIdentity& OutIdentity)
+{
+	const auto* Exports = UModBlueprintExports::Find(&Blueprint);
+	if (!Exports || (Exports->APIs.IsEmpty() && Exports->Events.IsEmpty() && Exports->Hooks.IsEmpty()))
+	{
+		return false;
+	}
+	OutIdentity = {Exports->StableTypeId, Exports->OwnerModule};
+	return true;
+}
+
 TArray<FExportedAPI> ReadAPIs(const UBlueprint& Blueprint)
 {
 	TArray<FExportedAPI> APIs;

@@ -1,14 +1,11 @@
 ﻿// Copyright (c) 2026 Nelaric Contributors
-#include "ModExportMacros.h"
+#include "BlueprintDiscovery.h"
 
-#include "Dom/JsonObject.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "Engine/Blueprint.h"
 #include "GameDelegates.h"
-#include "Misc/FileHelper.h"
-#include "Misc/PackageName.h"
-#include "Misc/Paths.h"
+#include "ModBlueprintExportReader.h"
 #include "Modules/ModuleManager.h"
-#include "Serialization/JsonReader.h"
-#include "Serialization/JsonSerializer.h"
 
 namespace Mod::ExportCodeGenerator
 {
@@ -29,24 +26,14 @@ public:
 private:
 	void AddBlueprintPackagesToCook(TConstArrayView<const ITargetPlatform*>, TArray<FName>& Packages, TArray<FName>&)
 	{
-		FString Text;
-		TSharedPtr<FJsonObject> Config;
-		const TArray<TSharedPtr<FJsonValue>>* Types = nullptr;
-		if (!FFileHelper::LoadFileToString(Text,
-		                                   *FPaths::Combine(FPaths::ProjectConfigDir(), TEXT("ModHeaderTool.json"))) ||
-		    !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Config) || !Config ||
-		    !Config->TryGetArrayField(TEXT("blueprintExports"), Types))
+		IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+		for (const FAssetData& Asset : FindExportCandidates(Registry))
 		{
-			return;
-		}
-		for (const auto& Entry : *Types)
-		{
-			const TSharedPtr<FJsonObject>* Type = nullptr;
-			FString Asset;
-			if (Entry->TryGetObject(Type) && (*Type)->TryGetStringField(TEXT("asset"), Asset) &&
-			    FPackageName::IsValidObjectPath(Asset))
+			BlueprintIntegration::FExportIdentity Identity;
+			if (const auto* Blueprint = Cast<UBlueprint>(Asset.GetAsset());
+			    Blueprint && BlueprintIntegration::ReadExportIdentity(*Blueprint, Identity))
 			{
-				Packages.AddUnique(FName(FPackageName::ObjectPathToPackageName(Asset)));
+				Packages.AddUnique(Asset.PackageName);
 			}
 		}
 	}

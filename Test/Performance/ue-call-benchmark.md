@@ -1,4 +1,8 @@
-﻿# UE 调用性能基准（1000 次平均，单位 ns/次）
+﻿<!-- Copyright (c) 2026 Nelaric Contributors -->
+
+# UE 调用性能基准（1000 次平均，单位 ns/次）
+
+下表记录旧版基准的实测数据。当前版本的 Mod C++ 栏改为测量 C ABI Hook 往返和宿主 UE 调用。按[复现步骤](../../Docs/DevelopmentWorkflow.zh-CN.md#运行调用性能基准)生成当前结果。
 
 | 原生 C++ | 原生蓝图 | Mod C++ | Mod 蓝图 |
 | ---: | ---: | ---: | ---: |

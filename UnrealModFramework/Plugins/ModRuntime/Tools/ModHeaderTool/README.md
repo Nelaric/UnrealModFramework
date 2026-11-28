@@ -100,8 +100,8 @@ contributes every previous name. An explicit `CompatibleNames = ()` selects an e
 compatibility list.
 
 MHT reports invalid names, collisions, and invalid applicable redirects at the
-declaration or INI entry. UBT builds refresh the default configuration snapshot
-automatically; for standalone MHT invocations, run `ModExportOptions` after editing
+declaration or INI entry. UBT builds read their target-local configuration snapshot
+from a validated bundle. Use MBT `prepare-metadata` after editing
 redirects. Always build the host and SDK from the same generated contract.
 
 ## FullView and object inputs

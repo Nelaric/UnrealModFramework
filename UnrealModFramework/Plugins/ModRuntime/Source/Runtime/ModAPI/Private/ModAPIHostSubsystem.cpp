@@ -322,6 +322,16 @@ TModResult<void> UModAPIHostSubsystem::RevokeCaller(const FCaller& Caller)
 	return Registry ? Registry->RevokeCaller(Caller) : TModResult<void>::Failure(EError::BindingExpired);
 }
 
+bool UModAPIHostSubsystem::EndExtensionSession()
+{
+	if (!IsInGameThread() || (ExtensionSession && !ExtensionSession.IsUnique()))
+	{
+		return false;
+	}
+	ExtensionSession.Reset();
+	return true;
+}
+
 void UModAPIHostSubsystem::CloseLocalPlayer(ULocalPlayer* Player)
 {
 	if (const auto* Entry = Players.Find(Player))

@@ -68,10 +68,6 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 			}
 		}
 	}
-	if (!Model.Input.IdentityFile.empty())
-	{
-		Model.Dependencies.insert(Model.Input.IdentityFile);
-	}
 	for (const auto& Module : Model.Input.Modules)
 	{
 		const auto Rules = Module.Root / (Module.Name + ".Build.cs");
@@ -155,7 +151,9 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 			CXTranslationUnit Tu = nullptr;
 			const auto Error = Clang.clang_parseTranslationUnit2FullArgv(
 			    Index, nullptr, Argv.data(), static_cast<int>(Argv.size()), nullptr, 0,
-			    CXTranslationUnit_DetailedPreprocessingRecord | CXTranslationUnit_SkipFunctionBodies, &Tu);
+			    CXTranslationUnit_DetailedPreprocessingRecord | CXTranslationUnit_SkipFunctionBodies |
+			        CXTranslationUnit_LimitSkipFunctionBodiesToPreamble,
+			    &Tu);
 			if (Error != CXError_Success || !Tu)
 			{
 				throw std::runtime_error("libclang could not parse " + DiagnosticLocation::QuoteDiagnosticPath(Unit) +
@@ -243,6 +241,14 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 			}
 			Model.ContextMacros[Module.Name] = std::move(Traversal.Macros);
 
+			if (const auto Methods = Traversal.Methods.find(CursorSource::Key(Unit));
+			    Methods != Traversal.Methods.end())
+			{
+				for (const auto Method : Methods->second)
+				{
+					Model.NativeMethodUnits[Clang.String(Clang.clang_getCursorUSR(Method))].insert(Unit);
+				}
+			}
 			for (const auto& [SourceKey, Expansions] : Traversal.ExportExpansions)
 			{
 				if (TypeResolution::OwnerModule(Model.Input, SourcePaths.at(SourceKey)) != &Module)
@@ -299,6 +305,13 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 					try
 					{
 						API = DeclarationBinding::Bind(Model, Clang, Macro, Source, Candidate);
+						API.TranslationUnit = Unit;
+						const auto Definition = Clang.clang_getCursorDefinition(Candidate);
+						if (Definition.kind == CXCursor_CXXMethod)
+						{
+							API.DefinitionFile =
+							    CursorSource::ReadLocation(Clang, Clang.clang_getCursorLocation(Definition), true).File;
+						}
 						FullViewSelection::SelectFullViews(Model, Clang, Candidate, API, FullViews);
 					}
 					catch (const std::exception& Error)
@@ -312,7 +325,12 @@ GenerationModel DeclarationAnalyzer::Analyze(GenerationInput Input, const fs::pa
 					const auto KeyValue = std::make_pair(SourceKey, Macro.Offset);
 					if (const auto It = Bound.find(KeyValue); It != Bound.end())
 					{
-						const auto& Previous = Model.APIs[It->second];
+						auto& Previous = Model.APIs[It->second];
+						if (!API.DefinitionFile.empty() && Previous.DefinitionFile.empty())
+						{
+							Previous.DefinitionFile = API.DefinitionFile;
+							Previous.TranslationUnit = API.TranslationUnit;
+						}
 						if (Previous.DeclarationUsr != API.DeclarationUsr ||
 						    Previous.SourceSignature != API.SourceSignature)
 						{

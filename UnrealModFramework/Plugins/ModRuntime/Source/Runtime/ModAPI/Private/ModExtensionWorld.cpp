@@ -113,9 +113,9 @@ bool FModExtensionWorld::SelectPackages(UModAPIHostSubsystem& Host, FString& Err
 		{
 			return false;
 		}
-		auto Session = MakeShared<FModExtensionSession>();
-		Session->Admission = Loader.PinPackageSession();
-		Session->Grants = Policy.Grants;
+		auto NewSession = MakeShared<FModExtensionSession>();
+		NewSession->Admission = Loader.PinPackageSession();
+		NewSession->Grants = Policy.Grants;
 		for (int32 Index : Sorted)
 		{
 			auto Lease = Loader.PinMountedPackage(Packages[Index].ModId);
@@ -124,13 +124,13 @@ bool FModExtensionWorld::SelectPackages(UModAPIHostSubsystem& Host, FString& Err
 				Error = TEXT("Package became unavailable: ") + Packages[Index].ModId;
 				return false;
 			}
-			if (!Session->Grants.Contains(Lease->ModId))
+			if (!NewSession->Grants.Contains(Lease->ModId))
 			{
-				Session->Grants.Add(Lease->ModId, Lease->GrantedCapabilities);
+				NewSession->Grants.Add(Lease->ModId, Lease->GrantedCapabilities);
 			}
-			Session->Packages.Add(MoveTemp(Lease));
+			NewSession->Packages.Add(MoveTemp(Lease));
 		}
-		Host.ExtensionSession = MoveTemp(Session);
+		Host.ExtensionSession = MoveTemp(NewSession);
 	}
 	else if (Selection.Enabled || !Selection.Required.IsEmpty() || !Selection.Archives.IsEmpty())
 	{
@@ -150,8 +150,9 @@ bool FModExtensionWorld::SelectPackages(UModAPIHostSubsystem& Host, FString& Err
 			return false;
 		}
 	}
-	Policy.Grants = Host.ExtensionSession->Grants;
-	for (const auto& Package : Host.ExtensionSession->Packages)
+	Session = Host.ExtensionSession;
+	Policy.Grants = Session->Grants;
+	for (const auto& Package : Session->Packages)
 	{
 		for (const FName Grant : Package->Extensions.RequiredGrants)
 		{
@@ -730,6 +731,7 @@ void FModExtensionWorld::Drain()
 	Callers.Reset();
 	Services.Reset();
 	Mods.Reset();
+	Session.Reset();
 	Anchors.Reset();
 	RemovedAnchors.Reset();
 	Phase = EState::Closed;

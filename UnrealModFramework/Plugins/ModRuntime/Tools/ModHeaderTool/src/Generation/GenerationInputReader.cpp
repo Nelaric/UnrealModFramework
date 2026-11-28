@@ -5,7 +5,6 @@
 #include "ModHeaderTool/src/Files/TextFile.h"
 #include "ModHeaderTool/src/Generation/GenerationFields.h"
 #include "ModHeaderTool/src/Generation/ModuleInput.h"
-#include "ModHeaderTool/src/Generation/TypeIdentity.h"
 #include "ModHeaderTool/src/Project/Project.h"
 #include "ModHeaderTool/src/Project/ProjectReader.h"
 
@@ -52,31 +51,11 @@ GenerationInput GenerationInputReader::LoadGenerationInput(const fs::path& File)
 	{
 		GenerationFields::RequireName(Name);
 	}
-	Json TypeMap;
-	if (Document.contains("typeIdentities"))
-	{
-		if (Document.contains("types"))
-		{
-			throw std::runtime_error("Choose types or typeIdentities, not both.");
-		}
-		Result.IdentityFile =
-		    GenerationFields::Resolve(Result.Project.Root, GenerationFields::Required(Document, "typeIdentities"));
-		const auto Identities = Json::parse(TextFile::ReadTextFile(Result.IdentityFile));
-		if (Identities.value("schemaVersion", 0) != 1)
-		{
-			throw std::runtime_error("Unsupported type identity schema.");
-		}
-		TypeMap = Identities.at("types");
-	}
-	else if (Document.contains("types"))
-	{
-		TypeMap = Document["types"];
-	}
 	Result.bAutoDiscoverModules = Document.value("autoDiscoverModules", false);
 	if (!Document.contains("modules") || !Document["modules"].is_array() ||
-	    (Document["modules"].empty() && !Result.bAutoDiscoverModules) || !TypeMap.is_object())
+	    (Document["modules"].empty() && !Result.bAutoDiscoverModules))
 	{
-		throw std::runtime_error("Build input requires nonempty 'modules' and an explicit 'types' identity map.");
+		throw std::runtime_error("Build input requires the resolved module compilation actions.");
 	}
 	std::set<std::string> ModuleNames;
 	std::set<fs::path> Units;
@@ -110,36 +89,21 @@ GenerationInput GenerationInputReader::LoadGenerationInput(const fs::path& File)
 		}
 		Result.Modules.push_back(std::move(Module));
 	}
-	std::set<std::string> Ids;
-	for (auto It = TypeMap.begin(); It != TypeMap.end(); ++It)
+	for (const auto& Entry : Document.value("reflection", Json::array()))
 	{
-		const std::string Cpp = It.key();
-		std::size_t Begin = 0;
-		while (Begin < Cpp.size())
+		const auto Cpp = GenerationFields::Required(Entry, "cpp");
+		const auto Header = GenerationFields::Resolve(Result.Project.Root, GenerationFields::Required(Entry, "file"));
+		ReflectedType Type{GenerationFields::Required(Entry, "module"), GenerationFields::Required(Entry, "path"),
+		                   Entry.value("legacyId", "")};
+		GenerationFields::RequireName(Type.Module);
+		if (!Type.Path.starts_with("/Script/" + Type.Module + ".") ||
+		    (!Type.LegacyId.empty() &&
+		     Type.LegacyId.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") !=
+		         Type.LegacyId.npos) ||
+		    !Result.Reflection.emplace(std::pair{Cpp, Header}, std::move(Type)).second)
 		{
-			const auto End = Cpp.find("::", Begin);
-			GenerationFields::RequireName(Cpp.substr(Begin, End == Cpp.npos ? Cpp.npos : End - Begin));
-			if (End == Cpp.npos)
-			{
-				break;
-			}
-			Begin = End + 2;
-			if (Begin == Cpp.size())
-			{
-				throw std::runtime_error("Incomplete qualified type name: " + Cpp);
-			}
+			throw std::runtime_error("Invalid or duplicate UHT identity for " + Cpp);
 		}
-		if (Cpp.empty())
-		{
-			throw std::runtime_error("Empty C++ type identity.");
-		}
-		TypeIdentity Type{Cpp, GenerationFields::Required(It.value(), "typeId"),
-		                  GenerationFields::Required(It.value(), "scope")};
-		if ((Type.Scope != "World" && Type.Scope != "Player") || !Ids.insert(GenerationFields::Fold(Type.Id)).second)
-		{
-			throw std::runtime_error("Type requires a unique TypeId and World/Player scope: " + Cpp);
-		}
-		Result.Types.emplace(Cpp, std::move(Type));
 	}
 	if (Document.contains("analysisArguments"))
 	{

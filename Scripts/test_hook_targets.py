@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from UnrealModFramework.Plugins.ModRuntime.Tools.verify_macho_hooks import verify_target
+from test_metadata_bundle import ENGINE_COMMIT, SOURCE_COMMIT, digest, encoded, variant
 
 EXPORT_HEADERS = (
     Path(__file__).resolve().parents[1]
@@ -155,6 +156,8 @@ def prepare_fake_ubt(root):
             shutil.copy2(library, runtime / library.name)
     else:
         (runtime / "dotnet").symlink_to(Path(sys.executable).resolve())
+    (engine / "Build").mkdir()
+    write_json(engine / "Build/Build.version", {"MajorVersion": 5, "MinorVersion": 6, "PatchVersion": 1})
     ubt = engine / "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll"
     ubt.parent.mkdir(parents=True)
     ubt.write_text(
@@ -181,7 +184,12 @@ if options.get("Mode") == "Execute":
             assert not action["bCanExecuteRemotely"] and not action["bCanExecuteInUBA"]
             assert " HookSource=" in action["CommandVersion"]
             program, arguments = action["CommandPath"], action["CommandArguments"]
-            command = f'"{program}" {arguments}' if os.name == "nt" else [program, *shlex.split(arguments)]
+            if Path(program).stem == "cl-filter":
+                _, delimiter, child = arguments.partition(" -- ")
+                assert delimiter, arguments
+                command = child
+            else:
+                command = f'"{program}" {arguments}' if os.name == "nt" else [program, *shlex.split(arguments)]
             subprocess.run(command, cwd=action["WorkingDirectory"], check=True)
         elif action["Type"] == "Link":
             assert action["PrerequisiteItems"] == actions[0]["ProducedItems"]
@@ -271,7 +279,91 @@ def verify_direct_host_finalization(root, args):
         print(f'{platform}/{arch}: current host binding verified, stale symbol rejected')
 
 
-def verify_long_project_path(root, mbt, engine):
+def write_build_bundle(project, platform, arch):
+    root = Path(project).parent
+    if platform in {"LinuxArm64", "Android"}:
+        producer_platform = "Linux"
+    elif platform in {"IOS", "TVOS", "VisionOS"}:
+        producer_platform = "Mac"
+    else:
+        producer_platform = platform
+    producer_arch = (arch if platform == "Mac" else "arm64") if producer_platform == "Mac" else "x64"
+    producer = {**variant("GameEditor", producer_arch), "platform": producer_platform}
+    consumers = [producer, {**variant("Game", producer_arch), "platform": producer_platform}]
+    if producer_platform == "Win64":
+        pairs = [("Win64", "arm64"), ("Win64", "arm64ec")]
+    elif producer_platform == "Linux":
+        pairs = [("LinuxArm64", "arm64"), ("Android", "x64"), ("Android", "arm64")]
+    else:
+        pairs = [(target, cpu) for target, simulator in
+                 (("IOS", "iossimulator"), ("TVOS", "tvossimulator"), ("VisionOS", "iossimulator"))
+                 for cpu in ("arm64", simulator)]
+    consumers.extend({**variant("Game", cpu), "platform": target} for target, cpu in pairs)
+    sources = {"Project/Game.uproject": digest(Path(project).read_bytes())}
+    for folder in ("Config", "Source", "Plugins", "Platforms"):
+        for path in (root / folder).rglob("*"):
+            if path.suffix.lower() in {".ini", ".json", ".uplugin", ".cs", ".csproj", ".h", ".hpp", ".inl",
+                                      ".c", ".cpp", ".cc", ".mm"} and path.is_file():
+                content = path.read_bytes().removeprefix(b"\xef\xbb\xbf").replace(b"\r\n", b"\n")
+                sources["Project/" + path.relative_to(root).as_posix()] = digest(content)
+    scope = root / "Game.modexport"
+    if scope.is_file():
+        sources["Project/Game.modexport"] = digest(scope.read_bytes())
+    bundle = root / "Metadata"
+    bundle.mkdir()
+    payloads = {
+        "options.json": {"Project": "Project/Game.uproject", "SchemaVersion": 5, "Options": {}, "FunctionRedirects": []},
+        "blueprints.json": {"format": "UMF.BlueprintExports", "schemaVersion": 1, "inputs": [], "types": []},
+        "inputs.json": {"sources": sources, "assets": {}, "assetInventory": {},
+                        "targetTypes": {"Game": "Game", "GameEditor": "Editor"}, "configRoots": [], "config": {}},
+    }
+    hashes = {}
+    for name, payload in payloads.items():
+        bytes_ = encoded(payload)
+        (bundle / name).write_bytes(bytes_)
+        hashes[name] = digest(bytes_)
+    write_json(bundle / "manifest.json", {
+        "format": "UMF.MetadataBundle", "schemaVersion": 1, "generatorVersion": "ModBuildTool.Metadata/2",
+        "project": "Project/Game.uproject", "sourceCommit": SOURCE_COMMIT,
+        "engine": {"major": 5, "minor": 6, "patch": 1, "upstreamCommit": ENGINE_COMMIT},
+        "producer": producer, "consumers": consumers, "payloads": hashes,
+    })
+    return ["--commit", SOURCE_COMMIT, "--engine-commit", ENGINE_COMMIT, "--metadata", bundle]
+
+
+def write_build_receipt(project, generated, platform, arch, clang, triple, short_root):
+    if platform not in {"Win64", "Linux", "LinuxArm64", "Mac"} or arch not in {"x64", "arm64"}:
+        return
+    root = Path(project).parent
+    batch_file = generated / "Game.generated-artifacts.json"
+    generation = json.loads(batch_file.read_bytes())["generationId"]
+    source = short_root / f"binding-{platform}-{arch}.c"
+    image = source.with_suffix({"Win64": ".dll", "Mac": ".dylib"}.get(platform, ".so"))
+    source.write_text(
+        "#ifdef _WIN32\n#define API __declspec(dllexport)\n#else\n#define API __attribute__((visibility(\"default\")))\n#endif\n"
+        f"API int UMF_HostBinding_Game_{generation}(void) {{ return 1; }}\n"
+    )
+    flags = {"Win64": ["-Wl,/noentry"], "Mac": ["-Wl,-platform_version,macos,13.0,13.0"]}.get(platform, ["-fPIC"])
+    run([clang, "-target", triple, "-fuse-ld=lld", "-shared", "-nostdlib", *flags, source, "-o", image])
+    binaries = root / "Binaries" / platform
+    binaries.mkdir(parents=True)
+    shutil.copy2(image, binaries / image.name)
+    write_json(binaries / "Game.modules", {"BuildId": "1", "Modules": {"Game": image.name}})
+    write_json(binaries / "Game.target", {
+        "Project": project, "TargetName": "Game", "Platform": platform, "Configuration": "Development",
+        "Architecture": arch, "Version": {"BuildId": "1"},
+        "BuildProducts": [{"Path": f"$(ProjectDir)/Binaries/{platform}/Game.modules", "Type": "RequiredResource"},
+                          {"Path": f"$(ProjectDir)/Binaries/{platform}/{image.name}", "Type": "DynamicLibrary"}],
+    })
+    variants = root / "Intermediate/ModTools/ModHeaderTool/HostTargets/Game" / platform / "Development" / arch
+    variants.mkdir(parents=True)
+    write_json(variants / "watch.json", {
+        "format": "UMF.ModHostContextSet", "schemaVersion": 1, "project": str(project), "contexts": {},
+        "generatedManifest": str(batch_file),
+    })
+
+
+def verify_long_project_path(root, args):
     prefix = "\\\\?\\" if os.name == "nt" else ""
     with tempfile.TemporaryDirectory(dir=prefix + str(root)) as directory:
         component = "long-project-directory-" * 5
@@ -282,7 +374,6 @@ def verify_long_project_path(root, mbt, engine):
         config = project_root / "Config"
         config.mkdir(parents=True)
         write_json(project, {"FileVersion": 3})
-        write_json(config / "ModHeaderTool.json", {"generation": {"gameId": "Game"}})
         write_json(project_root / "CompileActions.json", {"Actions": []})
 
         variant = Path("Game/Win64/Development/x64")
@@ -298,14 +389,18 @@ def verify_long_project_path(root, mbt, engine):
                 "platform": "Win64",
                 "configuration": "Development",
                 "architecture": "x64",
-                "generatedFiles": [],
+                "generatedFiles": [], "schemaVersion": 4, "unresolvedTypeCount": 0,
+                "generationId": "a" * 64, "contractHash": "a" * 64, "projectionHash": "a" * 64,
+                "nativeABIHash": "a" * 64, "compilationUnits": [{"ownerModule": "Game", "role": "HostBinding"}],
             },
         )
+        write_build_receipt(str(project), generated, "Win64", "x64", args.clang, "x86_64-pc-windows-msvc", root)
+        bundle = write_build_bundle(project, "Win64", "x64")
         run(
             [
-                mbt, "build-ue-target", "--engine", engine, "--project", project_arg,
+                args.mbt, "build-ue-target", "--engine", args.engine, "--project", project_arg,
                 "--target", "Game", "--platform", "Win64", "--configuration", "Development",
-                "--architecture", "x64", "--mode", "normal",
+                "--architecture", "x64", "--mode", "normal", *bundle,
             ],
             env={**os.environ, "PYTHONHOME": sys.base_prefix},
         )
@@ -317,7 +412,13 @@ def verify_long_project_path(root, mbt, engine):
 def verify_msvc_source_analysis(root, args):
     root.mkdir()
     source = root / "probe.cpp"
-    source.write_text("bool FailingCall() { return false; }\n", encoding="utf-8")
+    source.write_text(
+        '#include "ModExportMacros.h"\n'
+        'bool FailingCall() { return false; }\n'
+        'bool StableBusiness() { return MOD_SOURCE_FAILURE(MOD_ERROR_BUSINESS_TEST, 0x30010011, false); }\n'
+        'bool ConflictingBusiness() { return MOD_SOURCE_FAILURE(MOD_ERROR_BUSINESS_OTHER, 0x30010011, false); }\n',
+        encoding="utf-8",
+    )
     database = write_json(
         root / "compile_commands.json",
         [{
@@ -325,39 +426,78 @@ def verify_msvc_source_analysis(root, args):
             "file": str(source),
             "arguments": [
                 "cl.exe", "/TP", "/std:c++20", "/dximplicitlyinstantiatevirtualfunction-",
+                "/I" + str(EXPORT_HEADERS),
                 "/DUE_TARGET_NAME=Game", '/DUE_MODULE_NAME="Probe"', "/DWITH_EDITOR=0", "/c", str(source),
             ],
         }],
     )
     member = "api/ci/probe/failing-call"
-    catalog = write_json(
-        root / "catalog.json",
-        {
-            "format": "UMF.SourceErrorCatalog",
-            "schemaVersion": 2,
-            "members": {member: {
-                "function": "FailingCall", "module": "Probe", "source": str(source),
-                "failureReturn": False, "reasons": {},
-            }},
-            "nextDetailByType": {},
-        },
-    )
     request = write_json(
         root / "SourceAnalysisRequest.json",
         {
             "format": "UMF.SourceAnalysisRequest",
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "compilationDatabase": database,
             "target": "Game",
-            "catalog": catalog,
-            "member": member,
+            "projectRoot": str(root),
+            "members": [{"id": member, "function": "FailingCall", "module": "Probe",
+                         "source": str(source), "translationUnit": str(source), "signature": "bool ()",
+                         "failureReturn": False}],
             "libclang": str(args.libclang),
             "resourceDirectory": str(args.resource_dir),
             "analysisArguments": ["--target=x86_64-pc-windows-msvc"],
         },
     )
-    report = json.loads(run([args.mst, "update-catalog", request], capture_output=True).stdout)
-    assert [failure["exitKind"] for failure in report["failures"]] == ["return"], report
+    document = json.loads(Path(request).read_bytes())
+    explicit = {**document["members"][0], "id": member + "-explicit", "function": "StableBusiness"}
+    del explicit["failureReturn"]
+    document["members"].append(explicit)
+    write_json(Path(request), document)
+    report = json.loads(run([args.mst, "analyze-errors", request], capture_output=True).stdout)
+    members = {entry["memberId"]: entry for entry in report["members"]}
+    assert [entry["key"] for entry in members[member]["failures"]] == ["DeclaredFailure"]
+    (business,) = members[explicit["id"]]["failures"]
+    assert (business["macro"], business["code"]) == ("MOD_ERROR_BUSINESS_TEST", 0x30010011)
+    document["members"].append({**explicit, "id": member + "-conflict", "function": "ConflictingBusiness"})
+    write_json(Path(request), document)
+    collision = subprocess.run([str(args.mst), "analyze-errors", request], capture_output=True, text=True)
+    assert collision.returncode != 0 and "Conflicting source error" in collision.stderr, collision.stderr
+
+
+
+def verify_cross_file_exceptions(root, args):
+    root.mkdir()
+    source = root / "caller.cpp"
+    helper = root / "helper.cpp"
+    source.write_text(
+        "void AcrossFile();\n"
+        "void Run(bool Direct) { if (Direct) throw 3; try { AcrossFile(); } catch (int) { throw; } }\n",
+        encoding="utf-8",
+    )
+    helper.write_text("void AcrossFile() { throw 7; }\n", encoding="utf-8")
+    database = write_json(root / "compile_commands.json", [{
+        "directory": str(root),
+        "file": str(unit),
+        "arguments": [str(args.clang), "--target=x86_64-pc-windows-msvc", "-std=c++20", "-fexceptions",
+                      "-fcxx-exceptions", "-DUE_TARGET_NAME=Game", '-DUE_MODULE_NAME="Probe"', "-DWITH_EDITOR=0",
+                      "-c", str(unit), "-o", str(unit.with_suffix(".obj"))],
+    } for unit in (source, helper)])
+    request = write_json(root / "SourceAnalysisRequest.json", {
+        "format": "UMF.SourceAnalysisRequest", "schemaVersion": 2, "compilationDatabase": database,
+        "target": "Game", "projectRoot": str(root), "libclang": str(args.libclang),
+        "resourceDirectory": str(args.resource_dir), "analysisArguments": [],
+        "members": [{"id": "api/ci/probe/exceptions", "module": "Probe", "function": "Run",
+                     "translationUnit": str(source), "source": str(source)}],
+    })
+    first = run([args.mst, "analyze-errors", request], capture_output=True).stdout
+    assert first == run([args.mst, "analyze-errors", request], capture_output=True).stdout
+    (member,) = json.loads(first)["members"]
+    failures = member["failures"]
+    assert all(item["code"] == 0x28020001 for item in failures), member
+    assert any(item["originFunction"] == "Run" and not item["callChain"] for item in failures), member
+    assert any(item["originFunction"] == "AcrossFile" and item["callChain"] and item.get("rethrowLocations")
+               for item in failures), member
+    assert {Path(file).name for file in member["analyzedFiles"]} >= {"caller.cpp", "helper.cpp"}, member
 
 
 def verify_hook_marker(header, source, flags, args, project, options, request):
@@ -497,6 +637,40 @@ def verify_hook_stages(header, source, flags, args, project, options, request, g
         source.write_text(implementation, encoding="utf-8")
 
 
+def verify_discovery_conflicts(header, source, build_input, options, request, args):
+    files = [header, source, Path(build_input), Path(options)]
+    saved = {file: file.read_bytes() for file in files}
+    try:
+        header.write_bytes(saved[header] + b"\nclass OtherOwner { public: MOD_EXPORT_HOOK() float Change(float Value); };\n")
+        source.write_bytes(saved[source] + b"\nfloat OtherOwner::Change(float Value) { return Value; }\n")
+        build = json.loads(saved[Path(build_input)])
+        build["reflection"].append({"cpp": "OtherOwner", "module": "Game", "path": "/Script/Game.OtherOwner",
+                                    "file": str(header), "legacyId": "game.character"})
+        write_json(Path(build_input), build)
+        collision = subprocess.run([str(args.mht), "generate", request], capture_output=True, text=True)
+        assert collision.returncode != 0 and "type identity 'game.character' is already used" in collision.stderr
+
+        header.write_text(
+            '#pragma once\n#include "ModExportMacros.h"\nclass UObject {};\n'
+            'class UScoped : public UObject { public: static void StaticClass();\n'
+            'MOD_EXPORT_API(Scope=World, Thread=GameThread, FailureRule=ReturnError) bool A();\n'
+            'MOD_EXPORT_API(Scope=Player, Thread=GameThread, FailureRule=ReturnError) bool B(); };\n',
+            encoding="utf-8",
+        )
+        source.write_text('#include "GameCharacter.h"\nbool UScoped::A() { return true; }\n'
+                          'bool UScoped::B() { return true; }\n', encoding="utf-8")
+        metadata = json.loads(saved[Path(options)])
+        metadata["Options"].update(APIScopes=["World", "Player"], APIThreads=["GameThread"],
+                                   APIFailureRules=["ReturnError"])
+        write_json(Path(options), metadata)
+        Path(build_input).write_bytes(saved[Path(build_input)])
+        scope = subprocess.run([str(args.mht), "generate", request], capture_output=True, text=True)
+        assert scope.returncode != 0 and "conflicting export scopes" in scope.stderr, scope.stderr
+    finally:
+        for file, data in saved.items():
+            file.write_bytes(data)
+
+
 def verify(root, args, platform, arch, triple, apple_platform=None):
     module = root / "Source/Game"
     module.mkdir(parents=True)
@@ -554,13 +728,13 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
             "architecture": arch,
             "compilationDatabase": database,
             "analysisArguments": ["-resource-dir=" + str(args.resource_dir)],
-            "types": {"AGameCharacter": {"typeId": "game.character", "scope": "World"}},
+            "reflection": [{"cpp": "AGameCharacter", "module": "Game", "path": "/Script/Game.GameCharacter",
+                            "file": str(header), "legacyId": "game.character"}],
             "modules": [{"name": "Game", "sourceDirectory": str(module), "translationUnits": [str(source)]}],
         },
     )
     generated = root / "Intermediate/ModTools/ModHeaderTool/Generated/Game" / platform / "Development" / arch
     (root / "Config").mkdir()
-    write_json(root / "Config/ModHeaderTool.json", {"generation": {"gameId": "Game"}})
     request = write_json(
         root / "Generation.json",
         {
@@ -578,7 +752,20 @@ def verify(root, args, platform, arch, triple, apple_platform=None):
     contract_file = generated / "Contract/Game.sdkcontract.json"
     declaration = header.read_text(encoding="utf-8")
     original_contract = None
+    if (platform, arch) in {("Win64", "x64"), ("LinuxArm64", "arm64"), ("Mac", "arm64")}:
+        reflected = json.loads(Path(build_input).read_bytes())
+        write_json(Path(build_input), {**reflected, "reflection": []})
+        run([args.mht, "generate", request])
+        (native,) = json.loads(contract_file.read_bytes())["extensions"]
+        assert native["id"] == "hook/cpp.game.agamecharacter/change-health", native
+        without_override = [{**reflected["reflection"][0], "legacyId": ""}]
+        write_json(Path(build_input), {**reflected, "reflection": without_override})
+        run([args.mht, "generate", request])
+        (automatic,) = json.loads(contract_file.read_bytes())["extensions"]
+        assert automatic["id"] == "hook/ue.game.gamecharacter/change-health", automatic
+        write_json(Path(build_input), reflected)
     if (platform, arch) == ("Win64", "x64"):
+        verify_discovery_conflicts(header, source, build_input, options, request, args)
         verify_hook_marker(header, source, flags, args, project, options, request)
         verify_hook_stages(header, source, flags, args, project, options, request, generated)
         header.write_text(declaration.replace("MOD_EXPORT_HOOK()", "MOD_EXPORT_HOOK(NoOn)"), encoding="utf-8")
@@ -681,6 +868,9 @@ struct UModExtensionSubsystem {
         "PrerequisiteActions": [],
         "CommandVersion": "test",
     }
+    if os.name == "nt" and platform == "Win64" and arch == "x64":
+        action["CommandPath"] = str(root / "cl-filter.exe")
+        action["CommandArguments"] = f'-dependencies=fixture.txt -- "{args.clang}" ' + action["CommandArguments"]
     graph = root / "CompileActions.json"
     # An up-to-date target receipt can leave no WriteMetadata action between the links and the post-build script.
     write_json(graph, {"Actions": [
@@ -689,6 +879,8 @@ struct UModExtensionSubsystem {
         {"Id": 2, "Type": "Link", "PrerequisiteActions": [0], "ProducedItems": [str(root / "game.linked")]},
         {"Id": 3, "Type": "Link", "PrerequisiteActions": [0], "ProducedItems": [str(root / "module.linked")]},
     ]})
+    write_build_receipt(project, generated, platform, arch, args.clang, triple, root)
+    bundle = write_build_bundle(project, platform, arch)
     build = [
         args.mbt,
         "build-ue-target",
@@ -698,7 +890,7 @@ struct UModExtensionSubsystem {
         "--platform", platform,
         "--configuration", "Development",
         "--architecture", arch,
-        "--mode", "normal",
+        "--mode", "normal", *bundle,
     ]
     env = {**os.environ, "PYTHONHOME": sys.base_prefix}
     run(build, env=env)
@@ -801,8 +993,9 @@ if __name__ == "__main__":
         verify_empty_host_finalization(Path(directory) / "empty", args.mbt)
         verify_direct_host_finalization(Path(directory) / "host", args)
         args.engine = prepare_fake_ubt(Path(directory))
-        verify_long_project_path(Path(directory), args.mbt, args.engine)
+        verify_long_project_path(Path(directory), args)
         verify_msvc_source_analysis(Path(directory) / "msvc-source-analysis", args)
+        verify_cross_file_exceptions(Path(directory) / "clang-source-analysis", args)
         for target in (
             ("Win64", "x64", "x86_64-pc-windows-msvc"),
             ("Win64", "arm64", "aarch64-pc-windows-msvc"),

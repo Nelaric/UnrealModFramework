@@ -20,7 +20,7 @@ UBT/UHT 提供 Target 上下文，MHT 生成契约与连接代码，UBT 在所�
 | --- | --- |
 | Cooked 资产 | 归档与运行时覆盖 Pak/IoStore 内容路径；样例宿主使用 Pak，Shipping 按平台、Cook 配置和后端逐项验收 |
 | 内容 ID 与 World Patch | 由宿主定义内容槽与锚点；支持内容提供、替换和禁用，以及 Actor 生成、组件挂接和数据注册 |
-| 原生代码 | 在 Win64 x64 Pak 上分别支持匹配宿主构建的 UE 模块与独立 C ABI 扩展 DLL，均由宿主显式启用 |
+| 原生代码 | Windows、Linux 和 macOS 的 x64 与 ARM64 Pak 宿主显式启用独立 C ABI 扩展。Modular 与 Monolithic 共用加载路径 |
 | Blueprint | 宿主蓝图可导出受支持的实例 API 及已接入的 Hook/Event；生成的 SDK 提供反射调用、注册与生命周期类型 |
 | 材质 Shader Code | 加载器处理与 Cook 内容匹配的 Shader 库，渲染支持按目标 RHI 和 Shader 平台验收 |
 | 卸载与替换 | 内容包可在会话租约与对象引用释放后卸载；UE 原生模块驻留至进程退出，同身份原生版本替换需要重启 |
@@ -74,7 +74,7 @@ UBT/UHT 提供 Target 上下文，MHT 生成契约与连接代码，UBT 在所�
 
 Setup 负责准备构建主机上的 `libclang`、配套 Clang 资源头文件和四个独立工具。正式构建使用真实的 UBT 编译数据库，在标准 UHT CodeGen 后由 MHT 解析活动 C++ 声明与蓝图快照；当缺少导出快照所需的工程二进制时，适配层会自动引导已配置的 Development Editor。在 Win64 x64 MSVC 上，MBT 按清单编译宿主与客户端单元，UBT 通过所属模块的 UHT 链接单元及 MST 生成的链接头链接宿主库；其他工具链则由 UHT 登记生成的编译单元，交给 UBT 编译。[Setup 与宿主构建](../README.zh-CN.md#快速开始)
 
-MDT 调用 UAT `BuildPlugin` 编译内嵌的制作插件和游戏专属 SDK 插件，并核对 Editor BuildId、原生库及文件清单。模组作者可将制作插件和游戏 SDK 安装到独立工程的 `Plugins/` 目录。若游戏的 Cook 或 Runtime 需要 SDK 反射类型，游戏端需先安装同批次的宿主 SDK 插件。跨目标的 SDK 发布与原生包交付须单独验收。[SDK 输入与交付](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
+MDT 通过默认引擎插件已禁用的专用项目 Editor 目标编译内嵌的制作插件和游戏专属 SDK 插件，并核对 Editor BuildId、原生库及文件清单。模组作者可将制作插件和游戏 SDK 安装到独立工程的 `Plugins/` 目录。若游戏的 Cook 或 Runtime 需要 SDK 反射类型，游戏端需先安装同批次的宿主 SDK 插件。跨目标的 SDK 发布与原生包交付须单独验收。[SDK 输入与交付](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
 
 ## 4. 游戏接入契约与统一 API
 
@@ -112,7 +112,7 @@ MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Pe
 EXPORTTEST_API float GetCurrentHealth() const;
 ```
 
-其中，`MOD_EXPORT_API` 关联具体成员，`MOD_EXPORT_EVENT` 关联显式发布函数，`MOD_EXPORT_HOOK` 关联业务函数；类型身份保存在宿主的 `Config/ModAPITypes.json` 中，生成器仅使用当前 Target 下的活动声明。在开发宿主的[角色业务实现](../UnrealModFramework/Source/ExportTest/GameCharacter.cpp)中，`ChangeHealth` 直接调用 `ApplyHealth`。各字段及声明说明详见[游戏端详细设计第 8 节](UnrealModFramework_游戏端详细设计.md#8-游戏声明与蓝图接入)。
+其中，`MOD_EXPORT_API` 关联具体成员，`MOD_EXPORT_EVENT` 关联显式发布函数，`MOD_EXPORT_HOOK` 关联业务函数；类型身份由 UHT 和活动 Clang AST 推导，已发布的旧 ID 可在其类型声明上明确保留。在开发宿主的[角色业务实现](../UnrealModFramework/Source/ExportTest/GameCharacter.cpp)中，`ChangeHealth` 直接调用 `ApplyHealth`。各字段及声明说明详见[游戏端详细设计第 8 节](UnrealModFramework_游戏端详细设计.md#8-游戏声明与蓝图接入)。
 
 | 机制 | 声明提供的信息 | 游戏必须显式完成的接入 |
 | --- | --- | --- |
@@ -188,11 +188,11 @@ Hook 契约还须指定失败策略、重入规则、调用线程与网络权威
 
 ## 5. `.mod` 包协议
 
-`.mod` 采用单文件封装格式。当前归档以固定 64 字节的小端序 Header 开始，后接 UTF-8 Manifest、连续载荷和 UTF-8 Index。归档主版本中，v1 仅携带内容资产，v2 增加了匹配宿主的 UE 原生模块支持，v3 则进一步携带扩展清单，并可包含 UE 模块或独立回调 DLL；其中扩展清单拥有独立的 Schema v1/v2。
+`.mod` 采用单文件封装格式。当前归档以固定 64 字节的小端序 Header 开始，后接 UTF-8 Manifest、连续载荷和 UTF-8 Index。归档 v1 携带内容资产，v3 携带扩展清单和可选的独立原生共享库。扩展清单拥有独立的 Schema v1/v2。持有 v2 UE 模块包的作者需要将动态代码迁移至 C ABI 并重新打包。
 
 ### 5.1 Manifest 的必需信息
 
-`UMF.ModPackage` 记录 `modId`、三段版本、插件身份及 `/<PluginName>/` 包根、`cookProfileId` 与配置详情，以及包内 Cook 回执的条目路径。宿主依次核对 GameId、基础发布及其 Asset Registry SHA-256、引擎构建、目标平台、Cook 平台与后端。Manifest 还可附带 `lifecycleClasses`、`nativeCode` 与 `extensions`，分别描述实例类、UE 模块及世界扩展。归档 v3 的扩展清单则进一步记录 Hook/Event 签名、依赖、互斥、所需授权、内容、Patch 和版本化服务。详见[归档字节布局和字段](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#mod-布局)。
+`UMF.ModPackage` 记录 `modId`、三段版本、插件身份及 `/<PluginName>/` 包根、`cookProfileId` 与配置详情，以及包内 Cook 回执的条目路径。宿主依次核对 GameId、基础发布及其 Asset Registry SHA-256、引擎构建、目标平台、Cook 平台与后端。Manifest 还可附带 `lifecycleClasses` 和 `extensions`，分别描述实例类和世界扩展。原生回调使用独立 C ABI 共享库。Cook Profile 和 Cook 回执记录 `targetArchitecture`，宿主核对目标架构、库格式和载荷摘要后，按同一协议为 Modular 与 Monolithic 游戏注册回调。归档 v3 的扩展清单则进一步记录 Hook/Event 签名、依赖、互斥、所需授权、内容、Patch 和版本化服务。详见[归档字节布局和字段](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#mod-布局)。
 
 ### 5.2 解析、校验与缓存
 
@@ -209,7 +209,7 @@ Hook 契约还须指定失败策略、重入规则、调用线程与网络权威
 | 阶段 | 当前接入 |
 | --- | --- |
 | 进程准入 | 验证归档完整性，确定启用或必需集合，核对固定摘要、权限、契约、依赖与冲突 |
-| 资源准备 | 提取并挂载容器、登记包根并追加可用的 Cooked Registry；需要时先加载匹配宿主构建的 UE 模块，再实例化蓝图类 |
+| 资源准备 | 提取并挂载容器、登记包根并追加可用的 Cooked Registry；按需装载经过平台及架构核对的独立共享库，再实例化蓝图类 |
 | 会话实例 | `ModLoader` 向会话分发加载结果；首次准备冻结包集合与授权，同 GameInstance 的后续 World 直接复用 |
 | World 准备 | 宿主先定义内容槽与锚点，再调用 `UModExtensionSubsystem::Prepare`；运行时随后执行注册、内容与 Patch 决议、服务绑定及 Hook/Event 快照 |
 | 玩法准入 | World 准备完成后提供玩法指纹；宿主据此在启动、服务器登录或客户端进图时接入玩法屏障 |
@@ -219,11 +219,11 @@ Hook 契约还须指定失败策略、重入规则、调用线程与网络权威
 
 ## 7. 原生 ABI 与 Shader 边界
 
-独立扩展 DLL 通过 `UMF_RegisterExtensionsV1` 注册 World 回调。宿主表以 `StructSize` 和 `Version` 描述版本，提供注册、退订、Hook 续调及宿主 API 表查询能力。注册时按 SDK 中的 ID 与签名进行校验；输入、输出、对象及续调令牌均随当前调用帧失效。World 停止时，先排空回调，再调用可选的 `Close`。
+独立扩展共享库通过 `UMF_RegisterExtensionsV1` 注册 World 回调。宿主表以 `StructSize` 和 `Version` 描述版本，提供注册、退订、Hook 续调及宿主 API 表查询能力。注册时按 SDK 中的 ID 与签名进行校验；输入、输出、对象及续调令牌均随当前调用帧失效。World 停止时，先排空回调，再调用可选的 `Close`。
 
-生成 API 的客户端采用 `ContextHandlesV1`，通过定宽标量、显式长度和不透明句柄交换数据，并依据对应的 ABI 哈希校验函数表。调用边界遵循既定的借用期与缓冲区规则，异常须在各自模块内部处理，UE 对象或 C++ 容器布局均留在 UE 模块内。宿主已编译的 C++ Fast Path 仍通过具体类型化入口调用游戏服务。详见[独立 DLL 回调](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)与[生成 API 连接](../UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md)。
+生成 API 的客户端采用 `ContextHandlesV1`，通过定宽标量、显式长度和不透明句柄交换数据，并依据对应的 ABI 哈希校验函数表。调用边界遵循既定的借用期与缓冲区规则，异常须在各自模块内部处理，UE 对象或 C++ 容器布局均留在 UE 模块内。宿主已编译的 C++ Fast Path 仍通过具体类型化入口调用游戏服务。详见[独立原生回调](../UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md#独立原生回调)与[生成 API 连接](../UnrealModFramework/Plugins/ModRuntime/Tools/ModHeaderTool/README.zh-CN.md)。
 
-当前工程打包模式依托宿主 Target 回执，为 Win64 x64 Pak 发布编译 UE 模块；加载器在核对归档、构建身份与 BuildId 后加载模块，以保留 Cooked 蓝图的父类身份。相比之下，在任意 Target 上动态扩展反射或新增 Global Shader 类型仍是独立研究方向——新反射与 Shader 类型分别依赖相应的 UHT 与引擎装载阶段，只有在指定 UE 构建、目标平台及 Shipping 链接模式完成验证后，才会定义其兼容性与交付方式。材质使用的 Cooked Shader Code 与“新增 Global Shader 类型”须分别验收，不能用前者的成功推断后者可用。UE 文档明确指出，新增 Global Shader 类型的模块必须在引擎初始化前加载，游戏启动后的动态模块不能再添加 Shader 类型（参见[UE 5.6 Global Shader 文档](https://dev.epicgames.com/documentation/en-us/unreal-engine/adding-global-shaders-to-unreal-engine?application_version=5.6)）。
+Mod 作者针对目标平台及架构独立编译回调库。宿主和作者 SDK 提供 Cooked 蓝图使用的 UE 反射类型。动态新增反射或 Global Shader 类型涉及 UHT 与引擎装载阶段，兼容性与交付方式需依据实际 UE 构建、平台及 Shipping 目标的结果确定。材质使用的 Cooked Shader Code 与“新增 Global Shader 类型”须分别验收，不能用前者的成功推断后者可用。UE 文档明确指出，新增 Global Shader 类型的模块必须在引擎初始化前加载，游戏启动后的动态模块不能再添加 Shader 类型（参见[UE 5.6 Global Shader 文档](https://dev.epicgames.com/documentation/en-us/unreal-engine/adding-global-shaders-to-unreal-engine?application_version=5.6)）。
 
 ## 8. 模组开发编辑器与预览
 
@@ -255,7 +255,7 @@ Win64 x64 MSVC 已接入独立宿主归档与链接核对。Development CI 定�
 
 | 阶段 | 交付范围 | 可验收结果 |
 | --- | --- | --- |
-| P0 | 两插件结构、独立 `BuildPlugin`、共享协议、Runtime SDK 发布 | Game/Editor Target 可编译 Runtime；制作编辑器可独立构建并安装；发布副本不依赖源仓库路径 |
+| P0 | 两插件结构、独立 Editor 目标、共享协议、Runtime SDK 发布 | Game/Editor Target 可编译 Runtime；制作编辑器可独立构建并安装；发布副本不依赖源仓库路径 |
 | G1 技术闸门 | 在最小游戏中先验证 Shipping 资源链路，可使用一次性实验包 | Win64 Development 与 Shipping 分别挂载 Pak/IoStore、读取 Asset Registry、软引用加载静态网格/材质/蓝图资产，并逐后端记录通过或失败 |
 | P1 | 游戏接入样例、API/Hook/Event 契约、类型化 Hook 和 Runtime Registry | 显式调用点与服务实例生效；无监听者时走原版逻辑；冲突、重入、权限与生命周期行为均可重复验证 |
 | P2 | MHT 统一 IR 与代码生成、UHT Exporter/UBT 原生接入、MBT 清单校验、SDK Bundle 与 C ABI 样例 | 宏与 UHT 共存、生成头时序及首次/增量构建均通过；全部转换函数体实际编译；生成清单与分目标产物一致，独立作者环境可消费匹配的 Editor Bundle |
@@ -271,9 +271,9 @@ G1 作为每种资源后端进入 Shipping 支持矩阵的门槛，可与契约�
 
 1. **Shipping 资源链路**：在 UE 5.6 Win64 下，Pak 与 IoStore 分别能否在宿主进程启动期动态挂载，并让 Cooked Asset Registry 与软引用正确解析？验证结果将决定首版启用哪些后端。
 2. **原生构建与类型集**：新增构建模式和平台时，须分别验证生成头时序、增量失效、C ABI 与蓝图的类型组合，以及分目标 SDK 消费。
-3. **原生能力范围**：须分别验收现行独立 C ABI 与同构 UE 模块的目标组合，再评估更广泛的反射、Shader 类型与热替换。
+3. **原生能力范围**：须在支持的桌面目标上验收独立 C ABI 扩展的注册、调用、关闭与启动策略。
 4. **Cook Profile 的发布责任**：接入游戏须明确作者工程所需的游戏 SDK、Cook 参数、可引用类及兼容版本的发布流程。
-5. **模组信任策略**：现有宿主已支持固定整包摘要、设置许可名单并分别启用两种原生 DLL；签名格式及公钥发布需要独立设计。
+5. **模组信任策略**：现有宿主支持固定整包摘要、设置许可名单并显式启用独立原生扩展。签名格式及公钥发布需要独立设计。
 6. **多人游戏验收**：开发宿主已有登录身份与玩法指纹握手；正式游戏须在自身的 Client/Server 构建、模组发行集合和切图路径上验证拒绝、断线与重连。
 
 ## 12. 参考资料

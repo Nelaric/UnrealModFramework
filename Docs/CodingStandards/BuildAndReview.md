@@ -24,7 +24,7 @@ Apply this rule to every new project-authored file and to existing project-autho
 
 - Apply CSharpier to `.Build.cs` and `.Target.cs` files. It is as mandatory as clang-format is for C++.
 - Keep module dependencies minimal and classify them as public or private according to the headers that require them. Do not add vendor SDK dependencies to Runtime.
-- Target UE 5.6 and later. Before requesting review, build the development host Game and Editor targets with UE 5.6. Build a Server target when one is introduced. CI should eventually cover the minimum and latest supported engine releases. GitHub Actions checks naming, formatting, text conventions, API documentation, automatic Hook target fixtures, and MST source analysis. The authorized Development CI workflow defines the native Game and Editor jobs and headless Editor automation. [Development CI](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.md#development-ci)
+- Target UE 5.6 and later. Development CI uses locked UE 5.6.1 SDKs to build Game and Editor and run headless automation. Release Validation covers the full engine, packaged Game, standalone SDK, packaging, and performance tests. Report the actual build environment and test results when requesting review. [CI build coverage](https://github.com/Nelaric/UnrealModFramework/blob/main/Docs/DevelopmentWorkflow.md)
 
 ## Automation tests
 
@@ -32,7 +32,7 @@ Each independent framework capability must have automated tests that exercise it
 
 ## Local checks
 
-Run these commands from the repository root (alongside the `UnrealModFramework/` project directory), using the tool versions pinned in `.github/workflows/quality.yml` and `.config/dotnet-tools.json`:
+Run these commands from the repository root (alongside the `UnrealModFramework/` project directory), using the tool versions pinned in `.github/workflows/development.yml` and `.config/dotnet-tools.json`:
 
 1. `python Scripts/check_text.py` checks text encoding and line endings.
 2. `python Scripts/check_format.py` checks C++ and UE build-script formatting. Install the pinned clang-format and restore the local .NET tool manifest first.

@@ -13,6 +13,9 @@
 #include "ModHeaderTool/src/Project/Project.h"
 
 #include <algorithm>
+#include <chrono>
+#include <iostream>
+#include <set>
 #include <cstddef>
 #include <filesystem>
 #include <nlohmann/json.hpp>
@@ -83,10 +86,10 @@ nlohmann::json SourceToolInvocation::SourceRequest(const GenerationModel& Model,
 		throw std::runtime_error("Source error analysis requires an absolute -resource-dir in analysisArguments.");
 	}
 	return {{"format", "UMF.SourceAnalysisRequest"},
-	        {"schemaVersion", 1},
+	        {"schemaVersion", 2},
 	        {"compilationDatabase", Path::PathToUtf8(Database)},
 	        {"target", Model.Input.Target},
-	        {"catalog", Path::PathToUtf8(Model.SourceErrorCatalog)},
+	        {"projectRoot", Path::PathToUtf8(Model.Input.Project.Root)},
 	        {"libclang", Path::PathToUtf8(fs::canonical(ClangLibrary))},
 	        {"resourceDirectory", Path::PathToUtf8(fs::canonical(ResourceDirectory))},
 	        {"analysisArguments", std::move(AnalysisArguments)}};
@@ -112,10 +115,25 @@ void SourceToolInvocation::RewriteHooks(GenerationModel& Model, const fs::path& 
 		{
 			continue;
 		}
+		std::set<fs::path> Candidates;
+		for (const auto& [Usr, Dispatcher] : Dispatchers.items())
+		{
+			const auto Methods = Model.NativeMethodUnits.find(Usr);
+			if (Methods == Model.NativeMethodUnits.end())
+			{
+				// Let MST diagnose a definition that the declaration pass could not locate.
+				Candidates.insert(Module.TranslationUnits.begin(), Module.TranslationUnits.end());
+				break;
+			}
+			Candidates.insert(Methods->second.begin(), Methods->second.end());
+		}
 		Json Sources = Json::array();
 		for (const auto& Unit : Module.TranslationUnits)
 		{
-			Sources.push_back(Path::PathToUtf8(Unit));
+			if (Candidates.contains(Unit))
+			{
+				Sources.push_back(Path::PathToUtf8(Unit));
+			}
 		}
 		Modules.push_back({{"owner", Module.Name}, {"sources", Sources}, {"dispatchers", Dispatchers}});
 	}
@@ -127,9 +145,11 @@ void SourceToolInvocation::RewriteHooks(GenerationModel& Model, const fs::path& 
 	Model.Dependencies.insert(Tool);
 	auto Request = SourceRequest(Model, Database, ClangLibrary);
 	Request["format"] = "UMF.HookSourceRequest";
+	Request["schemaVersion"] = 1;
 	Request["modules"] = std::move(Modules);
-	const SourceReport Report;
+	const SourceReport Report(Model.Input.File.parent_path());
 	Mod::BuildTool::File::WriteFileAtomically(Report.Request, Request.dump(2) + "\n");
+	const auto Started = std::chrono::steady_clock::now();
 	const int Exit = Mod::BuildTool::Process::RunProcess(
 	    Tool, {"rewrite-hooks", Path::PathToUtf8(Report.Request)}, Model.Input.Project.Root,
 	    Mod::BuildTool::ProcessEnvironment::CaptureEnvironment(), Report.File);
@@ -138,6 +158,8 @@ void SourceToolInvocation::RewriteHooks(GenerationModel& Model, const fs::path& 
 		throw std::runtime_error("ModSourceTool failed to rewrite automatic Hooks (exit code " + std::to_string(Exit) +
 		                         ").");
 	}
+	const auto Seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - Started).count();
+	std::cerr << "UMF timing MST Hook rewrite " << Seconds << " s\n";
 	Json Plan = Json::array();
 	const auto Sources = Json::parse(Mod::BuildTool::File::ReadFile(Report.File));
 	for (const auto& Record : Sources)

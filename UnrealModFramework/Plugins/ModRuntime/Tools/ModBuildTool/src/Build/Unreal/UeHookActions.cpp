@@ -318,7 +318,8 @@ UeHookObjects UeHookActions::Prepare(Json& Graph, const UeHookSources& Sources, 
 			{
 				Command.push_back(' ');
 			}
-			Command += ProcessArguments::QuoteMsvc(Argument);
+			// cl-filter looks for the literal delimiter before the child compiler command line.
+			Command += Compiler == u8"cl-filter" && Argument == "--" ? Argument : ProcessArguments::QuoteMsvc(Argument);
 		}
 		const auto& Unit = Sources.at(Source);
 		Action["CommandArguments"] = std::move(Command);

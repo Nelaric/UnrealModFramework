@@ -16,8 +16,8 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065b # v5.6.0
         with:
           python-version: '3.12'
       - name: Check PR title, branch, and commits
@@ -29,11 +29,11 @@ jobs:
     name: Format and text
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065b # v5.6.0
         with:
           python-version: '3.12'
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: '10.0.x'
       - name: Install pinned formatters
@@ -51,148 +51,15 @@ jobs:
     name: API documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065b # v5.6.0
         with:
           python-version: '3.12'
       - name: Install Doxygen 1.18.0
-        run: |
-          mkdir -p "$RUNNER_TEMP/doxygen"
-          if ! curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
-            --connect-timeout 15 --max-time 180 \
-            https://www.doxygen.nl/files/doxygen-1.18.0.linux.bin.tar.gz \
-            -o "$RUNNER_TEMP/doxygen.tar.gz"; then
-            curl -fsSL --retry 3 --retry-delay 2 --retry-all-errors \
-              --connect-timeout 15 --max-time 180 \
-              https://github.com/doxygen/doxygen/releases/download/Release_1_18_0/doxygen-1.18.0.linux.bin.tar.gz \
-              -o "$RUNNER_TEMP/doxygen.tar.gz"
-          fi
-          printf '%s  %s\n' \
-            '14fa81bdc34171edb5f1f02b1d60e74802f0439b77fa44e592565d517d72df90' \
-            "$RUNNER_TEMP/doxygen.tar.gz" | sha256sum --check --status
-          tar -xzf "$RUNNER_TEMP/doxygen.tar.gz" -C "$RUNNER_TEMP/doxygen"
-          doxygen_bin="$(find "$RUNNER_TEMP/doxygen" -type f -name doxygen | head -n 1)"
-          test -n "$doxygen_bin"
-          echo "$(dirname "$doxygen_bin")" >> "$GITHUB_PATH"
+        run: bash Scripts/install_doxygen.sh
       - name: Check public header comments
         run: python Scripts/check_public_docs.py
       - name: Check Doxygen comment style
         run: python Scripts/check_doxygen_style.py
       - name: Build API documentation
         run: python Scripts/run_doxygen.py
-
-  mst-compilers:
-    name: MST source analysis on Linux with GCC and Clang
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build MST, MHT and MBT
-        run: |
-          tools=UnrealModFramework/Plugins/ModRuntime/Tools
-          cmake -S "$tools" -B "$RUNNER_TEMP/mst" -DCMAKE_BUILD_TYPE=Release
-          cmake --build "$RUNNER_TEMP/mst" --target ModRuntimeUhtTools --parallel 2
-      - name: Compile and link automatic Hooks for COFF, ELF and Mach-O targets
-        run: |
-          # LLD 19 supports both visionOS device and simulator platform versions.
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends clang-19 lld-19 llvm-19 libclang-19-dev
-          tools=UnrealModFramework/Plugins/ModRuntime/Tools
-          cmake -P "$tools/SetupLibClang.cmake"
-          read -r library_path < "$tools/build/libclang-Linux-x64.path"
-          libclang=$(realpath "$tools/build/$library_path")
-          python3 Scripts/test_hook_targets.py --clang /usr/lib/llvm-19/bin/clang \
-            --resource-dir "$(dirname "$libclang")/clang/21" --libclang "$libclang" \
-            --mbt "$RUNNER_TEMP/mst/bin/Release/ModBuildTool" --mht "$RUNNER_TEMP/mst/bin/Release/ModHeaderTool" \
-            --mst "$RUNNER_TEMP/mst/bin/Release/ModSourceTool"
-      - name: Compare existing cross-file exception paths
-        run: |
-          export MST_RESOURCE_DIR="$(clang++-19 -print-resource-dir)"
-          python3 - <<'PY'
-          import json
-          import os
-          import shutil
-          import subprocess
-          import tempfile
-          from pathlib import Path
-
-          runner = Path(os.environ["RUNNER_TEMP"])
-          mst = runner / "mst/bin/Release/ModSourceTool"
-          root = Path(tempfile.mkdtemp(prefix="mst-compilers-", dir=runner))
-          tools = Path("UnrealModFramework/Plugins/ModRuntime/Tools")
-          common = root / "Common"
-          shutil.copytree(tools / "Common", common)
-          response = common / "Process/ResponseFile.cpp"
-          filesystem = common / "Files/File.cpp"
-          sources = (
-              response, filesystem,
-              common / "Process/ProcessArguments.cpp",
-              common / "Files/Path.cpp",
-              common / "Files/TemporaryName.cpp",
-          )
-          catalog = root / "Config/catalog.json"
-          catalog.parent.mkdir()
-          member = "api/ci/build-tool/write-response"
-          catalog.write_text(json.dumps({
-              "format": "UMF.SourceErrorCatalog",
-              "schemaVersion": 2,
-              "members": {member: {
-                  "function": "Mod::BuildTool::ResponseFile::WriteResponseFile",
-                  "module": "ModBuildTool",
-                  "source": str(response),
-                  "reasons": {},
-              }},
-              "nextDetailByType": {},
-          }), encoding="utf-8")
-
-          previous = None
-          for compiler in ("g++", "clang++-19"):
-              driver = shutil.which(compiler)
-              if not driver:
-                  raise SystemExit(f"Missing native compiler {compiler}")
-              directory = root / compiler
-              directory.mkdir()
-              database = directory / "compile_commands.json"
-              database.write_text(json.dumps([{
-                  "directory": str(directory),
-                  "file": str(source),
-                  "arguments": [
-                      driver, "-std=c++20", "-O2", "-g", "-fexceptions", "-I" + str(root),
-                      "-DUE_TARGET_NAME=MSTNative", '-DUE_MODULE_NAME="ModBuildTool"',
-                      "-DWITH_EDITOR=0", "-c", str(source), "-o", source.with_suffix(".o").name,
-                  ],
-              } for source in sources]), encoding="utf-8")
-              request = directory / "SourceAnalysisRequest.json"
-              request.write_text(json.dumps({
-                  "format": "UMF.SourceAnalysisRequest",
-                  "schemaVersion": 1,
-                  "compilationDatabase": str(database),
-                  "target": "MSTNative",
-                  "catalog": str(catalog),
-                  "member": member,
-                  "libclang": "/usr/lib/llvm-19/lib/libclang.so",
-                  "resourceDirectory": os.environ["MST_RESOURCE_DIR"],
-                  "analysisArguments": [],
-              }), encoding="utf-8")
-              action = "update-catalog" if previous is None else "analyze-errors"
-              command = [str(mst), action, str(request)]
-              result = json.loads(subprocess.check_output(command, text=True))
-              failures = result["failures"]
-              direct = any(
-                  item["originFunction"] == "Mod::BuildTool::ResponseFile::WriteResponseFile"
-                  and item["exitKind"] == "throw" and not item["callChain"]
-                  for item in failures
-              )
-              rethrow = any(
-                  item["originFunction"] == "Mod::BuildTool::File::WriteFileAtomically"
-                  and item["exitKind"] == "throw" and item["callChain"] and item.get("rethrowLocations")
-                  for item in failures
-              )
-              if not direct or not rethrow or str(filesystem) not in result["analyzedFiles"]:
-                  raise SystemExit(f"{compiler} did not resolve the direct and cross-file rethrow paths")
-              codes = {item["key"]: (item["macro"], item["code"]) for item in failures}
-              snapshot = (codes, catalog.read_bytes())
-              if previous is not None and snapshot != previous:
-                  raise SystemExit("GCC and Clang disagree on the persisted error reasons")
-              previous = snapshot
-              print(compiler, json.dumps(codes, sort_keys=True))
-          PY

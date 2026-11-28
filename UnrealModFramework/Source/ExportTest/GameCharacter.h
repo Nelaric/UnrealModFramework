@@ -9,7 +9,7 @@
 #include "GameCharacter.generated.h"
 
 /// A host character exposing bounded health and appearance changes.
-UCLASS(MinimalAPI)
+UCLASS(MinimalAPI, meta = (ModTypeId = "game.character"))
 class AGameCharacter : public ACharacter
 {
 	GENERATED_BODY()
@@ -34,7 +34,8 @@ public:
 	 * @return Whether the
 	 * character accepted the mesh.
 	 */
-	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldWrite))
+	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, FailureReturn = "false",
+	               Permissions = (WorldWrite))
 	UFUNCTION(BlueprintCallable, Category = "Character|Appearance")
 	EXPORTTEST_API bool SetMesh(USkeletalMesh* NewMesh);
 
@@ -42,7 +43,8 @@ public:
 	 * @return Whether called on the game
 	 * thread with a valid mesh component.
 	 */
-	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, Permissions = (WorldWrite))
+	MOD_EXPORT_API(Scope = World, Thread = GameThread, FailureRule = ReturnError, FailureReturn = "false",
+	               Permissions = (WorldWrite))
 	UFUNCTION(BlueprintCallable, Category = "Character|Appearance")
 	EXPORTTEST_API bool RestoreMesh();
 

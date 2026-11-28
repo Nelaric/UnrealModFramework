@@ -122,7 +122,7 @@ struct FPackageExtensions
 	TArray<FExtensionDependency> Contracts;
 	TArray<FContentCandidate> Content;
 	TArray<FWorldPatch> Patches;
-	/// Independently compiled DLL that exports UMF_RegisterExtensionsV1.
+	/// Target shared library exporting UMF_RegisterExtensionsV1.
 	FString NativeExtensionFile;
 	int32 SchemaVersion = 0;
 	bool bDeclared = false;

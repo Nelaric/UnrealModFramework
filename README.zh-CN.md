@@ -34,17 +34,9 @@ Setup 会将四个独立工具的 Release 可执行文件构建至 `UnrealModFra
 
 ### 构建开发宿主
 
-安装 UE 5.6 与目标平台 SDK。在仓库根目录使用 ModBuildTool（MBT）构建启用自动 C++ Hook 分发的 Win64 x64 Development Editor 示例。
+运行 Setup 后，在完整的 UE 5.6.1 或已验收的 Editor SDK 上使用 MBT 导出元数据。正常 Editor 和 Game 构建各自验证 Bundle，并独立生成其原生绑定。Game 可以使用独立的最小 Game SDK。[本地构建和自动化命令](Docs/DevelopmentWorkflow.zh-CN.md#本地构建)
 
-```powershell
-$mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
-& $mbt build-ue-target --engine "<UE 安装目录>" --project "UnrealModFramework/UnrealModFrameworkDev.uproject" `
-  --target UnrealModFrameworkDevEditor --platform Win64 --configuration Development --architecture x64 --mode normal
-```
-
-如需构建 Development Game，请将 `--target` 改为 `UnrealModFrameworkDev`。当生成导出快照需要 Editor 二进制时，构建流程会自动引导已配置的 Editor Target。在 Editor 中验证时，请在构建完成后打开开发宿主工程。[开发宿主工程](UnrealModFramework/UnrealModFrameworkDev.uproject) · [Linux 示例与目标架构](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#自动-hook-构建)
-
-所有工具链均由 UBT 在所属模块内编译生成的宿主代码。游戏 SDK 的共享 Runtime 模块编译 Client 实现。Development CI 定义 UE 5.6.1 的原生 Development Game 和 Editor Job，并在 Editor Job 中运行 `Nelaric.*` 自动化测试。[Development CI](Docs/DevelopmentWorkflow.zh-CN.md#development-ci)
+UBT 在所属模块内编译生成的宿主代码，游戏 SDK 的共享 Runtime 模块编译 Client 实现。[Development 与 Release Validation](Docs/DevelopmentWorkflow.zh-CN.md)
 
 ## 从开发分支获取 ModRuntime
 
@@ -60,7 +52,7 @@ $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuil
 ## 接入游戏侧导出
 
 1. 在每个参与导出的 Game 或 Editor Target 中调用一次 `ExportMetadata.ConfigureTarget(this)`。导出模块按 UE 常规方式依赖 `ModAPI`，即可使用导出宏和宿主接口。[宿主模块与链接配置](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#宿主编译与链接)
-2. 在 `Config/ModHeaderTool.json` 中将 `mode` 设为 `generate`，填写游戏 ID、类型身份与 `metadataEditorTarget`。如需导出蓝图，请在 `blueprintExports` 中为每个已保存资产指定对象路径、稳定的 `typeId` 及所属模块。[开发宿主配置示例](UnrealModFramework/Config/ModHeaderTool.json)
+2. 在 C++ 或蓝图 Mod 导出面板中声明导出。UMF 自动获取工程标识、反射及签名类型，并使用目标的实际编译参数进行分析。[UHT 与自动发现](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
 3. MHT 自动发现工程 `Source` 下的模块。在 `.uproject` 同目录的可选 `<项目名>.modexport` 中，用 `Plugins` 纳入插件。`ExcludeModules` 可以写在顶层，也可以写在某个插件条目中，单独排除该插件的模块。[模块选择示例](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md#模块选择)
 4. 在 C++ 中或通过蓝图编辑器的 **蓝图Mod导出** 面板声明导出；使用自动 C++ Hook 时，请通过 MBT 构建目标。[宿主声明与签名范围](UnrealModFramework/Plugins/ModRuntime/Source/ModRuntimeUht/README.zh-CN.md)
 
@@ -93,7 +85,7 @@ MHT 会按所选构建目标校验活动声明。`HostCommitPayload` 为当前�
 ## 构建并加载模组
 
 1. 在 MDT v3 请求中列出各目标的 v4 生成清单，运行 `ModSDKTool build --request SdkBuildRequest.json`。将发布包的 Host 插件装入提供共享 Runtime 的游戏，将制作端插件装入各 Mod 工程。[SDK 请求与产物](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/README.zh-CN.md)
-2. 在作者工程的关卡编辑器工具栏中选择 **Mod → 打包 Mod…**，填写目标游戏的基础发布信息及匹配的 Cook 设置，再选择打包已启用的内容插件或当前 C++ 工程。打包 C++ 工程需要 Pak 后端及匹配的 Win64 x64 模块化宿主回执；测试打包后的示例游戏时，请使用支持模块化 Game Target 的 UE 源码版引擎构建 `UnrealModFrameworkDevModular`。[打包与 PIE 设置](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md)
+2. 在作者工程的关卡编辑器工具栏中选择 **Mod → 打包 Mod…**，填写目标游戏的基础发布信息及匹配的 Cook 设置，再选择打包已启用的内容插件或当前工程内容。Windows、Linux 和 macOS 的 x64 与 ARM64 Pak 发行版均为 Modular 和 Monolithic 游戏使用同一条独立 C ABI 加载路径。[打包与 PIE 设置](UnrealModFramework/Plugins/ModRuntime/Tools/ModSDKTool/Resources/DevelopmentEditor/README.zh-CN.md)
 3. 在宿主的 `Config/DefaultGame.ini` 中配置 `[ModLoader]` 的发布身份、容器后端及所需的原生代码权限，然后将 `.mod` 包放入游戏可执行文件同级的 `Mods/` 目录；若在 Windows PIE 中测试，请将与 Editor 匹配的包放入宿主工程的 `Binaries/Win64/Mods/`。[加载器配置](Docs/CodingStandards/Modules.zh-CN.md#模组加载器)
 
 宿主会在开局前完成 World 扩展准备。`ModExtensions` 游戏模式演示了包含内容槽与 World Patch 锚点的准备流程、多人玩法计划核对以及单机存档迁移。Shipping 构建和更多工具链组合仍需按目标分别验收。[游戏端实现与里程碑](Docs/UnrealModFramework_游戏端详细设计.md#当前实现与限制)

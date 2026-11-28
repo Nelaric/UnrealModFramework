@@ -2,22 +2,14 @@
 /** @file AnalysisOptions.h */
 #pragma once
 
-#include <filesystem>
-#include <string>
-#include <vector>
+#include "ModSourceTool/src/Analysis/SourceRequest.h"
 
 namespace Mod::SourceTool
 {
 struct AnalysisOptions
 {
-	static AnalysisOptions Read(const std::filesystem::path& File);
+	std::vector<SourceRequest> Requests;
 
-	std::string Catalog;
-	std::string MemberId;
-	std::string CompilationDatabase;
-	std::string Target;
-	std::string ClangLibrary;
-	std::string ResourceDirectory;
-	std::vector<std::string> AnalysisArguments;
+	static AnalysisOptions Read(const std::filesystem::path& File);
 };
 } // namespace Mod::SourceTool
