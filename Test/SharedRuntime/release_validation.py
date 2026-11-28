@@ -21,7 +21,7 @@ MODULAR = GAME + "Modular"
 CONFIG = "Development"
 PLATFORM = "Win64"
 ARCH = "x64"
-LOCK = json.loads((ROOT / ".github/engine-lock.json").read_text(encoding="utf-8"))
+ENGINE_VERSION = (5, 6, 1)
 
 
 def document(path):
@@ -40,11 +40,12 @@ def engine_dir(location):
 
 
 class Validation:
-    def __init__(self, engine, work, commit, game_target):
+    def __init__(self, engine, work, commit, engine_commit, game_target):
         self.engine = engine_dir(engine)
         self.game_target = game_target
         self.work = work
         self.commit = commit
+        self.engine_commit = engine_commit
         ubt_base = "Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll"
         self.editor = self.engine / "Binaries/Win64/UnrealEditor-Cmd.exe"
         self.uat = "Binaries/DotNET/AutomationTool/AutomationTool.dll"
@@ -56,8 +57,8 @@ class Validation:
             raise ValueError("The selected Modular target needs a full engine with matching Modular Game build products")
         self.dotnet = candidates[-1]
         version = document(self.engine / "Build/Build.version")
-        if tuple(version[k] for k in ("MajorVersion", "MinorVersion", "PatchVersion")) != tuple(map(int, LOCK["ueVersion"].split("."))):
-            raise ValueError("The release engine version differs from the engine lock")
+        if tuple(version[key] for key in ("MajorVersion", "MinorVersion", "PatchVersion")) != ENGINE_VERSION:
+            raise ValueError("Release validation requires Unreal Engine 5.6.1")
         self.env = dict(os.environ)
         self.env["UE-LocalDataCachePath"] = str(work / "DDC")
         self.env["UE-SharedDataCachePath"] = "None"
@@ -93,7 +94,7 @@ class Validation:
 
     def build_host(self, project, label):
         bundle = self.work / (label + "-metadata")
-        identity = ["--commit", self.commit, "--engine-commit", LOCK["upstreamCommit"]]
+        identity = ["--commit", self.commit, "--engine-commit", self.engine_commit]
         self.mbt(label + "-prepare", "prepare-metadata", self.engine, project, EDITOR, *identity, "--output", bundle)
         for target in (EDITOR, self.game_target):
             self.mbt(label + "-" + target, "build-ue-target", self.engine, project, target, *identity,
@@ -213,17 +214,23 @@ class Validation:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", required=True, type=Path)
+    parser.add_argument(
+        "--engine-commit", default=os.environ.get("UMF_FULL_UE_COMMIT", ""),
+        help="Full upstream UE commit (defaults to UMF_FULL_UE_COMMIT)",
+    )
     parser.add_argument("--game-target", choices=(GAME, MODULAR), default=GAME)
     parser.add_argument("--work", required=True, type=Path)
     parser.add_argument("--commit", required=True)
     args = parser.parse_args()
+    if not re.fullmatch(r"[a-f0-9]{40}", args.engine_commit):
+        parser.error("Supply a full lowercase Git commit SHA in --engine-commit or UMF_FULL_UE_COMMIT")
     head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     if not re.fullmatch(r"[a-f0-9]{40}", args.commit) or head != args.commit:
         raise SystemExit("Release Candidate commit does not match the checkout")
     if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT).strip():
         raise SystemExit("Release validation requires a clean checkout of the Release Candidate")
     try:
-        validation = Validation(args.engine.resolve(), args.work.resolve(), args.commit, args.game_target)
+        validation = Validation(args.engine.resolve(), args.work.resolve(), args.commit, args.engine_commit, args.game_target)
         validation.work.mkdir(parents=True, exist_ok=False)
         validation.execute()
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:

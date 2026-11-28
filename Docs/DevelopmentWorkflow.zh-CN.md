@@ -68,7 +68,7 @@ Quality 提供目前用于合并的 PR 和提交命名、格式与文本、API �
 
 ## 本地构建
 
-运行一次 [Setup](../README.zh-CN.md#构建开发宿主)准备四个工具和 libclang。然后使用与 CI 相同的 MBT 阶段。下例适用于合法的完整 Windows UE 5.6.1 Editor。有已验收的 Game SDK 时，将其路径传入 Game 构建。
+运行一次 [Setup](../README.zh-CN.md#构建开发宿主)准备四个工具和 libclang。使用完整的 Windows UE 5.6.1 安装，或对应的 UMFCI Editor 和 Game SDK。将 `$revision` 设为构建这两个目标所用的完整 UE 上游提交。使用 UMFCI SDK 时，从包清单中读取 `epic_upstream_commit`。
 
 ```powershell
 $mbt = "./UnrealModFramework/Plugins/ModRuntime/Tools/build/ModBuildTool/ModBuildTool.exe"
@@ -77,7 +77,7 @@ $engine = "<完整 UE 5.6.1 或 Editor SDK>"
 $gameSdk = "<Win64 Game SDK 或完整 UE 5.6.1>"
 $bundle = "UnrealModFramework/Intermediate/ModTools/Metadata"
 $commit = git rev-parse HEAD
-$revision = (Get-Content .github/engine-lock.json -Raw | ConvertFrom-Json).upstreamCommit
+$revision = "<完整 UE 上游提交>"
 $platform = @("--project", $project, "--platform", "Win64", "--architecture", "x64")
 $identity = @("--commit", $commit, "--engine-commit", $revision)
 $inputs = @("--configuration", "Development", "--metadata", $bundle)
@@ -88,7 +88,7 @@ $inputs = @("--configuration", "Development", "--metadata", $bundle)
 & $mbt build-ue-target --engine $gameSdk --target UnrealModFrameworkDev @platform @identity @inputs --mode normal
 ```
 
-每次自动化运行使用一个新的报告目录。使用 UMFCI SDK 时，设置 `UE_USE_SYSTEM_DOTNET=1`，让 `DOTNET_ROOT` 指向锁定的原生 .NET SDK。可用 `UMF_MSVC_VERSION` 与 `UMF_WINDOWS_SDK_VERSION` 选择 Windows 工具链，CI 会在调用 MBT 前解析和校验版本。Linux ARM64 使用 `LinuxArm64` 和 `arm64`，Windows ARM64 使用 `Win64` 和 `arm64`。两者均消费 Game SDK。
+每次自动化运行使用一个新的报告目录。使用 UMFCI SDK 时，设置 `UE_USE_SYSTEM_DOTNET=1`，让 `DOTNET_ROOT` 指向包清单所列版本的原生 .NET SDK。可用 `UMF_MSVC_VERSION` 与 `UMF_WINDOWS_SDK_VERSION` 选择 Windows 工具链，CI 会在调用 MBT 前解析和校验版本。Linux ARM64 使用 `LinuxArm64` 和 `arm64`，Windows ARM64 使用 `Win64` 和 `arm64`。两者均消费 Game SDK。
 
 `prepare-metadata` 会复用已验证的 Bundle。Bundle 缺失或过期时，它通过 Bootstrap 规则构建本机 Development Editor，并调用导出 Commandlet。`validate-metadata` 可独立核对 Bundle 与目标。正常构建先在 MBT 中校验 Bundle，再进入 UBT。各目标独立生成编译输入。CI 将同一经审查的提交传给所有 Job。本地编辑工程时，工具也会计算工程文件和蓝图发现输入的摘要。MBT 从 UBT 查询生产者和消费目标类型。Editor 按保存的声明标记及依赖发现导出蓝图，各目标使用自身编译命令推导原生身份、布局和错误路径。
 
@@ -104,12 +104,10 @@ python Scripts/check_automation_report.py <report/index.json> <automation.log> <
 
 ## 发布验证
 
-Release Validation 使用[引擎锁](../.github/engine-lock.json)固定完整引擎的上游版本。
-
-从受授权的私有仓库以明确的 Release Candidate SHA 调用 [Release Validation](../.github/workflows/release-validation.yml)。Win64 x64 的 `umf-release` runner 通过 `UMF_FULL_UE` 提供可执行 Cook 和 Package 的完整 UE。可以使用既有的授权工作站，同一入口也可在该工作站直接运行。
+从获授权的私有仓库以明确的 Release Candidate SHA 调用 [Release Validation](../.github/workflows/release-validation.yml)。在 Win64 `umf-release` Runner 上，将 `UMF_FULL_UE` 设为完整的 UE 5.6.1 安装路径，将 `UMF_FULL_UE_COMMIT` 设为对应的上游提交 SHA。直接运行同一测试时，在命令行传入这两个值。
 
 ```text
-python -m Test.SharedRuntime.release_validation --engine <完整 UE> --work <新目录> --commit <完整 SHA>
+python -m Test.SharedRuntime.release_validation --engine <完整 UE> --engine-commit <UE 上游 SHA> --work <新目录> --commit <候选提交 SHA>
 ```
 
 发布流程按原有包名暂存集成资源，构建 Monolithic Game，执行 MDT plan/build/inspect，构建独立作者工程，并完成宿主和 Mod 的 Cook、Stage 与 Package。各工程只启用 UMF 自有插件。MDT 使用禁用引擎默认插件的独立 UBT Editor 目标。基础发行版本来自候选提交，摘要来自实际 Cook 输出的 `AssetRegistry.bin`。暂存游戏加载两个独立 C ABI 扩展，验证 Hook 回调、API 权限、资源替换与卸载，随后运行 200 项性能基准。已有 Modular Game 产物的完整引擎可加 `--game-target UnrealModFrameworkDevModular`，使用同一套示例游戏验证。报告保留在授权工作区。 [SharedRuntime 流程](../Test/SharedRuntime/README.md)
