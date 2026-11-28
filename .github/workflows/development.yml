@@ -114,9 +114,29 @@ jobs:
           python Scripts/CI/check_repository.py configuration
           python Scripts/CI/development.py validate-config
 
+  mac-native-tools:
+    if: github.event_name == 'pull_request'
+    name: Native tools on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the four standalone native tools
+        run: |
+          tools=UnrealModFramework/Plugins/ModRuntime/Tools
+          sh "$tools/Build.sh" --jobs 4
+          for tool in ModBuildTool ModHeaderTool ModSourceTool ModSDKTool; do
+            "$tools/build/$tool/$tool" --help >/dev/null
+          done
+
+
   native-tools:
     name: Native Tools
-    needs: code-quality
+    needs: [code-quality, mac-native-tools]
+    if: ${{ !cancelled() && needs.code-quality.result == 'success' && (github.event_name != 'pull_request' || needs.mac-native-tools.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

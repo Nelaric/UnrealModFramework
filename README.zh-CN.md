@@ -24,7 +24,9 @@ cd UnrealModFramework
 | --- | --- | --- |
 | Windows | MSVC 与 Windows SDK | `.\Setup.bat` |
 | Linux | GNU `g++` | `sh Setup.sh` |
-| macOS | GNU `g++`（运行 Setup 与构建宿主时通过 `CXX` 指定） | `sh Setup.sh` |
+| macOS | Xcode 或 Xcode 命令行工具提供的 AppleClang | `sh Setup.sh` |
+
+在 macOS 上，Setup 和宿主构建默认使用当前选定的开发者目录。如果已设置 `CXX`，请将其指向 AppleClang。
 
 Setup 会复用缓存或 `PATH` 中的 CMake 3.20 及以上版本；若未找到，则下载锁定版本并校验 SHA-256。构建生成器优先选用 Ninja，未安装时在 Windows 上回退至 NMake，在 Linux 和 macOS 上回退至 Make。[CMake 包清单](Setup/CMakePackages.txt)
 

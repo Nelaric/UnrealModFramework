@@ -101,12 +101,12 @@ def timed(label: str, command: list, env: dict | None = None) -> None:
     print(f"UMF timing {label} {time.monotonic() - started:.3f} s", flush=True)
 
 
-def native_tools(target: str) -> Path:
+def native_tools(target: str, env: dict) -> Path:
     if os.name == "nt":
         build = ["cmd.exe", "/d", "/c", "call", str(TOOLS / "Build.bat")]
     else:
         build = ["sh", TOOLS / "Build.sh"]
-    timed("native tools", [*build, "--target", target, "--jobs", "4"])
+    timed("native tools", [*build, "--target", target, "--jobs", "4"], env)
     timed("host libclang", ["cmake", "-P", TOOLS / "SetupLibClang.cmake"])
     return TOOLS / "build"
 
@@ -117,7 +117,7 @@ def run_target(slug: str, work: Path, commit: str) -> None:
     work = work.resolve()
     entry = target_settings(slug)
     env = {**os.environ, **json.loads((work / "toolchain.json").read_text(encoding="utf-8"))}
-    tools = native_tools("ModRuntimeUhtTools")
+    tools = native_tools("ModRuntimeUhtTools", env)
     mbt = tools / "ModBuildTool" / ("ModBuildTool.exe" if os.name == "nt" else "ModBuildTool")
     editor = entry["profile"] == "Editor"
     name = "UnrealModFrameworkDevEditor" if editor else "UnrealModFrameworkDev"

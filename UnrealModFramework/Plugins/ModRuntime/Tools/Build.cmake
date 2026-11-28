@@ -21,18 +21,19 @@ Options (place all -D options before -P):
               or CMAKE_BUILD_PARALLEL_LEVEL when set. NMake builds serially.
   GENERATOR   Ninja, Ninja Multi-Config, NMake Makefiles (Windows), or
               Unix Makefiles (Unix). Defaults to Ninja when available.
-  BUILD_DIR   Defaults to build/.cmake with executables in build/<tool>.
+  BUILD_DIR   Defaults to build/.cmake (build/.cmake-appleclang on macOS).
+              Executables are placed in build/<tool> by default.
               An override puts executables in <directory>/bin/Release.
               Relative overrides are based on the Tools directory.
   CXX         Optional compiler executable when TOOLCHAIN_DIR is not supplied
   HELP        ON to display this help
 
-Builds Release only. Requires CMake >= 3.20 and MSVC + Windows SDK on Windows,
-or GCC on Unix. Without a directory, search CXX, TOOLCHAIN_DIR and the platform's
-common compiler environment variables, then PATH. No install path is assumed.
-Windows: MSVC_ROOT, VCToolsInstallDir, VCINSTALLDIR, VSINSTALLDIR.
-Unix: GCC_ROOT, GCC_HOME. On macOS CXX must select an installed GNU compiler.
-Omit the directory argument to use environment discovery.
+Builds Release only. Requires CMake >= 3.20 and a C++20 toolchain.
+Windows uses MSVC with the Windows SDK (MSVC_ROOT, VCToolsInstallDir,
+VCINSTALLDIR, VSINSTALLDIR). Linux uses GNU g++ (GCC_ROOT, GCC_HOME).
+macOS defaults to AppleClang from the active Xcode or Command Line Tools.
+Omit the directory argument to use CXX, compiler root environment variables,
+and platform defaults.
 ]=])
     return()
 endif()
@@ -58,14 +59,17 @@ if(NOT JOBS MATCHES "^[1-9][0-9]*$")
     message(FATAL_ERROR "JOBS must be a positive integer.")
 endif()
 
+set(_fallback_generator "Unix Makefiles")
 if(CMAKE_HOST_WIN32)
     set(_compiler_id MSVC)
     set(_compiler_name cl.exe)
     set(_fallback_generator "NMake Makefiles")
+elseif(CMAKE_HOST_APPLE)
+    set(_compiler_id AppleClang)
+    set(_compiler_name clang++)
 else()
     set(_compiler_id GNU)
     set(_compiler_name g++)
-    set(_fallback_generator "Unix Makefiles")
 endif()
 
 function(_find_compiler_in_directory directory output)
@@ -104,10 +108,12 @@ function(_find_compiler_in_directory directory output)
         )
         list(SORT _msvc_bins COMPARE NATURAL ORDER DESCENDING)
         list(APPEND _paths ${_msvc_bins})
+    elseif(CMAKE_HOST_APPLE)
+        list(APPEND _paths "${directory}/usr/bin")
     endif()
     unset(_directory_compiler CACHE)
     find_program(_directory_compiler NAMES "${_compiler_name}" PATHS ${_paths} NO_DEFAULT_PATH)
-    if(NOT _directory_compiler AND NOT CMAKE_HOST_WIN32)
+    if(NOT _directory_compiler AND _compiler_id STREQUAL "GNU")
         file(GLOB _versioned_gxx LIST_DIRECTORIES false "${directory}/g++-[0-9]*" "${directory}/bin/g++-[0-9]*")
         list(SORT _versioned_gxx COMPARE NATURAL ORDER DESCENDING)
         if(_versioned_gxx)
@@ -139,7 +145,7 @@ else()
     set(_root_variables TOOLCHAIN_DIR)
     if(CMAKE_HOST_WIN32)
         list(APPEND _root_variables MSVC_ROOT VCToolsInstallDir VCINSTALLDIR VSINSTALLDIR)
-    else()
+    elseif(_compiler_id STREQUAL "GNU")
         list(APPEND _root_variables GCC_ROOT GCC_HOME)
     endif()
     foreach(_variable IN LISTS _root_variables)
@@ -149,7 +155,16 @@ else()
     endforeach()
     if(NOT _compiler)
         unset(_compiler CACHE)
-        find_program(_compiler NAMES "${_compiler_name}")
+        if(CMAKE_HOST_APPLE)
+            execute_process(COMMAND /usr/bin/xcrun --find "${_compiler_name}"
+                RESULT_VARIABLE _xcrun_result OUTPUT_VARIABLE _compiler
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+            if(NOT _xcrun_result STREQUAL "0" OR NOT _compiler)
+                message(FATAL_ERROR "AppleClang was not found. Select an Xcode or Command Line Tools installation.")
+            endif()
+        else()
+            find_program(_compiler NAMES "${_compiler_name}")
+        endif()
     endif()
     if(NOT _compiler)
         message(FATAL_ERROR
@@ -166,8 +181,12 @@ else()
 endif()
 set(_release_tool_output_root "")
 if(NOT DEFINED BUILD_DIR)
-    set(BUILD_DIR "build/.cmake")
     set(_release_tool_output_root "${CMAKE_CURRENT_LIST_DIR}/build")
+    set(BUILD_DIR "build/.cmake")
+    if(CMAKE_HOST_APPLE)
+        # Keep existing GCC caches separate during the compiler transition.
+        set(BUILD_DIR "build/.cmake-appleclang")
+    endif()
 endif()
 get_filename_component(BUILD_DIR "${BUILD_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 if(BUILD_DIR STREQUAL CMAKE_CURRENT_LIST_DIR)
