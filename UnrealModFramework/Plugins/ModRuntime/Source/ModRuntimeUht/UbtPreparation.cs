@@ -175,6 +175,8 @@ internal static class UbtPreparation
 			// UBT uses prebuilt AppleClang header modules. Libclang analyzes the SDK headers as text.
 			analysis.Add("-fno-modules");
 			analysis.Add("-fno-implicit-module-maps");
+			// Standalone libclang defines TARGET_OS_UEFI for Darwin, but the native AppleClang build does not.
+			analysis.Add("-UTARGET_OS_UEFI");
 		}
 		input["analysisArguments"] = analysis;
 		JsonObject roots = new();
