@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 from collections import Counter
 from functools import cache
 from pathlib import Path, PurePosixPath
@@ -12,6 +13,7 @@ from pathlib import Path, PurePosixPath
 EARLY_TYPES = {"Compile", "BuildProject", "GatherModuleDependencies", "CompileModuleInterface", "ParseTimingInfo"}
 LINK_TYPES = {"Link", "WriteMetadata", "PostBuildStep", "CreateAppBundle", "GenerateDebugInfo"}
 NATIVE_OBJECTS = {".obj", ".o"}
+PCH_OUTPUTS = {".pch", ".gch", ".pcm", ".ifc"}
 DIGEST = re.compile(r"[0-9a-f]{64}")
 RESPONSE = re.compile(r'(?<!\S)@"([^"]+)"|(?<!\S)@([^\s"]+)')
 
@@ -179,11 +181,13 @@ class ActionGraph:
 
     def check_outputs(self, selected):
         for key in selected:
+            action_type = self.actions[key]["Type"]
             for path in self.outputs[key].values():
-                # Compiler diagnostics are emitted only when the compiler has something to report.
-                if path.suffix != ".sarif":
-                    directory = path.suffix in {".app", ".dSYM"} and self.actions[key]["Type"] in LINK_TYPES
-                    require(path.is_dir() if directory else path.is_file(), f"UBT did not produce {path}")
+                # UBT lists a virtual .ran output for a post-build script and emits SARIF only for diagnostics.
+                if path.suffix == ".sarif" or (action_type == "PostBuildStep" and path.suffix == ".ran"):
+                    continue
+                directory = path.suffix in {".app", ".dSYM"} and action_type in LINK_TYPES
+                require(path.is_dir() if directory else path.is_file(), f"UBT did not produce {path}")
 
 
 def topological(edges):
@@ -200,9 +204,19 @@ def topological(edges):
     return order
 
 
+@cache
+def clang_resource_directory(compiler):
+    if not re.fullmatch(r"clang(?:\+\+|-cl)?(?:-\d+)?(?:\.exe)?", compiler.name.lower()):
+        return None
+    reported = subprocess.check_output([str(compiler), "-print-resource-dir"], text=True).strip()
+    resource = Path(reported)
+    return resource.resolve() if resource.is_absolute() and resource.is_dir() else None
+
+
 class ActionInputs:
     def __init__(self, graph, key, file_hashes):
         self.graph = graph
+        self.key = key
         self.action = graph.actions[key]
         self.file_hashes = file_hashes
         self.work = Path(self.action["WorkingDirectory"]).resolve()
@@ -210,6 +224,10 @@ class ActionInputs:
         for root in self.action.get("RootPaths", {}).get("Lookup", []):
             if root["Root"] not in {"Project", "Root"}:
                 self.roots[f"toolchain-{root['Root']}"] = Path(root["Path"]).resolve()
+        # Runner-provided Clang can resolve outside the installed SDK via a toolchain symlink.
+        resource = clang_resource_directory(self.path(self.action["CommandPath"]))
+        if resource is not None and not any(resource.is_relative_to(root) for root in self.roots.values()):
+            self.roots["toolchain-clang-resources"] = resource
 
     def path(self, filename):
         path = Path(filename)
@@ -241,7 +259,11 @@ class ActionInputs:
         require(filename is not None, f"No logical root for compiler input {path}")
         # A UHT unity file can contain includes written with the producer's checkout root.
         if filename.startswith("project/") and "/intermediate/" in filename.lower():
-            return hashlib.sha256(self.normalize(decoded(path)).encode()).hexdigest()
+            try:
+                text = decoded(path)
+            except UnicodeDecodeError:
+                return self.file_hashes(path)
+            return hashlib.sha256(self.normalize(text).encode()).hexdigest()
         return self.file_hashes(path)
 
     def recipe(self):
@@ -284,12 +306,19 @@ class ActionInputs:
         require(paths, f"Compiler did not record dependencies in {file}")
         result = {}
         for path in set(paths):
-            logical = self.locate(path)
+            resolved = self.path(path)
+            logical = self.locate(resolved)
             require(logical, f"No logical root for compiler input {path}")
             relative = logical.split("/", 1)[-1]
             require(not any(marker in relative.lower() for marker in ("/modtools/", ".umfhost.", ".modgenerated.")),
                     f"Metadata-sensitive input was compiled during Game preparation: {path}")
-            result[logical] = self.hash_input(self.path(path))
+            if resolved.suffix.lower() in PCH_OUTPUTS:
+                producer = self.graph.paths.get(self.graph.project_relative(resolved))
+                if (producer in self.graph.edges[self.key]
+                        and portable_object(self.graph, producer)[1] == "precompiled-header"):
+                    # This compiler output is regenerated. Its producer recipe and inputs are checked on resume.
+                    continue
+            result[logical] = self.hash_input(resolved)
         return result
 
 
@@ -298,7 +327,7 @@ def portable_object(graph, key):
     objects = [name for name, path in graph.outputs[key].items() if path.suffix in NATIVE_OBJECTS]
     if action["Type"] != "Compile":
         return None, "sdk-runtime-copy" if action["Type"] == "BuildProject" else "local-tool-output"
-    if any(path.suffix.lower() in {".pch", ".gch", ".pcm", ".ifc"} for path in graph.outputs[key].values()):
+    if any(path.suffix.lower() in PCH_OUTPUTS for path in graph.outputs[key].values()):
         return None, "precompiled-header"
     if len(objects) != 1 or not action.get("DependencyListFile"):
         return None, "untracked-compiler-inputs"

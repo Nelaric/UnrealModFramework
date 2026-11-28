@@ -3,6 +3,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from game_checkpoint import (
     ActionGraph, file_sha, inventory, logical_path, read_json, restore_objects, save_actions, validate_actions,
@@ -80,6 +81,108 @@ class CheckpointTests(unittest.TestCase):
             (payload / next(iter(files))).write_bytes(b"different native object")
             with self.assertRaisesRegex(ValueError, "Checkpoint file inventory differs"):
                 verify_inventory(payload, files)
+
+    def test_clang_resource_and_binary_prerequisites_are_verified_after_relocation(self):
+        def prepare(root):
+            graph, compiled = self.graph(root)
+            compiler = graph.engine / "clang"
+            compiler.write_bytes(b"clang identity")
+            action = graph.actions[6]
+            action["CommandPath"] = str(compiler)
+            resources = root / "system/llvm/lib/clang/18"
+            header = resources / "include/arm_bf16.h"
+            header.parent.mkdir(parents=True)
+            header.write_bytes(b"clang builtin header")
+            generated = graph.project / "Intermediate/Input.bin"
+            generated.write_bytes(b"\x00CPCH\xc1")
+            dependency_list = Path(action["DependencyListFile"])
+            info = read_json(dependency_list)
+            info["Data"]["Includes"] += [str(header), str(generated)]
+            write_json(dependency_list, info)
+            return graph, compiled, compiler, resources, header, generated
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            producer, built, producer_compiler, producer_resources, _, _ = prepare(root / "producer")
+            consumer, restored, consumer_compiler, consumer_resources, header, generated = prepare(root / "consumer")
+            resources = {str(producer_compiler.resolve()): producer_resources,
+                         str(consumer_compiler.resolve()): consumer_resources}
+            built.write_bytes(b"native object")
+            payload = root / "checkpoint"
+            payload.mkdir()
+
+            def print_resource_dir(command, *, text):
+                self.assertTrue(text)
+                self.assertEqual(command[1:], ["-print-resource-dir"])
+                return str(resources[command[0]]) + "\n"
+
+            with patch("game_checkpoint.subprocess.check_output", side_effect=print_resource_dir):
+                records = save_actions(producer, payload)
+                inputs = records[producer.keys[6]]["inputs"]
+                self.assertIn("toolchain-clang-resources/include/arm_bf16.h", inputs)
+                self.assertIn(file_sha(generated), inputs.values())
+                validate_actions(records, inventory(payload))
+                self.assertEqual(restore_objects(consumer, payload, records), ({9, 20}, 1, 0))
+                self.assertEqual(restored.read_bytes(), b"native object")
+                header.write_text("changed compiler header", encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "Compiler prerequisite changed"):
+                    restore_objects(consumer, payload, records)
+
+    def test_generated_precompiled_header_is_verified_by_its_producer(self):
+        def prepare(root):
+            graph, compiled = self.graph(root)
+            pch = graph.project / "Intermediate/Shared.h.gch"
+            pch_deps = graph.project / "Intermediate/Shared.json"
+            header = graph.project / "Source/Runtime/Independent.h"
+            write_json(pch_deps, {"Data": {"Source": str(header), "Includes": []}})
+            graph.document["Actions"].append({
+                **graph.actions[6], "Id": 7, "CommandArguments": "-c Shared.h",
+                "ProducedItems": [str(pch), str(pch_deps)], "DependencyListFile": str(pch_deps),
+            })
+            graph.actions[6]["PrerequisiteActions"] = [7]
+            dependencies = Path(graph.actions[6]["DependencyListFile"])
+            record = read_json(dependencies)
+            record["Data"]["Includes"].append(str(pch))
+            write_json(dependencies, record)
+            return ActionGraph(graph.document, graph.project), compiled, pch, header
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            producer, built, generated, _ = prepare(root / "producer")
+            consumer, restored, missing_pch, header = prepare(root / "consumer")
+            generated.write_bytes(b"CPCH\x00\xc1")
+            built.write_bytes(b"native object")
+            payload = root / "checkpoint"
+            payload.mkdir()
+            records = save_actions(producer, payload)
+            checkpoint = validate_actions(records, inventory(payload))
+            self.assertEqual(checkpoint["nonportable_actions"], {"precompiled-header": 1})
+            self.assertEqual(restore_objects(consumer, payload, records), ({7, 9, 20}, 1, 1))
+            self.assertFalse(missing_pch.exists())
+            self.assertEqual(restored.read_bytes(), b"native object")
+            header.write_text("changed PCH input", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "Compiler prerequisite changed"):
+                restore_objects(consumer, payload, records)
+
+    def test_post_build_virtual_marker_does_not_replace_real_outputs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            graph, _ = self.graph(Path(temporary))
+            metadata = graph.project / "Intermediate/Game.target"
+            marker = graph.project / "Intermediate/PostBuild-1.sh.ran"
+            graph.document["Actions"].append({
+                "Id": 21, "Type": "PostBuildStep", "StatusDescription": "test post-build",
+                "ProducedItems": [str(marker), str(metadata)],
+                "PrerequisiteActions": [20],
+            })
+            graph = ActionGraph(graph.document, graph.project)
+            write_json(metadata, {"TargetType": "Game"})
+            binary = graph.project / "Binaries/Game"
+            binary.parent.mkdir()
+            binary.write_bytes(b"linked game")
+            graph.check_outputs({20, 21})
+            metadata.unlink()
+            with self.assertRaisesRegex(ValueError, "Game.target"):
+                graph.check_outputs({20, 21})
 
     def test_pch_debug_object_has_to_match(self):
         with tempfile.TemporaryDirectory() as temporary:
